@@ -137,6 +137,9 @@ toolrank ingest drop stripe --out data/mytools
 # cache, adaptive K margin 0.2 / max 10, persistent index in DIR/index; --json for machines)
 TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank search --data data/mytools "refund this payment"
 toolrank eval --data data/toolret --scorer clm ... --index faiss|pgvector --hybrid --cut-margin 0.2 --instruction "..."
+toolrank eval --data data/toolret --scorer clm ... --rerank jev --rerank-depth 100   # TypeSafe AI's Jev over the top K
+# (key in TYPESAFE_API_KEY, answers cached in .cache/toolrank/jev.sqlite); --scorer jev = Jev alone, chunked, MCP sets only.
+# GB10, key exported in the shell: LIMIT=50 TAG=jevsmoke bash scripts/jev_compare.sh, then the full run under nohup
 toolrank heads export data/heads/<run>.pt dist/heads/<name>.npz --dtype float16 --tool-format documentation ...
 uv run python scripts/adaptive_k_sweep.py --margins 0.1,0.2 -- <eval flags>     # rank once, cut many ways
 uv run python scripts/heads_parity.py --a x.pt --b x.npz -- <eval flags>         # do two checkpoints rank alike
@@ -285,6 +288,18 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   10, chosen on ToolRet) keeps the tools within the margin of the best cosine; on hybrid lists the
   count comes from `last_semantic`. Eval reports it as `K@cut`, `Recall@cut`, `Precision@cut`,
   `Comprehensiveness@cut` next to the untouched fixed-k metrics.
+- **Jev** (TypeSafe AI's "System One" model, `adapters/jev.py`): no text, one Choice question over
+  up to 255 options returns a probability per option. `--rerank jev` wraps any scorer (BM25, dense,
+  clm, hybrid): the base top `--rerank-depth` becomes one Choice per query, probabilities are the
+  scores, ties keep the base order, the base list continues below the depth, so top-100 metrics
+  stay complete. `--scorer jev` is Jev alone: chunks of `--jev-chunk` tools, the chunk winners
+  re-ranked once (feasible for the MCP sets, not ToolRet's 44k). State = `{"request"}`, the
+  benchmark instruction leads the question, option text = `--jev-tool-format` cut to
+  `--jev-max-chars` (32k tokens for state + longest question). Key `TYPESAFE_API_KEY` only, pinned
+  `jev-1.13.0` (aliases move), answers cached by request body so a rerun ranks the same for free;
+  the report's `config["jev"]` has calls, cached hits, billed tokens and per-call p50. MCA 2.3(b)
+  forbids training on its output or building a competing product with it: eval and an optional
+  adapter only, never a training signal.
 - **Packaged heads**: `NumpyHeads` reads `.npz` checkpoints (`allow_pickle=False`) and runs
   `make_head`'s forward in numpy; the `.npz` `cfg` carries serving defaults (backbone, formats,
   truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz` or `default`
@@ -406,6 +421,7 @@ src/toolrank/adapters/embeddings_api.py  OpenAIEmbeddings (+ EmbeddingCache, SQL
 src/toolrank/adapters/dense.py    DenseScorer (+ row_hash; tool vectors in a VectorIndex), topk_dot
 src/toolrank/adapters/index_numpy.py, index_faiss.py, index_pgvector.py   the VectorIndex adapters
 src/toolrank/adapters/hybrid.py   HybridScorer (RRF)
+src/toolrank/adapters/jev.py      JevClient (+ SQLite answer cache), JevReranker (Jev over a scorer's top K), JevScorer (Jev alone, chunked)
 src/toolrank/adapters/clm.py      CLMHeads (mirrors clm/heads.py; torch), CLMScorer
 src/toolrank/adapters/heads_np.py NumpyHeads, load_heads, export_npz, default_heads, download
 src/toolrank/adapters/chat_api.py OpenAIChat (query generation only, never ranking)

@@ -83,12 +83,50 @@ def build_scorer(a: Any) -> Any:
     return make()
 
 
+def jev_client(a: Any) -> Any:
+    """A ``JevClient`` from the ``--jev-*`` flags; the key comes from ``TYPESAFE_API_KEY`` only."""
+    if not os.environ.get("TYPESAFE_API_KEY"):
+        raise ValueError("Jev needs a key: set TYPESAFE_API_KEY (https://console.typesafe.ai/keys)")
+    from toolrank.adapters.jev import JevClient
+
+    return JevClient(a.jev_model, a.jev_url, cache_dir=a.cache_dir or None, workers=a.jev_workers)
+
+
 def scorer_factory(
     a: Any, *, query_timeout: float | None = None, query_attempts: int | None = None
 ) -> tuple[Callable[[], Any], dict[str, Any]]:
     """Resolve the flags, load the heads and open the encoder once; -> (a function that makes fresh
-    scorers sharing them, info: ``serving`` cfg, ``encoder``, ``heads_path``). A server makes a new
-    scorer (with a new index object) for every catalogue reload and swaps it in whole."""
+    scorers sharing them, info: ``serving`` cfg, ``encoder``, ``heads_path``, and ``jev``, the
+    client, when Jev is in the stack). A server makes a new scorer (with a new index object) for
+    every catalogue reload and swaps it in whole. ``--rerank jev`` wraps whatever the other flags
+    build (BM25, dense, clm, hybrid) in a ``JevReranker``."""
+    make, info = _base_factory(a, query_timeout=query_timeout, query_attempts=query_attempts)
+    rerank = getattr(a, "rerank", None)
+    if rerank is None:
+        return make, info
+    if rerank != "jev":
+        raise ValueError(f"unknown reranker {rerank!r}")
+    from toolrank.adapters.jev import JevReranker
+
+    client = jev_client(a)
+    info["jev"] = client
+    base = make
+
+    def wrapped() -> Any:
+        return JevReranker(
+            base(),
+            client,
+            depth=a.rerank_depth,
+            tool_format=a.jev_tool_format or "name_desc",
+            max_chars=a.jev_max_chars,
+        )
+
+    return wrapped, info
+
+
+def _base_factory(
+    a: Any, *, query_timeout: float | None = None, query_attempts: int | None = None
+) -> tuple[Callable[[], Any], dict[str, Any]]:
     if a.scorer == "bm25":
         from toolrank.adapters.bm25 import BM25Scorer
 
@@ -101,6 +139,18 @@ def scorer_factory(
             "encoder": None,
             "heads_path": None,
         }
+    if a.scorer == "jev":
+        from toolrank.adapters.jev import JevScorer
+
+        if getattr(a, "hybrid", False):
+            raise ValueError("--hybrid fuses BM25 into a dense or clm scorer")
+        client = jev_client(a)
+        tf = a.tool_format or "name_desc"
+        return (
+            lambda: JevScorer(
+                client, tf, chunk=a.jev_chunk, per_chunk=a.jev_per_chunk, max_chars=a.jev_max_chars
+            )
+        ), {"serving": {}, "encoder": None, "heads_path": None, "jev": client}
     if a.scorer not in ("dense", "clm"):
         raise ValueError(f"unknown scorer {a.scorer}")
 

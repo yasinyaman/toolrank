@@ -8,6 +8,11 @@ change behaviour.
 
 ### Added
 
+- `toolrank eval --rerank jev`: TypeSafe AI's Jev reorders the top `--rerank-depth` tools of any
+  scorer with one Choice question per query; `--scorer jev` ranks a corpus with Jev alone (chunked
+  Choice questions, the chunk winners re-ranked once). The key is read from `TYPESAFE_API_KEY`;
+  answers are cached in `jev.sqlite` next to the embedding cache; `scripts/jev_compare.sh` runs the
+  comparison rows.
 - `toolrank learn`: heads trained from what `toolrank serve` logged (calls that ended `ok` as
   positives, `tool_error` as weak positives, tools shown but not called as hard negatives), with the
   requests' vectors found through the log's key and never their text; the newest requests are the

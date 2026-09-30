@@ -10,7 +10,7 @@ index a tool set and score a query set
 | Argument | Default | Description |
 | --- | --- | --- |
 | `--data DATA` | required | directory with tools.jsonl and queries.jsonl |
-| `--scorer {bm25,dense,clm}` | `bm25` |  |
+| `--scorer {bm25,dense,clm,jev}` | `bm25` |  |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--with-inst` |  | keep the task instruction (ToolRet 'w/ inst.' setting) |
@@ -39,6 +39,15 @@ index a tool set and score a query set
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
+| `--rerank {jev}` |  | reorder the top --rerank-depth with Jev |
+| `--rerank-depth RERANK_DEPTH` | `100` | tools per query sent to Jev (max 255) |
+| `--jev-model JEV_MODEL` | `jev-1.13.0` | a versioned id: aliases such as jev-latest move |
+| `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
+| `--jev-tool-format {documentation,name_desc,schema,example_call}` |  | text per option (default: name_desc) |
+| `--jev-max-chars JEV_MAX_CHARS` | `1000` | characters kept per option |
+| `--jev-chunk JEV_CHUNK` | `200` | --scorer jev: tools per Choice question (max 255) |
+| `--jev-per-chunk JEV_PER_CHUNK` | `20` | --scorer jev: chunk winners into the final round |
+| `--jev-workers JEV_WORKERS` | `8` | concurrent requests (TypeSafe: 40/s) |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
 

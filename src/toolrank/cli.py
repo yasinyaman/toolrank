@@ -81,22 +81,36 @@ def cmd_eval(a: argparse.Namespace) -> int:
             "k": a.k,
             "tasks": tasks,
             "limit": a.limit,
-            "emb_model": getattr(a, "emb_model", None) if a.scorer != "bm25" else None,
-            "emb_url": a.emb_url if a.scorer != "bm25" else None,
-            "truncate": a.truncate if a.scorer != "bm25" else None,
+            "emb_model": getattr(a, "emb_model", None) if a.scorer not in ("bm25", "jev") else None,
+            "emb_url": a.emb_url if a.scorer not in ("bm25", "jev") else None,
+            "truncate": a.truncate if a.scorer not in ("bm25", "jev") else None,
             "batch": a.batch,
             "clm_ckpt": str(a.clm_ckpt) if a.scorer == "clm" else None,
             "heads_sha256": file_sha256(str(heads)) if heads else None,
-            "index": a.index if a.scorer != "bm25" else None,
+            "index": a.index if a.scorer not in ("bm25", "jev") else None,
             "cut": rule.describe() if rule is not None else None,
             "hybrid": (
                 {
                     "k_rrf": a.rrf_k,
                     "depth": a.rrf_depth,
                     "weight": a.rrf_weight,
-                    "lexical": scorer.lexical.name,
+                    "lexical": getattr(scorer, "base", scorer).lexical.name,
                 }
                 if a.hybrid
+                else None
+            ),
+            "jev": (
+                {
+                    "rerank_depth": a.rerank_depth if a.rerank else None,
+                    "tool_format": (a.jev_tool_format or "name_desc")
+                    if a.rerank
+                    else (a.tool_format or "name_desc"),
+                    "max_chars": a.jev_max_chars,
+                    "chunk": a.jev_chunk if a.scorer == "jev" else None,
+                    "per_chunk": a.jev_per_chunk if a.scorer == "jev" else None,
+                    "workers": a.jev_workers,
+                }
+                if "jev" in info
                 else None
             ),
             "task_counts": dict(counts),
@@ -106,12 +120,21 @@ def cmd_eval(a: argparse.Namespace) -> int:
     encoder = getattr(scorer, "encoder", None)
     if encoder is not None:  # tokens sent to the endpoint, i.e. cache misses only
         report.config["encoder_tokens"] = encoder.tokens_spent
+    jev = info.get("jev")
+    if jev is not None:  # calls that reached TypeSafe (the rest came from the cache), tokens billed
+        report.config["jev"].update(jev.stats())
     cols = ("NDCG@10", "Recall@10", "Comprehensiveness@10")
     print(format_table(report, cols + (("K@cut", "Recall@cut", "Comprehensiveness@cut") if rule else ())))
     print(
         f"\nlatency/query: p50 {report.latency_ms['per_query_p50']} ms, p95 {report.latency_ms['per_query_p95']} ms"
         f" (batch {a.batch}); index {report.latency_ms['index_s']} s; tools {report.n_tools}; queries {report.n_queries}"
         + (f"; encoder tokens {report.config['encoder_tokens']}" if encoder is not None else "")
+        + (
+            f"; jev calls {jev.calls} (+{jev.cached} cached), tokens {jev.tokens_spent},"
+            f" p50 {report.config['jev']['call_ms_p50']} ms"
+            if jev is not None
+            else ""
+        )
     )
     if a.out:
         p = save_report(report, a.out)
@@ -559,6 +582,32 @@ def _add_cut_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--cut-min", type=int, default=1)
 
 
+def _add_jev_args(p: argparse.ArgumentParser) -> None:
+    g = p.add_argument_group(
+        "Jev (TypeSafe AI; key in $TYPESAFE_API_KEY): --rerank jev over any scorer, or --scorer jev alone"
+    )
+    g.add_argument("--rerank", choices=["jev"], default=None, help="reorder the top --rerank-depth with Jev")
+    g.add_argument("--rerank-depth", type=int, default=100, help="tools per query sent to Jev (max 255)")
+    g.add_argument(
+        "--jev-model", default="jev-1.13.0", help="a versioned id: aliases such as jev-latest move"
+    )
+    g.add_argument("--jev-url", default="https://api.typesafe.ai/v1")
+    g.add_argument(
+        "--jev-tool-format",
+        choices=list(TOOL_FORMATS),
+        default=None,
+        help="text per option (default: name_desc)",
+    )
+    g.add_argument("--jev-max-chars", type=int, default=1000, help="characters kept per option")
+    g.add_argument(
+        "--jev-chunk", type=int, default=200, help="--scorer jev: tools per Choice question (max 255)"
+    )
+    g.add_argument(
+        "--jev-per-chunk", type=int, default=20, help="--scorer jev: chunk winners into the final round"
+    )
+    g.add_argument("--jev-workers", type=int, default=8, help="concurrent requests (TypeSafe: 40/s)")
+
+
 def _cut_rule(a: argparse.Namespace):
     from toolrank.cut import rule_from_flags
 
@@ -756,7 +805,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("eval", help="index a tool set and score a query set")
     e.add_argument("--data", required=True, help="directory with tools.jsonl and queries.jsonl")
-    e.add_argument("--scorer", choices=["bm25", "dense", "clm"], default="bm25")
+    e.add_argument("--scorer", choices=["bm25", "dense", "clm", "jev"], default="bm25")
     e.add_argument("--tool-format", choices=list(TOOL_FORMATS), default=None)
     e.add_argument("--query-format", choices=list(QUERY_FORMATS), default=None)
     e.add_argument(
@@ -782,6 +831,7 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--rrf-depth", type=int, default=100, help="list depth taken from each arm")
     e.add_argument("--rrf-weight", type=float, default=1.0, help="weight of the BM25 term (1 = plain RRF)")
     _add_cut_args(e)
+    _add_jev_args(e)
     e.add_argument("--device", default=None, help="torch device for the CLM heads")
     e.add_argument("--out", default=None, help="results JSON path")
     e.set_defaults(fn=cmd_eval)
