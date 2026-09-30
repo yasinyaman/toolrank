@@ -1,5 +1,10 @@
 # toolrank
 
+[![PyPI](https://img.shields.io/pypi/v/toolrank.svg)](https://pypi.org/project/toolrank/)
+[![CI](https://github.com/yasinyaman/toolrank/actions/workflows/ci.yml/badge.svg)](https://github.com/yasinyaman/toolrank/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/yasinyaman/toolrank/blob/main/LICENSE)
+[![Heads](https://img.shields.io/badge/heads-Hugging%20Face-yellow.svg)](https://huggingface.co/yasinyaman/toolrank-heads-qwen3-emb-8b)
+
 **Tool retrieval for LLM agents with hundreds of tools.** Instead of putting every tool definition
 into the prompt, toolrank picks the few a request needs, with an embedding model
 (Qwen3-Embedding-8B) and small learned heads on top of it, and serves them to your agent over MCP or

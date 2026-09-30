@@ -4,8 +4,8 @@
 
 | | |
 | --- | --- |
-| Lansman tarihi | (lansman akşamı yazılıyor) |
-| Ölçüm günü | lansman + 42 gün |
+| Lansman tarihi | 30 Eylül 2026, 21:10 (v0.1.0 PyPI'da) |
+| Ölçüm günü | lansman + 42 gün: 11 Kasım 2026 |
 | Sonuç | ölçüm günü yazılıyor |
 
 ## Sonuç (tek cümle)
@@ -33,7 +33,7 @@ T+0 lansman akşamı yazılıyor, sonra haftada bir.
 
 | Tarih | Yıldız | Fork | Dış issue | Dış PR | Dış tartışma | `feedback` | PyPI (son hafta) | Head indirme (30 gün) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| T+0 | | | | | | | | |
+| T+0 (30 Eyl 21:15) | 0 | 0 | 0 | 0 | 0 | 0 | — | 0 |
 
 **Yazılı geri bildirimler** (bağlantı, tarih, bir cümlelik özet):
 
