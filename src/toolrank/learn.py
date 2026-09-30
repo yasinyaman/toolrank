@@ -1,0 +1,402 @@
+"""Learning from the usage log: ``toolrank learn`` (``run``).
+
+A served catalogue's usage log (``usage.UsageLog``, schema v3) says which tools each request
+retrieved and which one the agent then called, but never the request's text: ``emb_hmac`` is the
+keyed digest of the request's embedding-cache key. The heads learn from it all the same. The
+request's backbone vector is in the ingest dir's embedding cache, found by digesting the cache's
+keys with the log's key (``DATA/usage/.key``), and the tools' vectors come from the catalogue's
+text through the same cache. No text leaves the machine and none is reconstructed.
+
+Pairs (``mine``): a search with linked calls. A call that ended ``ok`` makes its tool a positive,
+``tool_error`` a weak positive (kept unless ``strict``: the tool was the one to try), and the
+tools the search showed that no call of that search used are hard-negative candidates; searches of
+the same request merge, and the other outcomes (``refused``, ``protocol_error``, ``timeout``,
+``unknown_tool``) say nothing about the tools. ``TrainConfig.neg_filter`` still drops the
+negatives the starting heads score like a positive: Phase 0's lesson about equivalent tools.
+
+Selection (``split``): the newest share of the requests, by time, is the dev set, scored as the
+share of requests whose called tool is in the top 5 of the whole catalogue (``log.Recall@5``); a
+benchmark-format ``dev`` set can be scored alongside as a guard against forgetting. The starting
+heads compete as epoch 0, and the result is published (an ``.npz`` next to the log) only when it
+beats them on the log's dev set without falling below them on the benchmark by more than
+``max_drop`` NDCG@10 points. ``torch`` is imported inside functions (``toolrank[clm]``).
+"""
+
+from __future__ import annotations
+
+import hmac
+import json
+import sqlite3
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
+from hashlib import sha256
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, recall_at, train_heads
+
+POSITIVE, WEAK = "ok", "tool_error"
+K = 5  # the log's own metric: the called tool among the top K of the catalogue
+SCHEMA = 3  # the first log schema with emb_hmac
+
+
+@dataclass(frozen=True)
+class LogPair:
+    """One request of the log, in tool ids: what the agent called after it and what it passed over."""
+
+    state: str  # the request's emb_hmac
+    positives: tuple[str, ...]  # called, ok
+    weak: tuple[str, ...]  # called, tool_error
+    negatives: tuple[str, ...]  # shown by a search of this request, never called
+    ts: str  # the earliest search
+    tenants: tuple[str, ...]
+
+
+def read_events(directory: str | Path) -> list[dict[str, Any]]:
+    """Every event of ``usage-*.jsonl`` in the directory, oldest file first; a line that is not JSON
+    (a write that was cut short) is skipped."""
+    out: list[dict[str, Any]] = []
+    for path in sorted(Path(directory).glob("usage-*.jsonl")):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    out.append(event)
+    return out
+
+
+def mine(
+    events: Iterable[dict[str, Any]],
+    *,
+    strict: bool = False,
+    since: str | None = None,
+    tenant: str | None = None,
+) -> tuple[list[LogPair], dict[str, int]]:
+    """Searches with linked calls -> one ``LogPair`` per request, oldest first, and the counts of
+    what was used and what was passed over (``since``: an ISO date or timestamp, searches from it
+    on; ``tenant``: one API key's searches)."""
+    counts: Counter[str] = Counter()
+    searches: dict[str, dict[str, Any]] = {}
+    calls: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for e in events:
+        kind = e.get("event")
+        if kind == "search":
+            counts["searches"] += 1
+            if e.get("v", 0) < SCHEMA or not e.get("emb_hmac"):
+                counts["searches_without_vector"] += 1  # an older schema, or a keyword answer
+            elif since and str(e.get("ts", "")) < since:
+                counts["searches_before_since"] += 1
+            elif tenant and e.get("tenant") != tenant:
+                counts["searches_of_other_tenants"] += 1
+            else:
+                searches[e["id"]] = e
+        elif kind == "call":
+            counts["calls"] += 1
+            if e.get("search_id"):
+                calls[e["search_id"]].append(e)
+            else:
+                counts["calls_unlinked"] += 1
+    requests: dict[str, dict[str, Any]] = {}
+    for sid, s in searches.items():
+        linked = calls.get(sid, [])
+        if not linked:
+            counts["searches_without_calls"] += 1
+            continue
+        counts["calls_linked"] += len(linked)
+        shown = [t for t, _ in (s.get("results") or [])[: int(s.get("shown") or 0)]]
+        called, ok, weak = set(), set(), set()
+        for c in linked:
+            called.add(c["tool"])
+            if c.get("outcome") == POSITIVE:
+                ok.add(c["tool"])
+            elif c.get("outcome") == WEAK:
+                weak.add(c["tool"])
+            else:
+                counts["calls_saying_nothing"] += 1
+        counts["positives_not_shown"] += sum(1 for t in ok | weak if t not in shown)
+        r = requests.setdefault(
+            s["emb_hmac"], {"pos": set(), "weak": set(), "neg": set(), "ts": s["ts"], "tenants": set()}
+        )
+        r["pos"] |= ok
+        r["weak"] |= weak
+        r["neg"] |= {t for t in shown if t not in called}
+        r["ts"] = min(r["ts"], s["ts"])
+        if s.get("tenant"):
+            r["tenants"].add(s["tenant"])
+    counts["requests"] = len(requests)
+    pairs: list[LogPair] = []
+    for state, r in requests.items():
+        weak = () if strict else tuple(sorted(r["weak"] - r["pos"]))
+        if not r["pos"] and not weak:
+            counts["requests_without_positive"] += 1
+            continue
+        taken = r["pos"] | r["weak"]  # called, whatever came of it: never a negative
+        pairs.append(
+            LogPair(
+                state,
+                tuple(sorted(r["pos"])),
+                weak,
+                tuple(sorted(r["neg"] - taken)),
+                r["ts"],
+                tuple(sorted(r["tenants"])),
+            )
+        )
+    counts["pairs"] = len(pairs)
+    counts["weak_positives"] = sum(len(p.weak) for p in pairs)
+    counts["negatives"] = sum(len(p.negatives) for p in pairs)
+    return sorted(pairs, key=lambda p: p.ts), dict(counts)
+
+
+def state_vectors(cache: str | Path, key: bytes, wanted: Iterable[str]) -> dict[str, np.ndarray]:
+    """The requests' backbone vectors: each key of the embedding cache digested with the log's key
+    and kept when the digest is a wanted ``emb_hmac``; rows L2-normalised, as the encoder returns
+    them. The cache is opened read-only."""
+    from toolrank.adapters.embeddings_api import l2_normalize
+
+    want, out = set(wanted), {}
+    if not want or not Path(cache).exists():
+        return out
+    db = sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro", uri=True)
+    try:
+        for k, dim, vec in db.execute("SELECT key, dim, vec FROM emb"):
+            digest = hmac.new(key, k.encode("utf-8"), sha256).hexdigest()
+            if digest in want:
+                out[digest] = l2_normalize(np.frombuffer(vec, dtype=np.float32)[:dim].copy())
+    finally:
+        db.close()
+    return out
+
+
+def split(pairs: Sequence[LogPair], dev_share: float) -> tuple[list[LogPair], list[LogPair]]:
+    """The newest ``dev_share`` of the requests (by their first search) is the dev set; at least one
+    request when there are two or more."""
+    ordered = sorted(pairs, key=lambda p: p.ts)
+    n_dev = min(len(ordered) - 1, max(1, round(len(ordered) * dev_share))) if len(ordered) > 1 else 0
+    return ordered[: len(ordered) - n_dev], ordered[len(ordered) - n_dev :]
+
+
+def batches(
+    pairs: Sequence[LogPair], states: dict[str, np.ndarray], index: dict[str, int], tool_vecs: np.ndarray
+) -> Batches:
+    """Pairs as ``finetune.Batches`` over the whole catalogue: positives are the called tools
+    (weak ones included), negatives the shown-but-not-called ones; tools no longer in the catalogue
+    are left out."""
+    return Batches(
+        np.stack([states[p.state] for p in pairs])
+        if pairs
+        else np.zeros((0, tool_vecs.shape[1]), np.float32),
+        tool_vecs,
+        [[index[t] for t in p.positives + p.weak if t in index] for p in pairs],
+        [[index[t] for t in p.negatives if t in index] for p in pairs],
+    )
+
+
+@dataclass
+class Job:
+    """What ``toolrank learn`` was asked to do (``cli.cmd_learn`` fills it from the flags)."""
+
+    data: Path  # the ingest dir: tools.jsonl, cache/, usage/
+    out: Path  # the .npz to publish; its .pt goes next to it
+    dev: Path | None = None  # a benchmark-format set scored alongside: a guard, never selected on
+    init: str | None = "default"  # the heads to start from: the packaged/served ones, a path, or None
+    emb_url: str = "http://127.0.0.1:8091/v1"
+    emb_model: str = "qwen3-emb"
+    emb_batch: int = 128
+    truncate: int | None = 8192
+    cache_dir: str | None = None  # default: DATA/cache, the one serve wrote
+    tool_format: str = "documentation"
+    query_format: str = "instruct_query"  # the benchmark dev set's queries only
+    backbone: str = ""
+    since: str | None = None
+    tenant: str | None = None
+    strict: bool = False
+    min_pairs: int = 20
+    dev_share: float = 0.2
+    max_drop: float = 0.5  # NDCG@10 points the benchmark dev may lose
+    dry_run: bool = False
+    train: TrainConfig = field(
+        default_factory=lambda: TrainConfig(epochs=3, batch=256, neg_per_pair=5, lr=1e-5, neg_filter=0.95)
+    )
+
+
+def resolve_init(init: str | None) -> str | None:
+    """``default`` -> the packaged (or ``TOOLRANK_HEADS``) heads; a path as is; None -> fresh skip heads."""
+    if init == "default":
+        from toolrank.adapters.heads_np import default_heads
+
+        return str(default_heads())
+    return init or None
+
+
+def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
+    """Mine the log, find the vectors, and (unless ``dry_run``) train, select and decide;
+    -> the report. ``decision`` is ``published``, ``no improvement``, ``benchmark dropped`` or
+    ``not enough pairs``; only the first writes the heads."""
+    from toolrank.adapters.embeddings_api import OpenAIEmbeddings
+    from toolrank.datasets.jsonl import load_queries, load_tools
+    from toolrank.formats import query_format, tool_format
+
+    usage_dir, key_path = job.data / "usage", job.data / "usage" / ".key"
+    if not key_path.exists():
+        raise FileNotFoundError(f"{usage_dir}: no usage log here (toolrank serve writes one, with its .key)")
+    events = read_events(usage_dir)
+    pairs, counts = mine(events, strict=job.strict, since=job.since, tenant=job.tenant)
+    tools = load_tools(job.data / "tools.jsonl")
+    index = {t.id: n for n, t in enumerate(tools)}
+    cache_dir = Path(job.cache_dir) if job.cache_dir else job.data / "cache"
+    states = state_vectors(cache_dir / "embeddings.sqlite", key_path.read_bytes(), {p.state for p in pairs})
+    usable: list[LogPair] = []
+    for p in pairs:
+        if p.state not in states:
+            counts["requests_without_vector"] = counts.get("requests_without_vector", 0) + 1
+        elif not any(t in index for t in p.positives + p.weak):
+            counts["requests_whose_tools_left"] = counts.get("requests_whose_tools_left", 0) + 1
+        else:
+            usable.append(p)
+    report: dict[str, Any] = {
+        "data": str(job.data),
+        "events": len(events),
+        "counts": counts,
+        "pairs": len(usable),
+        "tools": len(tools),
+        "since": job.since,
+        "tenant": job.tenant,
+        "strict": job.strict,
+    }
+    log(
+        f"{len(events):,} events: {counts.get('searches', 0):,} searches, {counts.get('calls', 0):,} calls -> "
+        f"{counts.get('requests', 0):,} requests, {len(usable):,} usable pairs "
+        f"({counts.get('weak_positives', 0)} weak positives, {counts.get('negatives', 0)} negatives)"
+    )
+    if len(usable) < job.min_pairs:
+        report["decision"] = "not enough pairs"
+        log(f"not enough pairs: {len(usable)} of the {job.min_pairs} needed; nothing trained")
+        return report
+    train_pairs, dev_pairs = split(usable, job.dev_share)
+    report["split"] = {"train": len(train_pairs), "dev": len(dev_pairs), "dev_from": dev_pairs[0].ts}
+    log(f"train {len(train_pairs)} requests, dev {len(dev_pairs)} (the newest, from {dev_pairs[0].ts})")
+    if len(dev_pairs) < 50:
+        report.setdefault("warnings", []).append(
+            f"{len(dev_pairs)} dev requests: Recall@{K} moves in steps of {1 / len(dev_pairs):.2f}"
+        )
+    if job.dry_run:
+        report["decision"] = "dry run"
+        return report
+
+    enc = OpenAIEmbeddings(
+        job.emb_model,
+        job.emb_url,
+        batch=job.emb_batch,
+        truncate_prompt_tokens=job.truncate,
+        cache_dir=cache_dir,
+    )
+    tf, qf = tool_format(job.tool_format), query_format(job.query_format)
+    tool_vecs = enc.encode([tf(t) for t in tools])
+    hidden = next(iter(states.values())).shape[0]
+    if tool_vecs.shape[1] != hidden:
+        raise ValueError(
+            f"the requests' vectors have {hidden} dimensions and the catalogue's {tool_vecs.shape[1]}: "
+            "the log and the encoder flags name different backbones"
+        )
+    report["tokens_spent"] = enc.tokens_spent  # 0 when every catalogue text was in the cache
+    train_b, dev_b = (
+        batches(train_pairs, states, index, tool_vecs),
+        batches(dev_pairs, states, index, tool_vecs),
+    )
+    bench = None
+    if job.dev is not None:
+        from toolrank.finetune import EvalSet
+
+        bench_tools, bench_queries = (
+            load_tools(job.dev / "tools.jsonl"),
+            load_queries(job.dev / "queries.jsonl"),
+        )
+        bench = EvalSet(
+            "dev",
+            bench_queries,
+            [t.id for t in bench_tools],
+            enc.encode([tf(t) for t in bench_tools]),
+            enc.encode([qf(q) for q in bench_queries], kind="query"),
+        )
+
+    def on_epoch(epoch: int, state_head: Any, action_head: Any) -> dict[str, float]:
+        device = str(next(action_head.parameters()).device)
+        zs, za = project(state_head, dev_b.states, device), project(action_head, tool_vecs, device)
+        m = {
+            f"log.Recall@{K}": recall_at(zs, za, dev_b.pos, K),
+            "log.Recall@1": recall_at(zs, za, dev_b.pos, 1),
+        }
+        if bench is not None:
+            m.update(
+                curve_metrics(
+                    "dev",
+                    bench.score(
+                        lambda x: project(state_head, x, device), lambda x: project(action_head, x, device)
+                    ),
+                )
+            )
+        return m
+
+    select = f"log.Recall@{K}"
+    init = resolve_init(job.init)
+    ck, history = train_heads(train_b, None, job.train, init=init, on_epoch=on_epoch, log=log, select=select)
+    best = int(ck["cfg"]["best_epoch"])
+    start, chosen = history[0], history[best]
+    improved = best > 0 and chosen[select] > start[select]
+    dropped = bench is not None and chosen["dev.NDCG@10"] < start["dev.NDCG@10"] - job.max_drop / 100
+    report.update(history=history, best_epoch=best, select=select, start=start, chosen=chosen)
+    if not improved:
+        report["decision"] = "no improvement"
+        log(f"no epoch beat the starting heads on {select} ({start[select]:.3f}); nothing published")
+        return report
+    if dropped:
+        report["decision"] = "benchmark dropped"
+        log(
+            f"epoch {best} improves {select} {start[select]:.3f} -> {chosen[select]:.3f} but the benchmark dev "
+            f"falls {100 * (start['dev.NDCG@10'] - chosen['dev.NDCG@10']):.2f} points (max {job.max_drop}); nothing published"
+        )
+        return report
+    import torch
+
+    from toolrank.adapters.heads_np import export_npz, sha256_file
+
+    serving = {
+        "backbone": job.backbone,
+        "tool_format": job.tool_format,
+        "query_format": job.query_format,
+        "truncate": job.truncate,
+    }
+    ck["cfg"].update({k: v for k, v in serving.items() if v})
+    ck["cfg"]["selected_on"] = {
+        "set": f"{job.data.name}/usage (newest {len(dev_pairs)} requests)",
+        "queries": len(dev_pairs),
+        "metric": select,
+        "value": round(float(chosen[select]), 6),
+        "epoch": best,
+    }
+    ck["cfg"]["learned_from"] = {
+        "log": job.data.name,
+        "requests": len(train_pairs),
+        "until": train_pairs[-1].ts,
+        "tenant": job.tenant,
+    }
+    pt = job.out.with_suffix(".pt")
+    pt.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(ck, pt)
+    digest = export_npz(pt, job.out, dtype="float16")
+    report["decision"] = "published"
+    report["outputs"] = {
+        "pt": {"path": str(pt), "sha256": sha256_file(pt)},
+        "npz": {"path": str(job.out), "sha256": digest},
+    }
+    log(
+        f"epoch {best}: {select} {start[select]:.3f} -> {chosen[select]:.3f}; wrote {job.out} "
+        f"(serve it with TOOLRANK_HEADS={job.out})"
+    )
+    return report

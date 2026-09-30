@@ -176,6 +176,9 @@ uv run python scripts/container_smoke.py toolrank-vllm:dev --bundle     # a fake
 # EMB_MODEL, TAG, ROWS, SETS; fp8_agreement.py compares two endpoints, latency.py times .npz heads
 docker compose -f deploy/spark/compose.yaml --profile fp8 up -d qwen3-embedding-8b-fp8
 
+# Faz 2 week 1: learn from what serve logged (no request text leaves the machine; --dry-run needs no torch)
+toolrank learn --data data/mytools [--dev data/livemcpbench_server] [--since 2026-10-01] [--tenant NAME] [--dry-run]
+
 # Faz 1 week 7: launch (every public step after 19:00 and approved one by one)
 uv run --with huggingface_hub python scripts/publish_heads.py --repo USER/NAME [--upload]   # dry run without --upload
 uv run python scripts/leaderboard_table.py --row NAME W_INST.json WO_INST.json PARAMS TYPE ... [--latex]
@@ -369,6 +372,17 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   back, so it waits for the image), then the GitHub release; by hand (`workflow_dispatch`) it is a
   rehearsal that publishes nothing. Endpoint keys: `TOOLRANK_EMB_API_KEY` / `TOOLRANK_CHAT_API_KEY` go
   anywhere, `OPENAI_API_KEY` only to https://api.openai.com, and none follows a redirect.
+- **Learning from the usage log** (Faz 2 week 1, `toolrank learn` → `learn.run`): the log holds no request
+  text, so `learn.mine` turns searches with linked calls into pairs of tool ids (`ok` → positive,
+  `tool_error` → weak positive unless `--strict`, shown-but-never-called → hard negative; other outcomes say
+  nothing; the same request merges), `learn.state_vectors` finds each request's backbone vector by digesting
+  the embedding cache's keys with `DATA/usage/.key` and matching `emb_hmac`, and the tools' vectors come from
+  `tools.jsonl` through the same cache. Training is `finetune.train_heads` from the served heads (lr 1e-5,
+  5 shown negatives, `neg_filter` 0.95); the newest 20% of requests are the dev set (`log.Recall@5`: the called
+  tool in the catalogue's top 5), an optional `--dev` benchmark set is a guard, and the heads are written
+  (`DATA/heads/learned-<stamp>.npz`) only when epoch > 0 beats the start on the log without losing more
+  than `--max-drop` NDCG@10 points on the benchmark; `--dry-run` mines without torch. `serve --mask-pii`
+  (with `--log-text`) tags e-mail, phone, card and IBAN numbers before they are written.
 - **Head fine-tuning** (`toolrank finetune` → `finetune.run`): the backbone stays frozen and training
   reads only cached vectors (one command embeds what the cache lacks, then trains). Training requests
   equal to a dev or eval query are dropped (counted per source); `split_pairs` takes a seeded
@@ -411,10 +425,11 @@ src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py
 src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_eval, summarize, format_table, save_report);
                                   table.py (the README's results table: render, splice, the protocol checks)
 src/toolrank/finetune.py          toolrank finetune: Job/run, EvalSet (dev curves), train_heads(select=), load_checkpoint
+src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids), state_vectors (emb_hmac -> cache), split, run
 src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint
 src/toolrank/cut.py               AdaptiveK (+ defaults), cutter
-src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | heads (export, pull) | formats
-docs/plan/                        private repo (ignored here): faz-0..3.md, backlog.md, acik-cekirdek.md, claude-code-handoff.md
+src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | heads (export, pull) | formats
+docs/plan/                        private repo (ignored here): faz-0..3.md, backlog.md, acik-cekirdek.md, claude-code-handoff.md, lansman-kiti.md
 docs/reports/                     weekly numbers; TEMPLATE.md
 docs/results.toml, docs/results/  the README's results table: its rows and the curated eval reports behind them
 docs/heads/MODEL_CARD.md          the packaged heads' card (sha256, serving, data license, numbers)

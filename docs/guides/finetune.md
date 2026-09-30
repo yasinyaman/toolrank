@@ -1,7 +1,8 @@
 # Fine-tune the heads
 
 The packaged heads were trained on ToolRet's public request-to-tool pairs. With pairs from your own
-agents (the usage log is a start), `toolrank finetune` trains heads for your catalogue.
+agents, `toolrank finetune` trains heads for your catalogue; for what `toolrank serve` logged, use
+[`toolrank learn`](learn.md), which needs no pairs file.
 
 ```bash
 pip install "toolrank[clm]"           # torch, for training only; the result runs in numpy

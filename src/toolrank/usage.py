@@ -4,8 +4,9 @@ It is also future training data: tools retrieved but not called are hard-negativ
 tools called successfully are positives, failed calls weak positives. One JSON object per line, in
 daily files ``<dir>/usage-YYYY-MM-DD.jsonl``; every event is a single ``os.write`` on an
 ``O_APPEND`` descriptor, so a stdio and an HTTP server can share the directory. Request and error
-text are kept only with ``log_text``; otherwise requests and arguments are HMAC-SHA256 digests
-under a per-install key (``<dir>/.key``, mode 0600): repeats are recognisable, guesses are not.
+text are kept only with ``log_text`` (``mask_pii`` then replaces e-mail addresses, phone, card and
+IBAN numbers in them); otherwise requests and arguments are HMAC-SHA256 digests under a per-install
+key (``<dir>/.key``, mode 0600): repeats are recognisable, guesses are not.
 ``emb_hmac`` is the digest of the request's embedding-cache key: whoever holds the key can match it
 to the cache's keys and use the request's backbone vector without its text. The server's own
 instruction is configuration and is logged as text; one sent with a request is request text, so
@@ -41,6 +42,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import uuid
@@ -52,6 +54,13 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 3
+# what ``mask_pii`` replaces, in this order: an IBAN or card number must not be left as a "phone"
+_PII = (
+    ("<email>", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")),
+    ("<iban>", re.compile(r"\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]){11,30}\b")),
+    ("<card>", re.compile(r"\b(?:\d[ -]?){12,18}\d\b")),
+    ("<phone>", re.compile(r"(?<![\w.])\+?\d[\d\s().-]{7,}\d\b")),
+)
 OUTCOMES = ("ok", "tool_error", "protocol_error", "timeout", "refused", "unknown_tool")
 _KEEP = 512  # recent searches kept in memory for linking calls
 UNKNOWN_TOOL_CHARS = 200
@@ -65,10 +74,30 @@ class _Seen:
     ranks: dict[str, int]
 
 
+def mask_pii(text: str) -> str:
+    """``text`` with e-mail addresses, IBANs, card numbers and phone numbers (nine digits or more)
+    replaced by tags. A pattern, not an understanding: names and addresses pass."""
+    for tag, rx in _PII:
+        if tag == "<phone>":  # nine digits or more: a date or a small number stays
+            text = rx.sub(
+                lambda m: "<phone>" if sum(c.isdigit() for c in m.group()) >= 9 else m.group(), text
+            )
+        else:
+            text = rx.sub(tag, text)
+    return text
+
+
 class UsageLog:
-    def __init__(self, directory: str | Path | None, *, log_text: bool = False, tenant: str | None = None):
+    def __init__(
+        self,
+        directory: str | Path | None,
+        *,
+        log_text: bool = False,
+        mask_pii: bool = False,
+        tenant: str | None = None,
+    ):
         self.dir = Path(directory).resolve() if directory else None
-        self.log_text, self.tenant = log_text, tenant
+        self.log_text, self.mask_pii, self.tenant = log_text, mask_pii, tenant
         self._key = self._load_key() if self.dir is not None else secrets.token_bytes(32)
         self._lock = threading.Lock()
         self._searches: OrderedDict[str, _Seen] = OrderedDict()
@@ -104,6 +133,12 @@ class UsageLog:
     def _now() -> str:
         return datetime.now(UTC).isoformat(timespec="milliseconds")
 
+    def _text(self, text: str | None) -> str | None:
+        """Request or error text as the log keeps it: not at all, as is, or masked."""
+        if text is None or not self.log_text:
+            return None
+        return mask_pii(text) if self.mask_pii else text
+
     def _client(self, client: str | None) -> str | None:
         return self.digest(client)[:16] if client else None  # holds a remote address: never in clear
 
@@ -136,10 +171,12 @@ class UsageLog:
                 "via": via,
                 "tenant": tenant or self.tenant,
                 "query_hmac": self.digest(result.query),
-                "query": result.query if self.log_text else None,
+                "query": self._text(result.query),
                 "emb_hmac": self.digest(result.emb_key) if result.emb_key else None,
                 "instruction_hmac": self.digest(result.instruction),
-                "instruction": result.instruction if self.log_text or not result.own_instruction else None,
+                "instruction": result.instruction
+                if not result.own_instruction
+                else self._text(result.instruction),
                 "rule": result.rule,
                 "results": [[t, round(s, 6)] for t, s in result.ranked],
                 "shown": len(result.hits),
@@ -226,7 +263,7 @@ class UsageLog:
                 "http_status": http_status,
                 "took_ms": round(took_ms, 2),
                 "args_hmac": self.digest(args),
-                "error": (error or "")[:200] if (error and self.log_text) else None,
+                "error": self._text(error[:200]) if error else None,
             }
         )
         return cid

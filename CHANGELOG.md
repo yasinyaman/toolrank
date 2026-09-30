@@ -4,6 +4,17 @@ Notable changes, newest first. The format follows [Keep a Changelog](https://kee
 and versions follow [semantic versioning](https://semver.org/); before 1.0, a minor version may
 change behaviour.
 
+## [Unreleased]
+
+### Added
+
+- `toolrank learn`: heads trained from what `toolrank serve` logged (calls that ended `ok` as
+  positives, `tool_error` as weak positives, tools shown but not called as hard negatives), with the
+  requests' vectors found through the log's key and never their text; the newest requests are the
+  dev set, and the heads are written only when they beat the served ones there.
+- `toolrank serve --mask-pii`: with `--log-text`, e-mail addresses, phone, card and IBAN numbers are
+  replaced by tags before the request or error text is written.
+
 ## [0.1.0] - 2026-09-30
 
 The first public release.

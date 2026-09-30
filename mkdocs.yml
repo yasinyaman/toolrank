@@ -45,6 +45,7 @@ nav:
       - LangGraph, LlamaIndex, LiteLLM: guides/frameworks.md
       - Docker: guides/docker.md
       - Fine-tune the heads: guides/finetune.md
+      - Learn from the usage log: guides/learn.md
   - Benchmarks: benchmarks.md
   - Architecture: architecture.md
   - Reference:

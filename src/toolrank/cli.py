@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -313,7 +314,9 @@ def cmd_serve(a: argparse.Namespace) -> int:
     names = [c.name for c in servers]
     if len(set(names)) != len(names):
         sys.exit(f"duplicate server names: {sorted({n for n in names if names.count(n) > 1})}")
-    usage = UsageLog(None if a.no_usage_log else (a.usage_log or data / "usage"), log_text=a.log_text)
+    usage = UsageLog(
+        None if a.no_usage_log else (a.usage_log or data / "usage"), log_text=a.log_text, mask_pii=a.mask_pii
+    )
     backends = Backends(
         servers, openapi, allow_write=a.allow_write, call_timeout=a.timeout, connect_timeout=a.timeout
     )
@@ -448,6 +451,67 @@ def cmd_finetune(a: argparse.Namespace) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
     print(f"report: {path}")
+    return 0
+
+
+def cmd_learn(a: argparse.Namespace) -> int:
+    from toolrank.build import DEFAULT_EMB_MODEL, DEFAULT_EMB_URL, DEFAULT_SERVING
+    from toolrank.finetune import TrainConfig
+    from toolrank.learn import Job, run
+
+    data = Path(a.data).resolve()
+    if not (data / "tools.jsonl").exists():
+        sys.exit(f"{data / 'tools.jsonl'} not found: an ingest dir that toolrank serve has served")
+    if not a.dry_run:
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            sys.exit("toolrank learn trains with torch: pip install 'toolrank[clm]' (--dry-run needs none)")
+    _data_cache(a, data)
+    stamp = time.strftime("%Y%m%d-%H%M")
+    out = Path(a.out).resolve() if a.out else data / "heads" / f"learned-{stamp}.npz"
+    name = a.name or out.stem
+    job = Job(
+        data=data,
+        out=out,
+        dev=Path(a.dev) if a.dev else None,
+        init=None if a.init == "none" else a.init,
+        emb_url=a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL,
+        emb_model=a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL,
+        emb_batch=a.emb_batch,
+        truncate=a.truncate or int(DEFAULT_SERVING["truncate"]),
+        cache_dir=a.cache_dir or None,
+        tool_format=a.tool_format,
+        query_format=a.query_format,
+        backbone=a.backbone,
+        since=a.since,
+        tenant=a.tenant,
+        strict=a.strict,
+        min_pairs=a.min_pairs,
+        dev_share=a.dev_share,
+        max_drop=a.max_drop,
+        dry_run=a.dry_run,
+        train=TrainConfig(
+            epochs=a.epochs,
+            batch=a.batch,
+            neg_per_pair=a.neg,
+            lr=a.lr,
+            weight_decay=a.weight_decay,
+            warmup=a.warmup,
+            seed=a.seed,
+            device=a.device,
+            neg_filter=a.neg_filter,
+        ),
+    )
+    try:
+        report = run(job, log=lambda line: print(line, flush=True))
+    except (ValueError, FileNotFoundError) as e:
+        sys.exit(str(e))
+    report = {"name": name, "args": {k: v for k, v in vars(a).items() if k != "fn"}, **report}
+    path = Path(a.report) if a.report else Path(a.results) / f"learn_{name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    print(f"{report['decision']}; report: {path}")
     return 0
 
 
@@ -842,6 +906,9 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--usage-log", default=None, help="usage log directory (default: DATA/usage)")
     sv.add_argument("--no-usage-log", action="store_true")
     sv.add_argument("--log-text", action="store_true", help="also log request and error text")
+    sv.add_argument(
+        "--mask-pii", action="store_true", help="with --log-text: mask e-mail, phone, card and IBAN numbers"
+    )
     sv.set_defaults(fn=cmd_serve, scorer=None)
 
     ft = sub.add_parser(
@@ -902,6 +969,55 @@ def build_parser() -> argparse.ArgumentParser:
     ft.add_argument("--device", default=None)
     _add_encoder_args(ft, url=None, model=None)
     ft.set_defaults(fn=cmd_finetune, emb_batch=128, truncate=8192)
+
+    ln = sub.add_parser(
+        "learn",
+        help="train the heads on what the usage log says agents called; publish if it helps",
+        description="From an ingest dir toolrank serve has served: the log's searches and calls become "
+        "request -> tool pairs (a call that ended ok is a positive, a tool_error a weak one, tools shown "
+        "but not called are hard negatives), the requests' vectors come from DATA/cache through the log's "
+        "key, never their text, and the heads train from the served ones. The newest 20% of requests "
+        "are the dev set (Recall@5 of the called tool over the catalogue); the heads are written only "
+        "when they beat the starting ones there, and, with --dev, do not fall on a benchmark set.",
+    )
+    ln.add_argument("--data", required=True, help="the ingest dir: tools.jsonl, cache/, usage/")
+    ln.add_argument("--out", default=None, help="the .npz to write (default: DATA/heads/learned-<stamp>.npz)")
+    ln.add_argument(
+        "--dev", default=None, help="benchmark-format dir scored alongside: a guard against forgetting"
+    )
+    ln.add_argument(
+        "--init", default="default", help="heads to start from: default (the served ones), a path, or none"
+    )
+    ln.add_argument("--since", default=None, help="only searches from this ISO date or timestamp on")
+    ln.add_argument("--tenant", default=None, help="only one API key's searches (its name)")
+    ln.add_argument("--strict", action="store_true", help="a tool_error call is not a (weak) positive")
+    ln.add_argument("--min-pairs", type=int, default=20, help="fewer usable requests: nothing is trained")
+    ln.add_argument("--dev-share", type=float, default=0.2, help="share of the newest requests held out")
+    ln.add_argument("--max-drop", type=float, default=0.5, help="NDCG@10 points the --dev set may lose")
+    ln.add_argument(
+        "--dry-run", action="store_true", help="mine and match the vectors, train nothing (no torch)"
+    )
+    ln.add_argument("--name", default=None, help="the report's name (default: the output's stem)")
+    ln.add_argument("--results", default="results", help="where the report goes")
+    ln.add_argument("--report", default=None, help="the report's path (default: RESULTS/learn_<name>.json)")
+    ln.add_argument("--tool-format", choices=list(TOOL_FORMATS), default="documentation")
+    ln.add_argument(
+        "--query-format", choices=list(QUERY_FORMATS), default="instruct_query", help="for --dev's queries"
+    )
+    ln.add_argument("--backbone", default="Qwen/Qwen3-Embedding-8B", help="recorded in the heads' cfg")
+    ln.add_argument("--epochs", type=int, default=3)
+    ln.add_argument("--batch", type=int, default=256)
+    ln.add_argument("--lr", type=float, default=1e-5)
+    ln.add_argument("--neg", type=int, default=5, help="shown-but-not-called tools per request in a batch")
+    ln.add_argument(
+        "--neg-filter", type=float, default=0.95, help="drop negatives the start scores like a positive"
+    )
+    ln.add_argument("--weight-decay", type=float, default=0.01)
+    ln.add_argument("--warmup", type=float, default=0.05)
+    ln.add_argument("--seed", type=int, default=0)
+    ln.add_argument("--device", default=None)
+    _add_encoder_args(ln, url=None, model=None, cache_dir=None)
+    ln.set_defaults(fn=cmd_learn, emb_batch=128)
 
     hd = sub.add_parser("heads", help="head checkpoints")
     hds = hd.add_subparsers(dest="heads_cmd", required=True)

@@ -217,6 +217,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--usage-log USAGE_LOG` |  | usage log directory (default: DATA/usage) |
 | `--no-usage-log` |  |  |
 | `--log-text` |  | also log request and error text |
+| `--mask-pii` |  | with --log-text: mask e-mail, phone, card and IBAN numbers |
 
 ## `toolrank finetune`
 
@@ -261,6 +262,44 @@ Embed the pairs once (only what the cache lacks), train heads on the frozen back
 | `--emb-batch EMB_BATCH` | `128` |  |
 | `--truncate TRUNCATE` | `8192` | vLLM truncate_prompt_tokens (CLM reference: 2048) |
 | `--cache-dir CACHE_DIR` | `.cache/toolrank` | embedding cache directory (default: .cache/toolrank; '' = none) |
+
+## `toolrank learn`
+
+From an ingest dir toolrank serve has served: the log's searches and calls become request -> tool pairs (a call that ended ok is a positive, a tool_error a weak one, tools shown but not called are hard negatives), the requests' vectors come from DATA/cache through the log's key, never their text, and the heads train from the served ones. The newest 20% of requests are the dev set (Recall@5 of the called tool over the catalogue); the heads are written only when they beat the starting ones there, and, with --dev, do not fall on a benchmark set.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--data DATA` | required | the ingest dir: tools.jsonl, cache/, usage/ |
+| `--out OUT` |  | the .npz to write (default: DATA/heads/learned-<stamp>.npz) |
+| `--dev DEV` |  | benchmark-format dir scored alongside: a guard against forgetting |
+| `--init INIT` | `default` | heads to start from: default (the served ones), a path, or none |
+| `--since SINCE` |  | only searches from this ISO date or timestamp on |
+| `--tenant TENANT` |  | only one API key's searches (its name) |
+| `--strict` |  | a tool_error call is not a (weak) positive |
+| `--min-pairs MIN_PAIRS` | `20` | fewer usable requests: nothing is trained |
+| `--dev-share DEV_SHARE` | `0.2` | share of the newest requests held out |
+| `--max-drop MAX_DROP` | `0.5` | NDCG@10 points the --dev set may lose |
+| `--dry-run` |  | mine and match the vectors, train nothing (no torch) |
+| `--name NAME` |  | the report's name (default: the output's stem) |
+| `--results RESULTS` | `results` | where the report goes |
+| `--report REPORT` |  | the report's path (default: RESULTS/learn_<name>.json) |
+| `--tool-format {documentation,name_desc,schema,example_call}` | `documentation` |  |
+| `--query-format {plain,concat,instruct_query,clm}` | `instruct_query` | for --dev's queries |
+| `--backbone BACKBONE` | `Qwen/Qwen3-Embedding-8B` | recorded in the heads' cfg |
+| `--epochs EPOCHS` | `3` |  |
+| `--batch BATCH` | `256` |  |
+| `--lr LR` | `1e-05` |  |
+| `--neg NEG` | `5` | shown-but-not-called tools per request in a batch |
+| `--neg-filter NEG_FILTER` | `0.95` | drop negatives the start scores like a positive |
+| `--weight-decay WEIGHT_DECAY` | `0.01` |  |
+| `--warmup WARMUP` | `0.05` |  |
+| `--seed SEED` |  |  |
+| `--device DEVICE` |  |  |
+| `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
+| `--emb-model EMB_MODEL` |  |  |
+| `--emb-batch EMB_BATCH` | `128` |  |
+| `--truncate TRUNCATE` |  | vLLM truncate_prompt_tokens (CLM reference: 2048) |
+| `--cache-dir CACHE_DIR` |  | embedding cache directory (default: DIR/cache, next to tools.jsonl; '' = none) |
 
 ## `toolrank heads export`
 

@@ -63,7 +63,26 @@ See the [REST reference](../reference/rest.md).
 
 ## The usage log
 
-Every search and call goes to `DATA/usage/` (or `--usage-log DIR`), each call tied to the search
-that found its tool; requests and arguments as keyed digests unless `--log-text`. Tool names, scores
-and the server's own instruction are text; an instruction sent with a request is a digest.
-`--no-usage-log` turns it off.
+Every search and call goes to `DATA/usage/` (or `--usage-log DIR`), one JSON line per event in a
+file per day, each call tied to the search that found its tool. It is what
+[`toolrank learn`](learn.md) trains the heads on.
+
+What it holds, and what it does not:
+
+- Requests and call arguments are keyed digests (HMAC-SHA256 under `DATA/usage/.key`, a random
+  32-byte key made on first use, mode 0600): repeats are recognisable, guesses are not, and the log
+  alone reconstructs nothing. The request's embedding-cache key is a digest too (`emb_hmac`), which
+  is how `learn` finds its vector without its text.
+- Tool names, scores, outcomes, latencies and the server's own instruction are text. An
+  instruction sent with a request is a digest. The client (API key name, client app, remote address)
+  is a digest; the session id and the tenant (the API key's name) are text.
+- `--log-text` adds the request text and the error text of failed calls; `--mask-pii` then replaces
+  e-mail addresses, phone, card and IBAN numbers in them with tags (a pattern, not an understanding).
+- `--no-usage-log` turns the log off.
+
+For data-protection purposes (GDPR, KVKK): without `--log-text` the log holds no personal data of
+the requests themselves, only digests under a key you hold; the `.key` file and the embedding cache
+(`DATA/cache`, which holds the requests' vectors) are the parts to protect and to delete with the
+log. To forget a period, delete its daily files; to forget one API key's traffic, filter its
+`tenant` lines out. An embedding vector can be matched to text only by embedding a guess and
+comparing, which needs the same model and the cache.

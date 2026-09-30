@@ -8,7 +8,7 @@ import pytest
 
 from toolrank.domain import Tool
 from toolrank.retriever import Hit, SearchResult
-from toolrank.usage import UsageLog
+from toolrank.usage import UsageLog, mask_pii
 
 
 def _result(tools=("gh/a", "gh/b"), query="open an issue", **kw):
@@ -119,3 +119,42 @@ def test_disabled_log_writes_nothing_and_threads_do_not_interleave(tmp_path):
     for t in threads:
         t.join()
     assert len(_events(tmp_path)) == 400
+
+
+def test_mask_pii_replaces_addresses_and_numbers_but_not_dates(tmp_path):
+    assert mask_pii("mail ali.veli+x@example.co.uk, call +90 532 123 45 67") == "mail <email>, call <phone>"
+    assert (
+        mask_pii("card 4111 1111 1111 1111, IBAN TR33 0006 1005 1978 6457 8413 26")
+        == "card <card>, IBAN <iban>"
+    )
+    assert (
+        mask_pii("on 2026-09-30 at 12:30 order #4521 of 1,862 tools")
+        == "on 2026-09-30 at 12:30 order #4521 of 1,862 tools"
+    )
+    # only with --log-text is there text to mask; then the request and the error are masked
+    plain, masked = (
+        UsageLog(tmp_path / "a", log_text=True),
+        UsageLog(tmp_path / "b", log_text=True, mask_pii=True),
+    )
+    for log in (plain, masked):
+        log.search(
+            _result(query="refund card 4111 1111 1111 1111", own_instruction=False), session="s", via="rest"
+        )
+        log.call(
+            tool="gh/a",
+            kind="mcp",
+            session="s",
+            via="rest",
+            outcome="tool_error",
+            took_ms=1,
+            error="write to a@b.co",
+        )
+    (ps, pc), (ms, mc) = _events(tmp_path / "a"), _events(tmp_path / "b")
+    assert "4111" in ps["query"] and pc["error"] == "write to a@b.co"
+    assert (ms["query"], mc["error"]) == ("refund card <card>", "write to <email>")
+    assert ms["query_hmac"] == masked.digest(
+        "refund card 4111 1111 1111 1111"
+    )  # the digest is of the request as it came
+    hidden = UsageLog(tmp_path / "c", mask_pii=True)
+    hidden.search(_result(query="x@y.zz"), session="s", via="rest")
+    assert _events(tmp_path / "c")[0]["query"] is None
