@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install the locked versions (a stale uv.lock fails here)
+        run: uv sync --locked --extra dev
+      - name: Format and lint
+        run: |
+          uv run ruff format --check src tests scripts examples
+          uv run ruff check src tests scripts examples
+      - name: Test
+        run: uv run pytest
+      - name: Smoke eval (synthetic, BM25)
+        run: |
+          uv run toolrank data synth --out data/synthetic
+          uv run toolrank eval --data data/synthetic --scorer bm25 --tool-format schema --limit 50
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --group docs
+      - name: Generated pages are current
+        run: |
+          uv run python scripts/cli_reference.py --check
+          uv run python scripts/readme_table.py --check
+      - run: uv run mkdocs build --strict
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: uv build --out-dir dist/pypi
+      - run: uvx twine check --strict dist/pypi/*
+      - name: The wheel on its own
+        run: |
+          uv venv /tmp/wheel
+          uv pip install --python /tmp/wheel/bin/python dist/pypi/*.whl
+          /tmp/wheel/bin/toolrank --version
+          /tmp/wheel/bin/toolrank data synth --out /tmp/synthetic
+          /tmp/wheel/bin/toolrank eval --data /tmp/synthetic --scorer bm25 --limit 20
+          # without the [mcp] extra, serve says what to install instead of failing on an import
+          if /tmp/wheel/bin/toolrank serve --data /tmp/synthetic 2> /tmp/serve.err; then exit 1; fi
+          grep -F "pip install 'toolrank[mcp]'" /tmp/serve.err
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the slim image (no heads, no push)
+        run: docker build -f deploy/docker/Dockerfile -t toolrank:ci .
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: Smoke test against a fake embedding server
+        run: uv run --no-project --with numpy python scripts/container_smoke.py toolrank:ci

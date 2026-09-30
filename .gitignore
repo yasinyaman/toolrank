@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+.cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+data/*
+!data/.gitkeep
+results/*.json
+!results/.gitkeep
+.env
+.DS_Store
+Claude outputs/
+# machine-specific notes for Claude Code (addresses, host names)
+CLAUDE.local.md
+# mkdocs build output
+site/
+# the plans are a separate, private repository checked out here (maintainers only)
+docs/plan/

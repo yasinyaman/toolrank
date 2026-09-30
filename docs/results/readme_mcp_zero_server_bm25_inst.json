@@ -1,0 +1,82 @@
+{
+  "scorer": "bm25/documentation/concat/nostem",
+  "dataset": "mcp_zero_server",
+  "n_queries": 2792,
+  "n_tools": 2792,
+  "overall": {
+    "NDCG@1": 0.45630372492836674,
+    "MAP@1": 0.45355778414517667,
+    "Recall@1": 0.45355778414517667,
+    "Precision@1": 0.45630372492836674,
+    "Comprehensiveness@1": 0.4512893982808023,
+    "NDCG@5": 0.5975732090764334,
+    "MAP@5": 0.5504138809296402,
+    "Recall@5": 0.7393744030563515,
+    "Precision@5": 0.1497134670487106,
+    "Comprehensiveness@5": 0.7367478510028653,
+    "NDCG@10": 0.6332023704843827,
+    "MAP@10": 0.5651403386091781,
+    "Recall@10": 0.849510506208214,
+    "Precision@10": 0.08617478510028655,
+    "Comprehensiveness@10": 0.8477793696275072,
+    "NDCG@20": 0.6541902868711814,
+    "MAP@20": 0.5709510874006181,
+    "Recall@20": 0.9321275071633238,
+    "Precision@20": 0.04727793696275072,
+    "Comprehensiveness@20": 0.9308739255014327
+  },
+  "category_macro": {},
+  "per_task": {
+    "mcp-tools": {
+      "NDCG@1": 0.45630372492836674,
+      "MAP@1": 0.45355778414517667,
+      "Recall@1": 0.45355778414517667,
+      "Precision@1": 0.45630372492836674,
+      "Comprehensiveness@1": 0.4512893982808023,
+      "NDCG@5": 0.5975732090764334,
+      "MAP@5": 0.5504138809296402,
+      "Recall@5": 0.7393744030563515,
+      "Precision@5": 0.1497134670487106,
+      "Comprehensiveness@5": 0.7367478510028653,
+      "NDCG@10": 0.6332023704843827,
+      "MAP@10": 0.5651403386091781,
+      "Recall@10": 0.849510506208214,
+      "Precision@10": 0.08617478510028655,
+      "Comprehensiveness@10": 0.8477793696275072,
+      "NDCG@20": 0.6541902868711814,
+      "MAP@20": 0.5709510874006181,
+      "Recall@20": 0.9321275071633238,
+      "Precision@20": 0.04727793696275072,
+      "Comprehensiveness@20": 0.9308739255014327
+    }
+  },
+  "per_category": {},
+  "latency_ms": {
+    "index_s": 0.044,
+    "per_query_p50": 0.091,
+    "per_query_p95": 0.177,
+    "per_query_mean": 0.102
+  },
+  "config": {
+    "with_inst": true,
+    "instruction": null,
+    "tool_format": "documentation",
+    "query_format": "concat",
+    "k": 100,
+    "tasks": null,
+    "limit": 0,
+    "emb_model": null,
+    "emb_url": null,
+    "truncate": null,
+    "batch": 64,
+    "clm_ckpt": null,
+    "heads_sha256": null,
+    "index": null,
+    "cut": null,
+    "hybrid": null,
+    "task_counts": {
+      "mcp-tools": 2792
+    },
+    "version": "0.0.1"
+  }
+}

@@ -1,0 +1,63 @@
+# The README's results table: `uv run python scripts/readme_table.py --write` renders it from the
+# reports in docs/results/ (made by scripts/readme_results.sh), after checking each against the
+# protocol (src/toolrank/eval/table.py); a test keeps the README equal to it. A measured row names
+# one report per benchmark; a reported row gives published numbers in the columns they belong to.
+
+reports = "results"
+notes = [
+    "ToolRet: 7,961 queries over 44,453 tools, top 100 over the whole corpus. *NDCG@10* is the micro-average of the paper's released code; *cat-macro* is the paper's own aggregation (the mean of the web, code and customized categories) and the only column with published numbers. Our BM25 reproduces the paper's BM25s within 0.1 (22.24 / 36.41 against 22.32 / 36.46).",
+    "LiveMCPBench (94 queries, 525 tools) and MCP-Zero (2,792 tools): the tool text includes the MCP server's name (`toolrank data server-names`). One LiveMCPBench query is about one point. MCP-Zero ships no queries: ours were written by Qwen3-8B, one per tool (`toolrank data pull mcp-zero`), so its column does not compare with the MCP-Zero paper. Top-1 is Precision@1.",
+    "*With instruction*, each query carries its task's instruction (ToolRet) or a generic one (the MCP sets), as the embedding model is served; the generic instruction costs BM25 on the MCP sets. BM25 is bm25s without stemming, the paper's setting.",
+    "The heads (29.9M parameters, `docs/heads/MODEL_CARD.md`) were trained on ToolRet's training pairs, so ToolRet is in-domain for them and the MCP sets are not. On MCP-Zero, BM25 without instruction still wins at top-1: each generated query opens with a `server:` line that usually names the server, and exact matching rewards that.",
+    "FP8: the bf16 weights quantized as vLLM loads them (`--quantization fp8`). Every column is within a query or two of bf16, at about half the weight memory and batch-1 latency.",
+    "Reproduce: `bash scripts/readme_results.sh` where Qwen3-Embedding-8B is served (reports in `docs/results/`), then `uv run python scripts/readme_table.py --write`.",
+]
+
+[[rows]]
+name = "BM25, without instruction"
+with_inst = false
+toolret = "readme_toolret_bm25.json"
+livemcpbench = "readme_livemcpbench_server_bm25.json"
+mcp_zero = "readme_mcp_zero_server_bm25.json"
+
+[[rows]]
+name = "BM25, with instruction"
+with_inst = true
+toolret = "readme_toolret_bm25_inst.json"
+livemcpbench = "readme_livemcpbench_server_bm25_inst.json"
+mcp_zero = "readme_mcp_zero_server_bm25_inst.json"
+
+[[rows]]
+name = "Qwen3-Embedding-8B"
+with_inst = true
+toolret = "readme_toolret_qwen3emb.json"
+livemcpbench = "readme_livemcpbench_server_qwen3emb.json"
+mcp_zero = "readme_mcp_zero_server_qwen3emb.json"
+
+[[rows]]
+name = "Qwen3-Embedding-8B + toolrank heads v0.1"
+with_inst = true
+heads = "f3c101251b9c23925e2925bc02c4492e6c3dea79bcfa1b56715affb20f9f72f0"
+toolret = "readme_toolret_heads.json"
+livemcpbench = "readme_livemcpbench_server_heads.json"
+mcp_zero = "readme_mcp_zero_server_heads.json"
+
+[[rows]]
+name = "Qwen3-Embedding-8B in FP8 + toolrank heads v0.1 (the Docker default)"
+with_inst = true
+heads = "f3c101251b9c23925e2925bc02c4492e6c3dea79bcfa1b56715affb20f9f72f0"
+toolret = "readme_fp8_toolret_heads.json"
+livemcpbench = "readme_fp8_livemcpbench_server_heads.json"
+mcp_zero = "readme_fp8_mcp_zero_server_heads.json"
+
+[[rows]]
+name = "NV-Embed-v1 ([ToolRet paper](https://arxiv.org/abs/2503.01763))"
+reported = { toolret_cat = 42.71 }
+
+[[rows]]
+name = "gte-Qwen2-1.5B-instruct ([ToolRet paper](https://arxiv.org/abs/2503.01763))"
+reported = { toolret_cat = 45.96 }
+
+[[rows]]
+name = "StackOne v2, a fine-tuned 109M BGE-base ([StackOne](https://www.stackone.com/blog/autoresearch-charged-action-search/))"
+reported = { toolret_cat = 54.4 }

@@ -1,0 +1,83 @@
+{
+  "scorer": "clm[toolrank-heads-qwen3-emb-8b-v0.1]/emb/qwen3-emb/documentation/instruct_query",
+  "dataset": "mcp_zero_server",
+  "n_queries": 2792,
+  "n_tools": 2792,
+  "overall": {
+    "NDCG@1": 0.7987106017191977,
+    "MAP@1": 0.7924426934097422,
+    "Recall@1": 0.7924426934097422,
+    "Precision@1": 0.7987106017191977,
+    "Comprehensiveness@1": 0.78689111747851,
+    "NDCG@5": 0.8790805584789316,
+    "MAP@5": 0.8572876870423433,
+    "Recall@5": 0.9420367717287488,
+    "Precision@5": 0.19140401146131805,
+    "Comprehensiveness@5": 0.9409025787965616,
+    "NDCG@10": 0.8853384663696539,
+    "MAP@10": 0.8599193557556739,
+    "Recall@10": 0.9611986628462272,
+    "Precision@10": 0.09763610315186247,
+    "Comprehensiveness@10": 0.960243553008596,
+    "NDCG@20": 0.8888812046244354,
+    "MAP@20": 0.8609457707662608,
+    "Recall@20": 0.9748089780324737,
+    "Precision@20": 0.04949856733524356,
+    "Comprehensiveness@20": 0.9738538681948424
+  },
+  "category_macro": {},
+  "per_task": {
+    "mcp-tools": {
+      "NDCG@1": 0.7987106017191977,
+      "MAP@1": 0.7924426934097422,
+      "Recall@1": 0.7924426934097422,
+      "Precision@1": 0.7987106017191977,
+      "Comprehensiveness@1": 0.78689111747851,
+      "NDCG@5": 0.8790805584789316,
+      "MAP@5": 0.8572876870423433,
+      "Recall@5": 0.9420367717287488,
+      "Precision@5": 0.19140401146131805,
+      "Comprehensiveness@5": 0.9409025787965616,
+      "NDCG@10": 0.8853384663696539,
+      "MAP@10": 0.8599193557556739,
+      "Recall@10": 0.9611986628462272,
+      "Precision@10": 0.09763610315186247,
+      "Comprehensiveness@10": 0.960243553008596,
+      "NDCG@20": 0.8888812046244354,
+      "MAP@20": 0.8609457707662608,
+      "Recall@20": 0.9748089780324737,
+      "Precision@20": 0.04949856733524356,
+      "Comprehensiveness@20": 0.9738538681948424
+    }
+  },
+  "per_category": {},
+  "latency_ms": {
+    "index_s": 0.26,
+    "per_query_p50": 0.147,
+    "per_query_p95": 0.152,
+    "per_query_mean": 0.147
+  },
+  "config": {
+    "with_inst": true,
+    "instruction": null,
+    "tool_format": "documentation",
+    "query_format": "instruct_query",
+    "k": 100,
+    "tasks": null,
+    "limit": 0,
+    "emb_model": "qwen3-emb",
+    "emb_url": "http://127.0.0.1:8091/v1",
+    "truncate": 8192,
+    "batch": 64,
+    "clm_ckpt": "dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz",
+    "heads_sha256": "f3c101251b9c23925e2925bc02c4492e6c3dea79bcfa1b56715affb20f9f72f0",
+    "index": "numpy",
+    "cut": null,
+    "hybrid": null,
+    "task_counts": {
+      "mcp-tools": 2792
+    },
+    "version": "0.0.1",
+    "encoder_tokens": 0
+  }
+}

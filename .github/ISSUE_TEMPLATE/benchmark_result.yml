@@ -1,0 +1,43 @@
+name: Benchmark result
+description: A number you measured, or could not reproduce, on ToolRet, LiveMCPBench or MCP-Zero.
+labels: ["benchmark"]
+body:
+  - type: dropdown
+    id: benchmark
+    attributes:
+      label: Benchmark
+      options:
+        - ToolRet
+        - LiveMCPBench
+        - MCP-Zero
+        - Other (say which below)
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact commands
+      description: The `toolrank eval` (or other) commands, with every flag.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Numbers
+      description: What you got, and what you expected (with its source, such as the README table or a paper).
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: toolrank version, embedding model and server (e.g. vLLM version, bf16 or FP8), hardware.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: The results JSON
+      description: The file `toolrank eval --out` wrote (or its `overall` and `config` parts).
+      render: json

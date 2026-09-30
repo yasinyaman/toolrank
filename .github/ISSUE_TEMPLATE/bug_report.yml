@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead (the full error, if any).
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The commands or code, and the tools or catalogue involved (trimmed to the smallest case).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: toolrank version
+      description: The output of `toolrank --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed with
+      options:
+        - pip / uv
+        - Docker image (toolrank)
+        - Docker image (toolrank-vllm)
+        - From a checkout
+    validations:
+      required: true
+  - type: input
+    id: backend
+    attributes:
+      label: Embedding backend
+      description: For example "vLLM 0.30.0, Qwen/Qwen3-Embedding-8B, FP8" or "none (BM25 only)".
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, Python version, GPU if relevant.

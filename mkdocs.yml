@@ -1,0 +1,95 @@
+site_name: toolrank
+site_description: Tool retrieval for LLM agents with hundreds of tools
+site_url: https://yasinyaman.github.io/toolrank/
+repo_url: https://github.com/yasinyaman/toolrank
+repo_name: yasinyaman/toolrank
+edit_uri: edit/main/docs/
+copyright: Copyright 2026 Toolrank contributors. Apache-2.0.
+
+docs_dir: docs
+# docs/ also holds the project's plans and weekly reports (in Turkish) and the raw data behind the
+# results table: the site leaves them out
+exclude_docs: |
+  plan/
+  reports/
+  results/
+  results.toml
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+nav:
+  - Overview: index.md
+  - Quick start: quickstart.md
+  - Concepts: concepts.md
+  - Guides:
+      - Index your tools: guides/ingest.md
+      - Serve them to agents: guides/serve.md
+      - Claude and OpenAI tool search: guides/platforms.md
+      - LangGraph, LlamaIndex, LiteLLM: guides/frameworks.md
+      - Docker: guides/docker.md
+      - Fine-tune the heads: guides/finetune.md
+  - Benchmarks: benchmarks.md
+  - Architecture: architecture.md
+  - Reference:
+      - CLI: reference/cli.md
+      - REST API: reference/rest.md
+      - Python API: reference/python.md
+      - Heads model card: heads/MODEL_CARD.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: sphinx
+            show_source: false
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+            filters: ["!^_"]
+
+validation:
+  omitted_files: warn
+  absolute_links: info
+  unrecognized_links: warn

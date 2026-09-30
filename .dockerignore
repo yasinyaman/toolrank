@@ -1,0 +1,14 @@
+# The images build from the repo root but need only these (the heads come in through
+# `--build-context heads=dist/heads`, not the main context).
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
+!src/
+!deploy/docker/entrypoint-vllm.sh
+!deploy/docker/as-toolrank.sh
+**/__pycache__
+**/.DS_Store

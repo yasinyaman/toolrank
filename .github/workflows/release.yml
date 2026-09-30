@@ -1,0 +1,171 @@
+# A release, from a v* tag: checks, the toolrank image on GHCR, then the package on PyPI (which cannot
+# be taken back, so it waits for the image), then a GitHub release. A tag pushed while the repository
+# variable TOOLRANK_RELEASE is not "enabled" fails at once and publishes nothing; the pypi and ghcr
+# environments require a reviewer, so every publication is approved by hand.
+#
+# Run by hand (workflow_dispatch) it is a rehearsal: the same checks, the package, the heads and the
+# image for both platforms, with nothing pushed or published and the release check reported only.
+#
+# Actions are pinned to commits (Dependabot moves them): a tag can be moved, and this workflow publishes.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Releases are switched on
+        if: github.event_name == 'push' && vars.TOOLRANK_RELEASE != 'enabled'
+        run: |
+          echo "::error::the repository variable TOOLRANK_RELEASE is not 'enabled': nothing was built or published"
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --extra dev
+      - name: Nothing left to fill in (heads URL, version, changelog, tag)
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: uv run --locked python scripts/release_check.py ${TAG:+--tag "$TAG"}
+      - run: uv run --locked pytest
+
+  dist:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv build --out-dir dist/pypi
+      - run: uvx twine check --strict dist/pypi/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/pypi/
+          retention-days: 7
+
+  heads:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - name: The released heads, sha256-checked (a rehearsal before they are hosted goes without)
+        run: |
+          if ! TOOLRANK_CACHE=build uv run --locked toolrank heads pull; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            mkdir -p build/heads && echo "no heads: a rehearsal before they were hosted" > build/heads/README
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: heads
+          path: build/heads/
+          retention-days: 1
+
+  image:
+    if: github.event_name == 'push'
+    needs: [dist, heads]
+    runs-on: ubuntu-latest
+    environment: ghcr
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: heads
+          path: build/heads/
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/toolrank
+          # latest comes with a release's semver tag (flavor latest=auto), never with a pre-release
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          build-contexts: heads=build/heads
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  image-rehearsal:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [dist, heads]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: heads
+          path: build/heads/
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          build-contexts: heads=build/heads
+          platforms: linux/amd64,linux/arm64
+          push: false
+
+  pypi:
+    if: github.event_name == 'push'
+    needs: [dist, image]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # trusted publishing: no token stored in the repository
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/pypi/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/pypi/
+
+  github-release:
+    if: github.event_name == 'push'
+    needs: [pypi, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "toolrank $version" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

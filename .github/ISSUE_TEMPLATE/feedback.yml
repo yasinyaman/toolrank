@@ -1,0 +1,50 @@
+name: Feedback
+description: You tried toolrank. Tell us how it went, good or bad; it decides what comes next.
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying toolrank. Only the first two questions are required. Please leave out
+        secrets, API keys and tool definitions you cannot share.
+  - type: textarea
+    id: setup
+    attributes:
+      label: What did you set up?
+      description: >-
+        The agent or client (Claude Code, Claude Desktop, the Claude or OpenAI API, LangGraph,
+        LlamaIndex, LiteLLM, your own), how you ran toolrank (pip, Docker) and where the embedding
+        model ran.
+    validations:
+      required: true
+  - type: dropdown
+    id: tools
+    attributes:
+      label: How many tools did you index?
+      options:
+        - fewer than 50
+        - 50 to 200
+        - 200 to 1,000
+        - more than 1,000
+    validations:
+      required: true
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked?
+  - type: textarea
+    id: did-not
+    attributes:
+      label: What did not work, or got in the way?
+      description: Wrong tools picked, set-up steps, a source it cannot read, speed, anything.
+  - type: textarea
+    id: every-day
+    attributes:
+      label: What would make you use it every day?
+  - type: checkboxes
+    id: follow-up
+    attributes:
+      label: Follow-up
+      options:
+        - label: The maintainers may quote this feedback, without my name, in the project's reports.
+        - label: I would talk for 30 minutes about my setup; reach me through this issue.

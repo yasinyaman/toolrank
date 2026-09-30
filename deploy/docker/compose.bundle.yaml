@@ -1,0 +1,44 @@
+# toolrank and vLLM in one container (the toolrank-vllm image): the same setup as compose.yaml with
+# one service to run. The image is built here from the repository, on top of the official vLLM image
+# (about 10 GB to pull the first time; the build also fetches the released heads). From this
+# directory:
+#
+#   cp .env.example .env                  # set TOOLRANK_API_KEY
+#   docker compose -f compose.bundle.yaml run --rm toolrank ingest mcp --config /config/toolrank.json --out /data
+#   docker compose -f compose.bundle.yaml up -d
+#
+# Every command that embeds starts vLLM first (a minute or two; the first start downloads 16 GB).
+name: toolrank-bundled
+
+services:
+  toolrank:
+    image: toolrank-vllm
+    pull_policy: build # not published: always built from this checkout (cached after the first build)
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.vllm
+    environment:
+      TOOLRANK_API_KEY: ${TOOLRANK_API_KEY:?set TOOLRANK_API_KEY in .env}
+      TOOLRANK_FP8: ${TOOLRANK_FP8:-1}
+      TOOLRANK_ALLOWED_HOSTS: toolrank
+      VLLM_GPU_MEMORY_UTILIZATION: ${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
+    volumes:
+      - data:/data
+      - models:/models
+      - ./toolrank.json:/config/toolrank.json:ro
+    command: [serve, --data, /data, --config, /config/toolrank.json, --host, 0.0.0.0]
+    ports:
+      - "127.0.0.1:${TOOLRANK_PORT:-8765}:8765"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  data:
+  models:

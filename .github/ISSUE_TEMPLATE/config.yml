@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/yasinyaman/toolrank/security/advisories/new
+    about: Privately, please; see SECURITY.md.
+  - name: Questions and ideas
+    url: https://github.com/yasinyaman/toolrank/discussions
+    about: Ask, or share how you use toolrank.
+  - name: Documentation
+    url: https://yasinyaman.github.io/toolrank/
+    about: Quick start, guides and the CLI reference.

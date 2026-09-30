@@ -1,0 +1,103 @@
+[project]
+name = "toolrank"
+dynamic = ["version"]
+description = "Tool retrieval for LLM agents with hundreds of tools: an embedding model plus small learned heads picks the few tools a request needs, served over MCP and REST."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Toolrank contributors" }]
+keywords = ["llm", "agents", "tool-retrieval", "tool-search", "mcp", "embeddings", "retrieval"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.26",
+    "bm25s>=0.2",
+]
+
+[project.optional-dependencies]
+# `toolrank data pull toolret` needs the Hugging Face datasets library (run once, on a machine with Hub access).
+data = ["datasets>=2.19", "huggingface_hub>=0.23"]
+# Snowball stemming for BM25 (the ToolRet paper's BM25s baseline is unstemmed: --no-stem).
+stem = ["PyStemmer>=2.2"]
+# CLM projection heads (the encoder itself runs in vLLM; only the 20M-parameter heads run here).
+clm = ["torch>=2.2"]
+# `toolrank ingest mcp` (list tools from MCP servers) and `toolrank serve` (MCP proxy + REST).
+mcp = ["mcp>=2.2,<3"]
+# `toolrank ingest openapi` on YAML specs (JSON needs nothing).
+openapi = ["pyyaml>=6"]
+# Agent-platform integrations (toolrank.integrations never imports the SDKs; the examples do).
+anthropic = ["anthropic>=1.9"]
+openai = ["openai>=3.22"]
+# Framework adapters: LangGraph tools (langgraph-bigtool is installed apart: its release needs
+# langgraph<1) and the LlamaIndex tool retriever. The LiteLLM filter has no extra: it runs inside the
+# proxy's own environment, and litellm pins openai<3.
+langgraph = ["langchain-core>=1.0"]
+llamaindex = ["llama-index-core>=0.14"]
+# Vector indexes besides the default numpy one: FAISS HNSW, and Postgres with pgvector.
+faiss = ["faiss-cpu>=1.15"]
+pgvector = ["psycopg[binary]>=3.2", "pgvector>=0.4"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+    "PyStemmer>=2.2",
+    "mcp>=2.2,<3",
+    "pyyaml>=6",
+    "faiss-cpu>=1.15",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.4",
+    "anthropic>=1.9",
+    "openai>=3.22",
+    "langchain-core>=1.0",
+    "llama-index-core>=0.14",
+]
+
+[dependency-groups]
+# the documentation site: uv run --group docs mkdocs serve
+docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.7,<10", "mkdocstrings[python]>=1.0,<2"]
+
+[project.scripts]
+toolrank = "toolrank.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yasinyaman/toolrank"
+Documentation = "https://yasinyaman.github.io/toolrank/"
+Repository = "https://github.com/yasinyaman/toolrank"
+Issues = "https://github.com/yasinyaman/toolrank/issues"
+Changelog = "https://github.com/yasinyaman/toolrank/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/toolrank/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/toolrank"]
+
+# The sdist carries what builds and tests the package, not the repo's plans, benchmarks or deploy files.
+[tool.hatch.build.targets.sdist]
+include = ["/src/toolrank", "/tests", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

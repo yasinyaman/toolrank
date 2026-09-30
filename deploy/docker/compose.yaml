@@ -1,0 +1,71 @@
+# toolrank and its embedding backbone on one GPU host: vLLM serves Qwen3-Embedding-8B, toolrank serves
+# your tools in front of it on 127.0.0.1:8765 (MCP at /mcp, REST at /v1). From this directory:
+#
+#   cp .env.example .env                  # set TOOLRANK_API_KEY
+#   docker compose run --rm toolrank ingest mcp --config /config/toolrank.json --out /data
+#   docker compose up -d
+#
+# List your MCP servers in toolrank.json (OpenAPI specs: `ingest openapi SPEC --name NAME --out /data`)
+# and re-run the ingest line after a change: the running server picks the new catalogue up.
+# compose.bundle.yaml runs both in one container instead.
+name: toolrank-stack
+
+services:
+  embedding:
+    image: vllm/vllm-openai:v0.30.0
+    # FP8 weights, quantized at load: the same retrieval quality as bf16 in our runs, half the memory.
+    # For bf16, drop --quantization and serve as qwen3-emb (and set TOOLRANK_EMB_MODEL to match).
+    command:
+      - Qwen/Qwen3-Embedding-8B
+      - --served-model-name=qwen3-emb-fp8
+      - --quantization=fp8
+      - --runner=pooling
+      - --max-model-len=8192
+      - --no-enable-chunked-prefill
+      - --max-num-batched-tokens=8192
+      - --gpu-memory-utilization=${VLLM_GPU_MEMORY_UTILIZATION:-0.9}
+    ipc: host
+    volumes:
+      - models:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30m # the first start downloads 16 GB of weights
+      start_interval: 10s
+    restart: unless-stopped
+
+  toolrank:
+    image: ghcr.io/yasinyaman/toolrank:${TOOLRANK_VERSION:-latest}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      TOOLRANK_API_KEY: ${TOOLRANK_API_KEY:?set TOOLRANK_API_KEY in .env}
+      TOOLRANK_EMB_URL: http://embedding:8000/v1
+      TOOLRANK_EMB_MODEL: qwen3-emb-fp8
+      TOOLRANK_ALLOWED_HOSTS: toolrank
+    volumes:
+      - data:/data
+      - home:/home/toolrank # uvx and npx caches, so stdio servers start without a download
+      - ./toolrank.json:/config/toolrank.json:ro
+    command: [serve, --data, /data, --config, /config/toolrank.json, --host, 0.0.0.0]
+    ports:
+      - "127.0.0.1:${TOOLRANK_PORT:-8765}:8765"
+    depends_on:
+      embedding:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  models:
+  data:
+  home:

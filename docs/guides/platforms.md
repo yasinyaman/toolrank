@@ -1,0 +1,61 @@
+# Claude and OpenAI tool search
+
+Claude's Messages API and OpenAI's Responses API can both keep tool definitions out of the model's
+context and load them when a search finds them. toolrank can be that search.
+`toolrank.integrations` does the protocol work without importing the vendors' SDKs; the examples
+use the official ones.
+
+```bash
+pip install "toolrank[mcp,anthropic,openai]"
+toolrank serve --data tools/ --config toolrank.json                       # in another shell
+python examples/anthropic_tool_reference.py "What time is it in Tokyo?"   # ANTHROPIC_API_KEY
+python examples/openai_client_tool_search.py "What time is it in Tokyo?"  # OPENAI_API_KEY
+```
+
+## Claude (Messages API)
+
+Every catalogue tool is sent with `defer_loading: true`, so none takes context. Claude sees one
+ordinary tool, `search_tools`; toolrank answers it with `tool_reference` blocks, which the API
+expands into the tools found, and runs the calls Claude then makes.
+
+```python
+import anthropic
+from toolrank.client import ToolrankClient
+from toolrank.integrations import anthropic as tr
+
+result = tr.run(anthropic.Anthropic(), ToolrankClient(), "What time is it in Tokyo?", model="claude-opus-5-5")
+print(result.text)
+```
+
+- References name only tools of the catalogue snapshot sent with the request (an unknown name fails
+  the whole request), and the tool list stays the same for the whole conversation.
+- The deferred definitions travel with every request (1,862 tools: 3.7 MB) but stay out of the
+  prompt cache. `Toolbox(..., builtin="bm25")` swaps in the API's own tool search, for comparison.
+- In our runs toolrank's search used 37 to 60% fewer input tokens than the API's own BM25 search,
+  at the cost of one extra turn per search (the search runs on your side).
+
+## OpenAI (Responses API)
+
+The request declares only `tool_search` with `execution: "client"`. toolrank answers each
+`tool_search_call` with the full definitions of the tools found, and the loop stays stateless
+(`store=False`, encrypted reasoning).
+
+```python
+from openai import OpenAI
+from toolrank.client import ToolrankClient
+from toolrank.integrations import openai as tr
+
+result = tr.run(OpenAI(), ToolrankClient(), "What time is it in Tokyo?", model="gpt-5.5")
+```
+
+Loaded definitions are sent again on every later turn: broad searches over large schemas add up.
+
+## On both
+
+- The calls go through `POST /v1/call`, with the same write policy, usage log and error hints as
+  over MCP.
+- Tools are named by their api name (`github/issues/create` becomes `github__issues__create`).
+- The examples ask before any call that could change something (neither `readOnlyHint` nor a GET)
+  unless `--yes`. A tool's output reaches the model, so treat it like any other input.
+- Code with its own loop can use `toolrank.client.ToolrankClient` or each integration's `Toolbox`
+  directly.

@@ -1,0 +1,35 @@
+# The LiteLLM proxy with toolrank, two ways; use either or both.
+#
+# 1. The tool filter: a request that carries many tools reaches the model with the ones toolrank
+#    ranks relevant to the conversation (Chat Completions, Responses and Anthropic Messages).
+#    Install toolrank into the proxy's environment (no extra needed) and point it at a running
+#    `toolrank serve`: TOOLRANK_URL, TOOLRANK_API_KEY, TOOLRANK_FILTER_MIN_TOOLS (20),
+#    TOOLRANK_FILTER_MAX_TOOLS (10), TOOLRANK_FILTER_MARGIN (0.2), TOOLRANK_FILTER_TIMEOUT (2 s).
+# 2. toolrank behind LiteLLM's MCP gateway: clients of the gateway get toolrank's search_tools
+#    and call_tool instead of every tool of every server.
+#
+#   toolrank serve --data data/mytools --port 8765
+#   uv pip install 'litellm[proxy]' -e /path/to/toolrank
+#   TOOLRANK_URL=http://127.0.0.1:8765 litellm --config examples/litellm/config.yaml --port 4000
+
+model_list:
+  - model_name: claude
+    litellm_params:
+      model: anthropic/claude-opus-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: gpt
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  callbacks: toolrank.integrations.litellm.tool_filter
+
+mcp_servers:
+  toolrank:
+    url: http://127.0.0.1:8765/mcp
+    transport: http
+    description: Search and call the tools indexed by toolrank
+    # with `toolrank serve --api-key`:
+    # auth_type: bearer_token
+    # authentication_token: os.environ/TOOLRANK_API_KEY

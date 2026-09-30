@@ -1,0 +1,21 @@
+# Keep the workflows' actions current (they were four majors behind before the first run).
+# They are pinned to commits with the version in a comment; Dependabot moves both.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # The images' base images (deploy/docker/Dockerfile*), pinned by tag and digest.
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule:
+      interval: weekly
+    ignore:
+      # the Python and Node lines are chosen by hand: only their rebuilt digests and patch releases move
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      # a new vLLM is a new embedding server: measured against the old one before it is adopted
+      - dependency-name: vllm/vllm-openai

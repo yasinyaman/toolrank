@@ -1,0 +1,110 @@
+import hashlib
+import json
+
+import numpy as np
+import pytest
+
+from toolrank.adapters.embeddings_api import OpenAIEmbeddings
+from toolrank.cli import main
+from toolrank.datasets.jsonl import write_tools
+from toolrank.domain import Tool
+from toolrank.ingest.text import tool_text
+
+
+@pytest.fixture
+def fake_endpoint(monkeypatch):
+    """16-d vectors from a text hash, plus the texts each call sent."""
+    sent: list[list[str]] = []
+
+    def fake_post(self, texts):
+        sent.append(list(texts))
+        rows = []
+        for t in texts:
+            seed = int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)
+            rows.append(np.random.default_rng(seed).standard_normal(16).astype(np.float32))
+        return rows, 5 * len(texts)
+
+    monkeypatch.setattr(OpenAIEmbeddings, "_post", fake_post)
+    return sent
+
+
+@pytest.fixture
+def ingest_dir(tmp_path, monkeypatch):
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    monkeypatch.setenv("TOOLRANK_CACHE", str(tmp_path / "no-heads"))
+    tools = [
+        Tool(
+            id=f"mail/{n}",
+            doc={"server": "mail", "name": n, "description": d},
+            documentation=tool_text("mail", n, d),
+            category="mail",
+        )
+        for n, d in [("send", "Send an email"), ("list", "List the inbox"), ("delete", "Delete a message")]
+    ]
+    write_tools(tmp_path / "tools" / "tools.jsonl", tools)
+    return tmp_path / "tools"
+
+
+def _args(ingest_dir, tmp_path, *extra):
+    return [
+        "search",
+        "send an email to Ada",
+        "--data",
+        str(ingest_dir),
+        "--cache-dir",
+        str(tmp_path / "c"),
+        *extra,
+    ]
+
+
+def test_search_uses_raw_qwen3_without_heads_and_keeps_its_index(ingest_dir, tmp_path, fake_endpoint, capsys):
+    assert main(_args(ingest_dir, tmp_path, "--k", "2")) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("dense/emb/qwen3-emb/documentation/instruct_query")
+    assert "3 tools; index" in out and "(embedded 3, kept 0)" in out and "top 2" in out
+    assert len([line for line in out.splitlines() if line.strip().startswith(("1.", "2.", "3."))]) == 2
+    assert (ingest_dir / "index" / "index.npz").exists()
+    main(_args(ingest_dir, tmp_path, "--json"))
+    got = json.loads(capsys.readouterr().out)
+    assert got["instruction"].startswith("Given an agent's request for a tool")
+    assert {t["server"] for t in got["tools"]} == {"mail"} and 1 <= len(got["tools"]) <= 3
+    main(_args(ingest_dir, tmp_path))
+    assert "(embedded 0, kept 3)" in capsys.readouterr().out  # index and query both from caches
+
+
+def test_search_picks_up_heads_from_toolrank_heads(ingest_dir, tmp_path, fake_endpoint, monkeypatch, capsys):
+    from test_heads_np import _case_npz
+
+    serving = {"tool_format": "documentation", "query_format": "instruct_query", "instruction": "Find tools."}
+    monkeypatch.setenv("TOOLRANK_HEADS", str(_case_npz(tmp_path, "gelu_layernorm_skip", serving=serving)))
+    main(_args(ingest_dir, tmp_path, "--json", "--no-cut"))
+    got = json.loads(capsys.readouterr().out)
+    assert got["scorer"].startswith("clm[gelu_layernorm_skip]/") and got["instruction"] == "Find tools."
+    assert len(got["tools"]) == 3
+
+
+def test_ingest_warms_the_cache_that_search_reads(tmp_path, fake_endpoint, monkeypatch):
+    from test_ingest_cli import _write_spec
+
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    monkeypatch.setenv("TOOLRANK_CACHE", str(tmp_path / "no-heads"))
+    out, url = tmp_path / "tools", ["--emb-url", "http://unused/v1"]
+    assert main(["ingest", "openapi", _write_spec(tmp_path / "billing.json"), "--out", str(out), *url]) == 0
+    assert (out / "cache" / "embeddings.sqlite").exists() and sum(len(b) for b in fake_endpoint) == 2
+    fake_endpoint.clear()
+    assert main(["search", "list my invoices", "--data", str(out), *url]) == 0
+    assert [len(b) for b in fake_endpoint] == [1]  # only the request: both tools came from DATA/cache
+
+
+def test_a_server_without_heads_says_so(ingest_dir, tmp_path, fake_endpoint, monkeypatch):
+    from test_heads_np import _case_npz
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+
+    events: list[str] = []
+    build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
+    assert [e for e in events if e.startswith("no heads found")] != []
+    events.clear()
+    monkeypatch.setenv("TOOLRANK_HEADS", str(_case_npz(tmp_path, "gelu_layernorm_skip")))
+    build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
+    assert [e for e in events if e.startswith("no heads found")] == []

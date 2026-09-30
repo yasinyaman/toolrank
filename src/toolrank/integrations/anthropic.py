@@ -1,0 +1,285 @@
+"""toolrank as the tool search of Claude's Messages API.
+
+Every catalogue tool goes to the API with ``defer_loading: true``, so none of them takes context;
+one ordinary tool, ``search_tools``, does not. When Claude calls it, toolrank searches, and the
+``tool_result`` names the tools found in ``tool_reference`` blocks; the API expands those into the
+full definitions, which Claude can call in this turn and later ones, and toolrank runs the calls
+(``/v1/call``). This is the Messages API's tool search, GA with no beta header, on Claude Opus 4.5
+and later, Sonnet 4.5 and later, and Haiku 4.5.
+
+The API's rules the ``Toolbox`` keeps:
+- at most 10,000 deferred tools per request, names ``^[a-zA-Z0-9_-]{1,128}$`` (toolrank's api
+  names fit), and at least one tool not deferred (the search tool);
+- a reference to a name the request does not declare fails the whole request, so references only
+  name tools of the catalogue snapshot sent;
+- the tool list is taken once and sent unchanged every turn: loaded references and thinking
+  blocks belong to the exact history, which is only ever appended to;
+- every ``tool_use`` of a response is answered, in order, in one user message; server tool uses
+  are the API's to answer; nothing runs after ``max_tokens`` or ``refusal``.
+
+Deferred definitions stay out of the prompt cache's prefix but still travel with every request:
+data/w3's 1,862 tools are 3.7 MB. ``builtin="bm25"`` swaps ``search_tools`` for the API's own
+``tool_search_tool_bm25`` over the same deferred tools, for comparison.
+
+    import anthropic
+    from toolrank.client import ToolrankClient
+    from toolrank.integrations import anthropic as tr
+
+    result = tr.run(anthropic.Anthropic(), ToolrankClient(), "What time is it in Tokyo?",
+                    model="claude-opus-5-5")
+    print(result.text)
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from toolrank.client import ToolrankClient, ToolrankError
+from toolrank.integrations._common import Approve, OnEvent, capped, get
+
+SEARCH_TOOL = "search_tools"
+BUILTIN = {"bm25": "tool_search_tool_bm25_20251119", "regex": "tool_search_tool_regex_20251119"}
+MAX_DEFERRED = 10_000
+MAX_REFERENCES = 10
+IMAGE_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
+
+
+def _result(tool_use_id: str, content: Any, *, is_error: bool = False) -> dict[str, Any]:
+    out: dict[str, Any] = {"type": "tool_result", "tool_use_id": tool_use_id, "content": content}
+    if is_error:
+        out["is_error"] = True
+    return out
+
+
+def blocks(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """MCP content as Messages API blocks: text, images as base64 image blocks, the rest as JSON
+    text; empty text dropped (the API rejects it) and the text capped."""
+    out: list[dict[str, Any]] = []
+    for c in content:
+        if c.get("type") == "image" and c.get("mimeType") in IMAGE_TYPES and c.get("data"):
+            source = {"type": "base64", "media_type": c["mimeType"], "data": c["data"]}
+            out.append({"type": "image", "source": source})
+            continue
+        text = c.get("text") if c.get("type") == "text" else json.dumps(c, ensure_ascii=False)
+        if text:
+            out.append({"type": "text", "text": capped(text)})
+    return out or [{"type": "text", "text": "(the tool returned nothing)"}]
+
+
+class Toolbox:
+    """One conversation's tools: the frozen tool list for the API, and what toolrank found and ran.
+
+    ``respond(response)`` answers a response's tool calls; ``approve(entry, arguments)`` may veto a
+    call; ``on_event(kind, details)`` sees every search, call and turn."""
+
+    def __init__(
+        self,
+        toolrank: ToolrankClient,
+        *,
+        servers: Sequence[str] | None = None,
+        builtin: str | None = None,
+        approve: Approve | None = None,
+        on_event: OnEvent | None = None,
+        session: str | None = None,
+    ):
+        if builtin is not None and builtin not in BUILTIN:
+            raise ValueError(f"builtin must be one of {sorted(BUILTIN)}")
+        catalog = toolrank.catalog()
+        entries = [t for t in catalog["tools"] if not servers or t["server"] in set(servers)]
+        if len(entries) > MAX_DEFERRED:
+            raise ValueError(
+                f"{len(entries)} tools, but a request defers at most {MAX_DEFERRED}: pass servers=[...]"
+            )
+        self.toolrank, self.builtin, self.approve = toolrank, builtin, approve
+        self.on_event: OnEvent = on_event or (lambda kind, details: None)
+        self.session = session or f"anthropic-{uuid.uuid4().hex[:12]}"
+        self.catalog = catalog.get("catalog")
+        self.entries: dict[str, dict[str, Any]] = {t["api_name"]: t for t in entries}
+        self.found: dict[str, str] = {}  # api name -> the search that returned it
+        if builtin is not None:
+            search: dict[str, Any] = {"type": BUILTIN[builtin], "name": f"tool_search_tool_{builtin}"}
+        else:
+            if SEARCH_TOOL in self.entries:
+                raise ValueError(f"a catalogue tool is named {SEARCH_TOOL!r}")
+            sources = ", ".join(sorted({t["server"] for t in entries}))
+            search = {
+                "name": SEARCH_TOOL,
+                "description": (
+                    f"Search {len(entries)} tools ({sources}) for the ones a task needs. Describe the "
+                    "task, or the step you are about to take, in plain words; the matching tools then "
+                    "become available to call. If none fits, search again in other words."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "What you want to do, in plain words."},
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": MAX_REFERENCES,
+                            "description": "How many tools at most; default: as many as the request needs.",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            }
+        deferred = [
+            {
+                "name": n,
+                "description": t["description"],
+                "input_schema": t["inputSchema"],
+                "defer_loading": True,
+            }
+            for n, t in self.entries.items()
+        ]
+        self.tools: list[dict[str, Any]] = [search, *deferred]
+
+    # -- one response ---------------------------------------------------------------------------
+    def respond(self, response: Any) -> dict[str, Any] | None:
+        """The user message that answers ``response``'s tool calls; None when there are none to
+        answer (end of turn, ``max_tokens``, ``refusal``, ``pause_turn``: see ``run``)."""
+        content = get(response, "content") or []
+        self._builtin_searches(content)
+        if get(response, "stop_reason") != "tool_use":
+            return None
+        results = [self._answer(b) for b in content if get(b, "type") == "tool_use"]
+        return {"role": "user", "content": results} if results else None
+
+    def _answer(self, block: Any) -> dict[str, Any]:
+        tool_use_id, name, args = get(block, "id"), get(block, "name"), get(block, "input") or {}
+        if name == SEARCH_TOOL and self.builtin is None:
+            return self._search(tool_use_id, args)
+        return self._call(tool_use_id, name, args)
+
+    def _search(self, tool_use_id: str, args: dict[str, Any]) -> dict[str, Any]:
+        query = str(args.get("query") or "").strip()
+        limit = args.get("limit")
+        k = None
+        if isinstance(limit, int | float) and not isinstance(limit, bool):
+            k = max(1, min(int(limit), MAX_REFERENCES))
+        t0 = time.perf_counter()
+        try:
+            found = self.toolrank.search(query, k=k, session=self.session)
+        except ToolrankError as e:
+            self.on_event("search", {"query": query, "error": e.message})
+            return _result(tool_use_id, f"The tool search failed: {e.message}", is_error=True)
+        names: list[str] = []
+        for hit in found.get("tools", []):
+            name = hit.get("api_name")
+            if name in self.entries and name not in names and len(names) < MAX_REFERENCES:
+                names.append(name)
+                self.found[name] = found["search_id"]
+        self.on_event(
+            "search",
+            {
+                "query": query,
+                "tools": [self.entries[n]["name"] for n in names],
+                "mode": found.get("mode"),
+                "ms": round((time.perf_counter() - t0) * 1000.0, 1),
+            },
+        )
+        if not names:
+            return _result(tool_use_id, "No tool matches that. Describe the task in other words.")
+        return _result(tool_use_id, [{"type": "tool_reference", "tool_name": n} for n in names])
+
+    def _call(self, tool_use_id: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        entry = self.entries.get(name)
+        if entry is None:
+            return _result(tool_use_id, f"There is no tool named {name!r}.", is_error=True)
+        if self.approve is not None and not self.approve(entry, args):
+            self.on_event("call", {"tool": entry["name"], "outcome": "declined"})
+            return _result(tool_use_id, "The user declined this call.", is_error=True)
+        t0 = time.perf_counter()
+        try:
+            out = self.toolrank.call(
+                entry["name"], args, search_id=self.found.get(name), session=self.session
+            )
+        except ToolrankError as e:
+            self.on_event("call", {"tool": entry["name"], "outcome": "error", "error": e.message})
+            return _result(tool_use_id, f"toolrank could not run {entry['name']}: {e.message}", is_error=True)
+        ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        self.on_event("call", {"tool": entry["name"], "outcome": out.get("outcome"), "ms": ms})
+        return _result(tool_use_id, blocks(out.get("content") or []), is_error=bool(out.get("isError")))
+
+    def _builtin_searches(self, content: list[Any]) -> None:
+        """Report the API's own tool searches (``builtin``), which it runs and answers itself."""
+        queries = {
+            get(b, "id"): get(b, "input") or {} for b in content if get(b, "type") == "server_tool_use"
+        }
+        for b in content:
+            if get(b, "type") != "tool_search_tool_result":
+                continue
+            refs = get(get(b, "content"), "tool_references") or []
+            names = [get(r, "tool_name") for r in refs]
+            query = queries.get(get(b, "tool_use_id"), {})
+            self.on_event(
+                "search",
+                {
+                    "query": query.get("query") or query.get("pattern"),
+                    "tools": [self.entries[n]["name"] if n in self.entries else n for n in names],
+                    "mode": f"anthropic {self.builtin}",
+                },
+            )
+
+
+@dataclass
+class Result:
+    text: str  # the last response's text
+    stop_reason: str | None
+    turns: int
+    messages: list[Any] = field(repr=False)
+    usage: dict[str, int] = field(default_factory=dict)
+
+
+def run(
+    llm: Any,
+    toolrank: ToolrankClient | Toolbox,
+    task: str,
+    *,
+    model: str,
+    max_tokens: int = 4096,
+    max_turns: int = 12,
+    **create: Any,
+) -> Result:
+    """A reference loop: ``llm`` is an ``anthropic.Anthropic()`` (or its ``.beta``); ``create``
+    goes to every ``messages.create``. Stops when a response asks for no tool, on ``max_tokens``,
+    ``refusal`` and unknown stop reasons, or after ``max_turns`` requests; ``pause_turn`` is sent
+    back as is."""
+    box = toolrank if isinstance(toolrank, Toolbox) else Toolbox(toolrank)
+    messages: list[Any] = [{"role": "user", "content": task}]
+    usage: dict[str, int] = {}
+    response: Any = None
+    turn = 0
+    for turn in range(1, max_turns + 1):
+        response = llm.messages.create(
+            model=model, max_tokens=max_tokens, tools=box.tools, messages=messages, **create
+        )
+        for key, value in dict(_fields(get(response, "usage"))).items():
+            if isinstance(value, int):
+                usage[key] = usage.get(key, 0) + value
+        messages.append({"role": "assistant", "content": get(response, "content")})
+        stop = get(response, "stop_reason")
+        box.on_event("turn", {"turn": turn, "stop_reason": stop})
+        if stop == "pause_turn":
+            continue
+        reply = box.respond(response)
+        if reply is None:
+            break
+        messages.append(reply)
+    content = get(response, "content") or []
+    text = "".join(get(b, "text") or "" for b in content if get(b, "type") == "text")
+    return Result(text, get(response, "stop_reason"), turn, messages, usage)
+
+
+def _fields(obj: Any) -> dict[str, Any]:
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    dump = getattr(obj, "model_dump", None)
+    return dump() if callable(dump) else dict(vars(obj))
