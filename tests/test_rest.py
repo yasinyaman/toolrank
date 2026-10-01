@@ -413,3 +413,46 @@ def test_a_container_bind_answers_its_names_with_or_without_a_port(tmp_path):
             assert c.post("/mcp", json=init, headers={**auth, "Host": host}).status_code == 200, host
         assert c.get("/v1/tools", headers={**auth, "Host": "evil.example.com"}).status_code == 421
         assert c.post("/mcp", json=init, headers={**auth, "Host": "evil.example.com"}).status_code == 421
+
+
+def test_metrics_route_counts_searches_and_sits_behind_the_token(tmp_path):
+    from toolrank.metrics import tool_tokens
+
+    app, retriever = _app(tmp_path, api_key="sekrit", named_keys={"acme": "acme-key"})
+    auth = {"Authorization": "Bearer sekrit"}
+    with TestClient(app, base_url=BASE) as c:
+        assert c.get("/v1/metrics").status_code == 401
+        first = c.get("/v1/metrics", headers=auth)
+        assert first.status_code == 200 and first.headers["content-type"].startswith(
+            "text/plain; version=0.0.4"
+        )
+        assert "toolrank_searches_total 0" in first.text and "toolrank_index_ready 1" in first.text
+        assert "toolrank_catalog_tools 3" in first.text and "toolrank_catalog_sources 2" in first.text
+        whole = sum(tool_tokens(t) for t in _tools())
+        assert f"toolrank_catalog_tokens {whole}" in first.text
+        assert c.post("/v1/search", json={"query": "add", "k": 1}, headers=auth).status_code == 200
+        assert (
+            c.post(
+                "/v1/search", json={"query": "issues"}, headers={"Authorization": "Bearer acme-key"}
+            ).status_code
+            == 200
+        )
+        text = c.get("/v1/metrics", headers=auth).text
+        status = retriever.status()  # the same server, had it been following a heads directory
+        variants = {"sha": "x", "ready": True, "error": None}
+        heads = {"base": "abc", "candidate": variants, "tenant:acme:candidate": {**variants, "ready": False}}
+        retriever.status = lambda: {**status, "heads": heads}
+        followed = c.get("/v1/metrics", headers=auth).text
+    assert 'toolrank_searches_total{arm="base",mode="semantic",via="rest"} 2' in text
+    assert "toolrank_search_tools_returned_sum 4" in text and "acme" not in text
+    returned = float(
+        next(x for x in text.splitlines() if x.startswith("toolrank_search_returned_tokens_total")).split()[1]
+    )
+    saved = float(
+        next(x for x in text.splitlines() if x.startswith("toolrank_search_saved_tokens_total")).split()[1]
+    )
+    assert returned + saved == 2 * whole and 0 < returned <= whole + max(tool_tokens(t) for t in _tools())
+    assert f'toolrank_build_info{{version="{__import__("toolrank").__version__}"}} 1' in text
+    assert "toolrank_heads" not in text  # this server follows no heads directory
+    assert 'toolrank_heads{arm="base"} 1' in followed and 'toolrank_heads{arm="candidate"} 1' in followed
+    assert 'toolrank_heads{arm="tenant-candidate"} 0' in followed and "acme" not in followed

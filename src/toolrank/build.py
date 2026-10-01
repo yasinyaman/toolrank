@@ -338,7 +338,7 @@ def build_retriever(
             notify(
                 f"co-use: {len(co_use.table())} tools have partners in the usage log (up to {extra} added)"
             )
-    return Retriever(
+    retriever = Retriever(
         Path(a.data),
         make,
         rule=rule,
@@ -357,6 +357,8 @@ def build_retriever(
         co_use=co_use,
         co_use_extra=extra,
     )
+    retriever.encoder = enc
+    return retriever
 
 
 def serving_of(scorer: Any) -> dict[str, Any]:

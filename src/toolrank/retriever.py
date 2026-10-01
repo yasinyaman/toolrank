@@ -166,6 +166,7 @@ class Retriever:
         self._variants_lock = threading.Lock()
         # a ``couse.CoUseTable`` (anything with ``table()``) and how many partners a result may gain
         self.co_use, self.co_use_extra = co_use, co_use_extra
+        self.encoder: Any = None  # the composition root may leave the encoder here for the metrics
         self._state: _State | None = None
         self._fallback: _State | None = None  # only until the first semantic state exists
         self._error: BaseException | None = None

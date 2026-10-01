@@ -155,6 +155,7 @@ docker compose -f deploy/spark/compose.yaml --profile pg up -d toolrank-pg      
 # --config = an MCP client file (+ "openapi": {source: {base_url, headers}}, ${ENV} expanded); search flags apply
 TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank serve --data data/mytools --config toolrank.json
 curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" -d '{"query": "refund this payment"}' http://127.0.0.1:8765/v1/search
+curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" http://127.0.0.1:8765/v1/metrics      # Prometheus text (Faz 2 week 6)
 # end to end on the Mac, embeddings from the GB10: MCP over HTTP and stdio, REST, usage log, cold start
 uv run python scripts/serve_e2e.py --data data/w3 --emb-url http://$GB10:8091/v1 \
   --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/serve_e2e_w3.json
@@ -317,6 +318,14 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   own `k`). The log keeps them apart: `shown` is what the ranking returned, `added` the partners; `learn.mine`
   counts both as shown. A "no tool fits" gate is `--cut-threshold T --cut-min 0` (an empty list plus a note in
   `search_tools`); there is no default T, the best cosine does not separate well (`docs/reports/faz2-week5.md`).
+- **Metrics** (Faz 2 week 6, `GET /v1/metrics`, Prometheus text 0.0.4, under `Guard` like the rest of `/v1`):
+  `UsageLog` owns a `metrics.Metrics` and feeds it from `search()` and `call()`, so MCP and REST are counted
+  alike and `--no-usage-log` stops the files, not the counters; a failing counter never fails a request. The
+  route adds what it reads off the retriever at scrape time (catalogue size, index readiness, heads variants,
+  `retriever.encoder`'s cache-hit counts). Token estimate: `tool_tokens` = name + description + input schema as
+  JSON at 4 characters a token; a search's saving is the catalogue's total minus what it returned, and the
+  catalogue is sized in a background thread (searches meanwhile claim nothing). No request text, arguments or
+  key names in labels (`arm_kind`); the counters are server-wide and reset with the process.
 - **Jev** (TypeSafe AI's "System One" model, `adapters/jev.py`): no text, one Choice question over
   up to 255 options returns a probability per option. `--rerank jev` wraps any scorer (BM25, dense,
   clm, hybrid): the base top `--rerank-depth` becomes one Choice per query, probabilities are the
@@ -479,6 +488,7 @@ src/toolrank/adapters/rest.py     rest_routes (/v1/search, /v1/rank, /v1/call, /
 src/toolrank/retriever.py         Retriever (state swap, background first index; pick: heads variants current/candidate/tenant), bucket, Hit, SearchResult
 src/toolrank/usage.py             UsageLog (schema v3: search and call events, HMAC digests, client key, call → search links), read_events
 src/toolrank/couse.py             co_use (log -> tool partners), partners / expand, CoUseTable (a server's table, refreshed in the background)
+src/toolrank/metrics.py           Metrics (Prometheus counters and histograms of searches and calls, the token estimate), tool_tokens
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
 src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)
 src/toolrank/integrations/        anthropic.py, openai.py (Toolbox, run), _common.py (read_only, get);

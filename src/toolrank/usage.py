@@ -42,6 +42,7 @@ no longer logged as text; unknown tool names are cut.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
 import os
@@ -55,6 +56,8 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+
+from toolrank.metrics import Metrics
 
 SCHEMA_VERSION = 3
 
@@ -123,6 +126,7 @@ class UsageLog:
         self._key = self._load_key() if self.dir is not None else secrets.token_bytes(32)
         self._lock = threading.Lock()
         self._searches: OrderedDict[str, _Seen] = OrderedDict()
+        self.metrics = Metrics()  # counts what is logged (and still counts when the files are off)
 
     # -- storage -------------------------------------------------------------------------------
     def _load_key(self) -> bytes:
@@ -180,6 +184,8 @@ class UsageLog:
         sid = "s-" + uuid.uuid4().hex[:16]
         ranks = {h.id: n for n, h in enumerate(result.hits, 1)}
         added = int(getattr(result, "added", 0) or 0)  # trailing hits that came from co-use
+        with contextlib.suppress(Exception):  # a counter must never cost a search its answer
+            self.metrics.search(result, via=via, arm=arm)
         with self._lock:
             self._searches[sid] = _Seen(session, client, via, ranks)
             while len(self._searches) > _KEEP:
@@ -267,6 +273,8 @@ class UsageLog:
             tool = tool[:UNKNOWN_TOOL_CHARS]
         cid = "c-" + uuid.uuid4().hex[:16]
         sid, rank, how = self.link(tool, session, search_id, via=via, client=client)
+        with contextlib.suppress(Exception):
+            self.metrics.call(kind=kind, outcome=outcome, via=via, took_ms=took_ms, link=how, rank=rank)
         args = json.dumps(
             arguments if arguments is not None else {}, sort_keys=True, ensure_ascii=False, default=str
         )

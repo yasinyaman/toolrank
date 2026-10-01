@@ -51,6 +51,12 @@ The catalogue, optionally one server's (`?server=`). With `?full=true`, each too
 schema, annotations and, for OpenAPI operations, the HTTP method, plus the catalogue's hash: the
 one download a platform client needs.
 
+### `GET /v1/metrics`
+
+Prometheus metrics in the text exposition format, behind the same key as the rest of `/v1`: searches
+and calls with their latency histograms, the token estimate, embedding-cache hits, and the
+catalogue's size. See [Metrics](../guides/serve.md#metrics).
+
 ### `GET /healthz`
 
 200 with `{ready, mode, tools, sources, scorer}` once the semantic index is ready, 503 before.

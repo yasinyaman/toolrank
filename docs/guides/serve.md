@@ -57,6 +57,7 @@ The same port serves REST for platforms that search and call tools themselves:
 | `POST /v1/rank` | scores up to 200 tools you pass in, or catalogue ids |
 | `POST /v1/call` | runs a catalogue tool |
 | `GET /v1/tools`, `GET /v1/tools/{id}` | the catalogue (`?full=true` with schemas) |
+| `GET /v1/metrics` | Prometheus metrics |
 | `GET /openapi.json`, `GET /healthz` | the API description; readiness |
 
 See the [REST reference](../reference/rest.md).
@@ -92,6 +93,42 @@ that have a tool and of those that do not overlap, and their scale moves with th
 way requests are written. At a T that turns away 1% of answerable requests, MCP-Zero catches a
 quarter of the unanswerable ones; on LiveMCPBench no threshold is that cheap. The log keeps what a
 turned-away search would have shown (`results`, with `shown: 0`), which is what to calibrate on.
+
+## Metrics
+
+`GET /v1/metrics` answers in Prometheus' text format, behind the same bearer token as the rest of
+`/v1`:
+
+```yaml
+scrape_configs:
+  - job_name: toolrank
+    metrics_path: /v1/metrics
+    authorization: {credentials: "<TOOLRANK_API_KEY>"}
+    static_configs: [{targets: ["127.0.0.1:8765"]}]
+```
+
+| Metric | What it tells you |
+| --- | --- |
+| `toolrank_searches_total{via,mode,arm}`, `toolrank_search_duration_seconds` | traffic and ranking latency (the request's embedding included) |
+| `toolrank_search_tools_returned`, `toolrank_search_empty_total`, `toolrank_search_co_use_added_total` | how many tools a search hands over |
+| `toolrank_search_returned_tokens_total`, `toolrank_search_saved_tokens_total`, `toolrank_catalog_tokens` | the token estimate (below) |
+| `toolrank_calls_total{kind,outcome,via}`, `toolrank_call_duration_seconds` | calls forwarded and how they ended |
+| `toolrank_calls_linked_total{link}`, `toolrank_called_tool_rank` | whether calls can be tied to a search, and where the called tool stood in it |
+| `toolrank_embedding_texts_total{kind,source}`, `toolrank_embedding_tokens_total` | embedding-cache hits (`source="cache"`) against texts sent to the endpoint |
+| `toolrank_catalog_tools`, `toolrank_catalog_sources`, `toolrank_index_ready`, `toolrank_heads{arm}`, `toolrank_build_info` | what is being served |
+
+The token estimate answers "what did searching save over loading every tool?". A tool counts as
+its name, description and input schema in JSON at four characters a token; a search *returned* the
+tokens of the tools it handed over and *saved* the catalogue's total minus that. So
+`saved / (saved + returned)` is the reduction: on a catalogue of 1,862 tools (910k tokens) a search
+returns about 5k, a reduction above 99%. It is an estimate and a floor: schemas are counted in full
+although later hits are shortened, and the first searches after a catalogue change claim nothing
+while the new catalogue is being sized. The share of calls in the top five of their search is
+`toolrank_called_tool_rank_bucket{le="5"} / toolrank_called_tool_rank_count`.
+
+Labels never carry request text, tool arguments or API key names (`arm` says `tenant` for any
+key's own heads), and the counters are server-wide: any valid key can read them. They count what
+the usage log sees and keep counting under `--no-usage-log`; they start at zero with the process.
 
 ## The usage log
 

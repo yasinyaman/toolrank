@@ -42,6 +42,9 @@ change behaviour.
   instead of returning an empty list without a word.
 - `scripts/routing_sweep.py` and `scripts/couse_sweep.py`: the measurements behind the two options
   and the no-tool gate.
+- `GET /v1/metrics`: Prometheus metrics of a running server (searches and calls with latency
+  histograms, where called tools stood in their search, embedding-cache hits, and an estimate of
+  the tokens searching saved over loading the whole catalogue).
 - `scripts/learn_sim.py` and `scripts/learn_sim.sh`: the learning loop measured on simulated traffic.
   A benchmark is served as a catalogue, a share of its queries is logged by an agent that calls the
   gold tools it is shown, `toolrank learn` trains on that log and the queries never served are the

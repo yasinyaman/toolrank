@@ -44,6 +44,7 @@ from toolrank.adapters.mcp_proxy import (
 )
 from toolrank.domain import Tool
 from toolrank.ingest.mcp import tool_from_mcp
+from toolrank.metrics import arm_kind
 from toolrank.names import api_name
 from toolrank.retriever import IndexNotReady, Retriever
 from toolrank.usage import UsageLog
@@ -148,6 +149,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     from starlette.routing import Route
 
     limiter: list[Any] = []  # created inside the event loop
+    if usage.metrics.catalogue is None:  # what a search is compared against, for the token estimate
+        usage.metrics.catalogue = retriever.catalogue
 
     async def in_thread(fn: Any, *args: Any, **kw: Any) -> Any:
         if not limiter:
@@ -303,6 +306,36 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     async def openapi(request: Any) -> Any:
         return JSONResponse(OPENAPI)
 
+    async def metrics(request: Any) -> Any:
+        from starlette.responses import PlainTextResponse
+
+        st = retriever.status()
+        gauge = "gauge"
+        extra: list[tuple[str, str, str, dict[str, str], float]] = [
+            ("toolrank_build_info", gauge, "The running version.", {"version": __version__}, 1),
+            ("toolrank_index_ready", gauge, "1 once the semantic index answers.", {}, float(st["ready"])),
+            ("toolrank_catalog_tools", gauge, "Tools in the catalogue.", {}, st["tools"]),
+            ("toolrank_catalog_sources", gauge, "Servers and APIs in the catalogue.", {}, st["sources"]),
+        ]
+        whole = await in_thread(usage.metrics.catalog_tokens) if st["tools"] else None
+        if whole is not None:
+            text = "Estimated tokens of every tool's name, description and input schema."
+            extra.append(("toolrank_catalog_tokens", gauge, text, {}, whole))
+        for arm, heads in (st.get("heads") or {}).items():
+            ready = heads is not None if arm == "base" else bool(heads.get("ready"))
+            text = "Heads files the server follows (1: answering)."
+            extra.append(("toolrank_heads", gauge, text, {"arm": arm_kind(arm)}, float(ready)))
+        enc = getattr(retriever, "encoder", None)
+        for (kind, source), n in sorted(getattr(enc, "texts", {}).items()):
+            text = "Texts embedded, by where the vector came from."
+            extra.append(
+                ("toolrank_embedding_texts_total", "counter", text, {"kind": kind, "source": source}, n)
+            )
+        if enc is not None and hasattr(enc, "tokens_spent"):
+            text = "Tokens sent to the embedding endpoint."
+            extra.append(("toolrank_embedding_tokens_total", "counter", text, {}, enc.tokens_spent))
+        return PlainTextResponse(usage.metrics.render(extra), media_type="text/plain; version=0.0.4")
+
     async def healthz(request: Any) -> Any:  # no token: keep it to what a load balancer needs
         st = retriever.status()
         body = {k: st[k] for k in ("ready", "mode", "tools", "sources", "scorer")}
@@ -314,6 +347,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         *([Route("/v1/call", call, methods=["POST"])] if backends is not None else []),
         Route("/v1/tools", list_tools, methods=["GET"]),
         Route("/v1/tools/{tool_id:path}", get_tool, methods=["GET"]),
+        Route("/v1/metrics", metrics, methods=["GET"]),
         Route("/openapi.json", openapi, methods=["GET"]),
         Route("/healthz", healthz, methods=["GET"]),
     ]
@@ -584,6 +618,19 @@ OPENAPI: dict[str, Any] = {
                     {"name": "tool_id", "in": "path", "required": True, "schema": {"type": "string"}}
                 ],
                 "responses": _responses(_ref("ToolRecord"), 401, 403, 404, 421, 503),
+            }
+        },
+        "/v1/metrics": {
+            "get": {
+                "operationId": "metrics",
+                "summary": "Prometheus metrics: searches, calls, latency, token estimate, cache hits",
+                "responses": {
+                    "200": {
+                        "description": "Text exposition format 0.0.4",
+                        "content": {"text/plain": {"schema": {"type": "string"}}},
+                    },
+                    "401": {"description": "Missing or wrong bearer token"},
+                },
             }
         },
         "/healthz": {

@@ -138,6 +138,9 @@ class OpenAIEmbeddings:
         ns = f"{self.base_url}|{model}|trunc={truncate_prompt_tokens}|norm={normalize}"
         self.cache = EmbeddingCache(Path(cache_dir) / "embeddings.sqlite", ns) if cache_dir else None
         self.tokens_spent = 0
+        # texts answered from the cache and texts sent to the endpoint, per kind (a server's metrics)
+        self.texts: dict[tuple[str, str], int] = {}
+        self._texts_lock = threading.Lock()
 
     # -- wire ---------------------------------------------------------------------------------
     def _post(
@@ -195,6 +198,9 @@ class OpenAIEmbeddings:
         # `is not None`: EmbeddingCache has __len__, so an empty cache is falsy
         have = self.cache.get_many(texts) if self.cache is not None else {}
         todo = [i for i in range(len(texts)) if i not in have]
+        with self._texts_lock:
+            for source, n in (("cache", len(texts) - len(todo)), ("endpoint", len(todo))):
+                self.texts[(kind, source)] = self.texts.get((kind, source), 0) + n
         # de-duplicate identical strings within the request
         uniq: dict[str, list[int]] = {}
         for i in todo:
