@@ -108,3 +108,49 @@ def test_a_server_without_heads_says_so(ingest_dir, tmp_path, fake_endpoint, mon
     monkeypatch.setenv("TOOLRANK_HEADS", str(_case_npz(tmp_path, "gelu_layernorm_skip")))
     build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
     assert [e for e in events if e.startswith("no heads found")] == []
+
+
+def test_search_appends_what_the_usage_log_shows_is_called_together(
+    ingest_dir, tmp_path, fake_endpoint, capsys
+):
+    from toolrank.usage import SCHEMA_VERSION
+
+    events = []
+    for n in range(2):  # two requests after which send and delete were both called
+        events.append(
+            {"v": SCHEMA_VERSION, "event": "search", "id": f"s{n}", "ts": "2026-10-01", "emb_hmac": f"r{n}"}
+        )
+        events += [
+            {"v": SCHEMA_VERSION, "event": "call", "tool": t, "search_id": f"s{n}", "outcome": "ok"}
+            for t in ("mail/send", "mail/delete")
+        ]
+    (ingest_dir / "usage").mkdir()
+    (ingest_dir / "usage" / "usage-2026-10-01.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in events) + "\n"
+    )
+    main(_args(ingest_dir, tmp_path, "--k", "1", "--json"))
+    (first,) = json.loads(capsys.readouterr().out)["tools"]
+    other = "mail/delete" if first["id"] == "mail/send" else "mail/send"
+    assert first["id"] != "mail/list"  # the fake vectors put a paired tool first
+    main(_args(ingest_dir, tmp_path, "--k", "1", "--co-use", "2", "--json"))
+    tools = json.loads(capsys.readouterr().out)["tools"]
+    assert [t["id"] for t in tools] == [first["id"], other] and tools[1]["used_with"] == first["id"]
+    main(_args(ingest_dir, tmp_path, "--k", "1", "--co-use", "2"))
+    assert f"(used with {first['id']})" in capsys.readouterr().out
+
+
+def test_co_use_needs_the_usage_log(ingest_dir, tmp_path, fake_endpoint):
+    pytest.importorskip("mcp")
+    with pytest.raises(SystemExit, match="--co-use reads the usage log"):
+        main(
+            [
+                "serve",
+                "--data",
+                str(ingest_dir),
+                "--cache-dir",
+                str(tmp_path / "c"),
+                "--co-use",
+                "2",
+                "--no-usage-log",
+            ]
+        )

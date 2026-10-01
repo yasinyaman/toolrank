@@ -15,8 +15,10 @@ it is logged as text, cut at ``UNKNOWN_TOOL_CHARS``.
 
 ``search``: v, event, ts, id, session, client, via, tenant, query_hmac, query, emb_hmac,
 instruction_hmac, instruction, rule, results ([[tool, score], ...], the top 20 before the cut),
-shown (tools returned), took_ms, scorer, heads, arm (which heads answered: base, current, candidate,
-tenant:<name>[:candidate]; added to v3 with ``toolrank learn``), catalog.
+shown (tools returned from the ranking), added (tools appended after them because they are called
+together with one of those, ``serve --co-use``; absent when there are none), took_ms, scorer, heads,
+arm (which heads answered: base, current, candidate, tenant:<name>[:candidate]; added to v3 with
+``toolrank learn``), catalog.
 
 ``call``: v, event, ts, id, session, client, via, tenant, tool, kind (mcp | openapi), search_id,
 rank, link, outcome (ok | tool_error | protocol_error | timeout | refused | unknown_tool),
@@ -55,6 +57,25 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 3
+
+
+def read_events(directory: str | Path, *, newest: int | None = None) -> list[dict[str, Any]]:
+    """Every event of ``usage-*.jsonl`` in the directory, oldest file first (``newest``: only that
+    many of the latest daily files); a line that is not JSON (a write that was cut short) is skipped."""
+    out: list[dict[str, Any]] = []
+    paths = sorted(Path(directory).glob("usage-*.jsonl"))
+    for path in paths[-newest:] if newest else paths:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    out.append(event)
+    return out
+
+
 # what ``mask_pii`` replaces, in this order: an IBAN or card number must not be left as a "phone"
 _PII = (
     ("<email>", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")),
@@ -158,6 +179,7 @@ class UsageLog:
         """Log a ``retriever.SearchResult``; -> its search id (returned to the agent)."""
         sid = "s-" + uuid.uuid4().hex[:16]
         ranks = {h.id: n for n, h in enumerate(result.hits, 1)}
+        added = int(getattr(result, "added", 0) or 0)  # trailing hits that came from co-use
         with self._lock:
             self._searches[sid] = _Seen(session, client, via, ranks)
             while len(self._searches) > _KEEP:
@@ -181,7 +203,8 @@ class UsageLog:
                 else self._text(result.instruction),
                 "rule": result.rule,
                 "results": [[t, round(s, 6)] for t, s in result.ranked],
-                "shown": len(result.hits),
+                "shown": len(result.hits) - added,
+                **({"added": [h.id for h in result.hits[len(result.hits) - added :]]} if added else {}),
                 "took_ms": round(result.took_ms, 2),
                 "scorer": result.scorer,
                 "heads": heads,

@@ -39,7 +39,6 @@ that much worse, and left running otherwise. Both moves are file renames the ser
 from __future__ import annotations
 
 import hmac
-import json
 import os
 import random
 import sqlite3
@@ -54,6 +53,7 @@ from typing import Any
 import numpy as np
 
 from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, recall_at, train_heads
+from toolrank.usage import read_events
 
 POSITIVE, WEAK = "ok", "tool_error"
 K = 5  # the log's own metric: the called tool among the top K of the catalogue
@@ -70,22 +70,6 @@ class LogPair:
     negatives: tuple[str, ...]  # shown by a search of this request, never called
     ts: str  # the earliest search
     tenants: tuple[str, ...]
-
-
-def read_events(directory: str | Path) -> list[dict[str, Any]]:
-    """Every event of ``usage-*.jsonl`` in the directory, oldest file first; a line that is not JSON
-    (a write that was cut short) is skipped."""
-    out: list[dict[str, Any]] = []
-    for path in sorted(Path(directory).glob("usage-*.jsonl")):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(event, dict):
-                    out.append(event)
-    return out
 
 
 def mine(
@@ -127,6 +111,7 @@ def mine(
             continue
         counts["calls_linked"] += len(linked)
         shown = [t for t, _ in (s.get("results") or [])[: int(s.get("shown") or 0)]]
+        shown += [t for t in s.get("added") or [] if t not in shown]  # co-use partners were shown too
         called, ok, weak = set(), set(), set()
         for c in linked:
             called.add(c["tool"])

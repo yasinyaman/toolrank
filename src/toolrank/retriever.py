@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
 from toolrank.domain import Query, RankedList, Tool
@@ -52,6 +53,7 @@ class IndexNotReady(RuntimeError):
 class Hit:
     tool: Tool
     score: float
+    used_with: str | None = None  # not ranked into the list: agents call it together with this hit
 
     @property
     def id(self) -> str:
@@ -87,6 +89,7 @@ class SearchResult:
     # whether the request brought its instruction (request text, a digest in the usage log) or it is
     # the server's own; True unless the retriever says otherwise, so a result built elsewhere hides it
     own_instruction: bool = True
+    added: int = 0  # the last ``added`` hits are co-use partners of the hits before them
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,8 @@ class Retriever:
         variants: Callable[[Path, str], Callable[[], Any]] | None = None,
         candidate_share: float = 0.1,
         use_current: bool = True,
+        co_use: Any | None = None,
+        co_use_extra: int = 0,
     ):
         self.data_dir = Path(data_dir).resolve()
         self.path = self.data_dir / "tools.jsonl"
@@ -159,6 +164,8 @@ class Retriever:
         self.make_variant, self.candidate_share, self.use_current = variants, candidate_share, use_current
         self._variants: dict[str, _Variant] = {}
         self._variants_lock = threading.Lock()
+        # a ``couse.CoUseTable`` (anything with ``table()``) and how many partners a result may gain
+        self.co_use, self.co_use_extra = co_use, co_use_extra
         self._state: _State | None = None
         self._fallback: _State | None = None  # only until the first semantic state exists
         self._error: BaseException | None = None
@@ -436,10 +443,18 @@ class Retriever:
         emb_key = None
         if self.cache_key is not None and fmt is not None and not st.lexical:
             emb_key = self.cache_key(fmt(q))
+        hits = [Hit(st.by_id[t], s) for t, s in zip(shown.tool_ids, shown.scores, strict=True)]
+        added = 0
+        # not when the request names its own k: it asked for that many tools
+        if self.co_use is not None and self.co_use_extra > 0 and k is None and hits and not st.lexical:
+            known = dict(zip(fused.tool_ids, fused.scores, strict=True))
+            for tool, owner in partners(shown.tool_ids, self.co_use.table(), self.co_use_extra, st.by_id):
+                hits.append(Hit(st.by_id[tool], known.get(tool, 0.0), used_with=owner))
+                added += 1
         return SearchResult(
             query=query,
             instruction=inst,
-            hits=[Hit(st.by_id[t], s) for t, s in zip(shown.tool_ids, shown.scores, strict=True)],
+            hits=hits,
             ranked=list(zip(fused.tool_ids[:LOG_TOP], fused.scores[:LOG_TOP], strict=True)),
             took_ms=took,
             rule=f"top {top} keyword matches" if st.lexical else self.describe(fixed),
@@ -450,6 +465,7 @@ class Retriever:
             own_instruction=inst != self.instruction,
             arm=arm,
             heads=heads,
+            added=added,
         )
 
     def rank(

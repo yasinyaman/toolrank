@@ -70,8 +70,8 @@ def play(
     retriever: Any, usage: Any, queries: list[Query], *, noise: float = 0.0, seed: int = 0
 ) -> dict[str, dict[str, float]]:
     """Answer and log every query, call what the simulated agent would; -> per arm: searches, the
-    share with a gold tool shown, top-1, ``mrr`` (0 for a search with no gold tool shown) and the
-    mean number of tools shown."""
+    share with a gold tool shown, with every gold tool shown (``complete``), top-1, ``mrr`` (0 for a
+    search with no gold tool shown) and the mean number of tools shown."""
     rng = random.Random(seed)
     arms: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     for q in queries:
@@ -85,6 +85,7 @@ def play(
         m = arms[res.arm]
         m["searches"] += 1
         m["shown"] += len(shown)
+        m["complete"] += gold <= set(shown)
         if right:
             rank = shown.index(right[0]) + 1
             m["gold_shown"] += 1
@@ -106,7 +107,7 @@ def play(
             )
     return {
         arm: {"searches": int(m["searches"])}
-        | {k: round(m[k] / m["searches"], 4) for k in ("gold_shown", "top1", "mrr", "shown")}
+        | {k: round(m[k] / m["searches"], 4) for k in ("gold_shown", "complete", "top1", "mrr", "shown")}
         for arm, m in sorted(arms.items())
     }
 

@@ -89,6 +89,7 @@ def cmd_eval(a: argparse.Namespace) -> int:
             "heads_sha256": file_sha256(str(heads)) if heads else None,
             "index": a.index if a.scorer not in ("bm25", "jev") else None,
             "cut": rule.describe() if rule is not None else None,
+            "server_weight": a.server_weight or None,
             "hybrid": (
                 {
                     "k_rrf": a.rrf_k,
@@ -264,6 +265,7 @@ def cmd_search(a: argparse.Namespace) -> int:
                 "server": h.server,
                 "name": h.tool.name,
                 "description": h.tool.description,
+                **({"used_with": h.used_with} if h.used_with else {}),
             }
             for h in res.hits
         ]
@@ -277,7 +279,8 @@ def cmd_search(a: argparse.Namespace) -> int:
     )
     for n, h in enumerate(res.hits, 1):
         first = (h.tool.description.strip().splitlines() or [""])[0][:90]
-        print(f"{n:>2}. {h.score:.4f}  {h.id}  {first}")
+        with_ = f"  (used with {h.used_with})" if h.used_with else ""
+        print(f"{n:>2}. {h.score:.4f}  {h.id}  {first}{with_}")
     return 0
 
 
@@ -772,6 +775,19 @@ def _add_retrieval_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--rrf-k", type=int, default=60)
     p.add_argument("--rrf-depth", type=int, default=100)
     p.add_argument("--rrf-weight", type=float, default=1.0)
+    p.add_argument(
+        "--server-weight",
+        type=float,
+        default=0.0,
+        help="add this much of the request's cosine with a tool's server to the tool's score (0 = off; try 0.2)",
+    )
+    p.add_argument(
+        "--co-use",
+        type=int,
+        default=0,
+        metavar="N",
+        help="append up to N tools the usage log shows are called together with a tool in the list (0 = off)",
+    )
     p.add_argument("--no-stem", action="store_true")
     p.add_argument("--device", default=None)
     _add_cut_args(p)
@@ -934,6 +950,12 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--rrf-k", type=int, default=60, help="RRF constant")
     e.add_argument("--rrf-depth", type=int, default=100, help="list depth taken from each arm")
     e.add_argument("--rrf-weight", type=float, default=1.0, help="weight of the BM25 term (1 = plain RRF)")
+    e.add_argument(
+        "--server-weight",
+        type=float,
+        default=0.0,
+        help="dense, clm: tool score + this much of the request's cosine with the tool's server (its category)",
+    )
     _add_cut_args(e)
     _add_jev_args(e)
     e.add_argument("--device", default=None, help="torch device for the CLM heads")

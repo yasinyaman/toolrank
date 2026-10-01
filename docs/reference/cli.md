@@ -35,6 +35,7 @@ index a tool set and score a query set
 | `--rrf-k RRF_K` | `60` | RRF constant |
 | `--rrf-depth RRF_DEPTH` | `100` | list depth taken from each arm |
 | `--rrf-weight RRF_WEIGHT` | `1.0` | weight of the BM25 term (1 = plain RRF) |
+| `--server-weight SERVER_WEIGHT` |  | dense, clm: tool score + this much of the request's cosine with the tool's server (its category) |
 | `--cut-margin CUT_MARGIN` |  | keep tools within this cosine of the best |
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
@@ -181,6 +182,8 @@ Rank the tools of an ingest dir for one request. Defaults: Qwen3-Embedding-8B on
 | `--rrf-k RRF_K` | `60` |  |
 | `--rrf-depth RRF_DEPTH` | `100` |  |
 | `--rrf-weight RRF_WEIGHT` | `1.0` |  |
+| `--server-weight SERVER_WEIGHT` |  | add this much of the request's cosine with a tool's server to the tool's score (0 = off; try 0.2) |
+| `--co-use N` |  | append up to N tools the usage log shows are called together with a tool in the list (0 = off) |
 | `--no-stem` |  |  |
 | `--device DEVICE` |  |  |
 | `--cut-margin CUT_MARGIN` |  | keep tools within this cosine of the best |
@@ -214,6 +217,8 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--rrf-k RRF_K` | `60` |  |
 | `--rrf-depth RRF_DEPTH` | `100` |  |
 | `--rrf-weight RRF_WEIGHT` | `1.0` |  |
+| `--server-weight SERVER_WEIGHT` |  | add this much of the request's cosine with a tool's server to the tool's score (0 = off; try 0.2) |
+| `--co-use N` |  | append up to N tools the usage log shows are called together with a tool in the list (0 = off) |
 | `--no-stem` |  |  |
 | `--device DEVICE` |  |  |
 | `--cut-margin CUT_MARGIN` |  | keep tools within this cosine of the best |

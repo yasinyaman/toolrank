@@ -153,6 +153,29 @@ def test_proxy_search_then_call_mcp_and_openapi_tools(tmp_path):
     assert calls[1]["http_status"] == 200 and calls[3]["outcome"] in ("tool_error", "protocol_error")
 
 
+def test_a_search_that_no_tool_passes_says_so(tmp_path):
+    from mcp import Client
+
+    from toolrank.adapters.mcp_proxy import EMPTY_NOTE
+    from toolrank.cut import AdaptiveK
+
+    gate = AdaptiveK(margin=0.2, threshold=2.0, min_k=0)  # no cosine reaches 2: every request is turned away
+    retriever = Retriever(_catalogue(tmp_path), lambda: DenseScorer(_HashEncoder(), "name_desc"), rule=gate)
+    usage = UsageLog(tmp_path / "usage")
+    server = build_proxy(retriever, Backends([]), usage)
+
+    async def main():
+        async with Client(server) as client:
+            found = json.loads(_text(await client.call_tool("search_tools", {"query": "add two integers"})))
+            assert found["tools"] == [] and found["note"] == EMPTY_NOTE and found["search_id"]
+
+    anyio.run(main)
+    (event,) = [
+        json.loads(x) for f in (tmp_path / "usage").glob("usage-*.jsonl") for x in f.read_text().splitlines()
+    ]
+    assert event["shown"] == 0 and len(event["results"]) == 3  # what it would have shown stays in the log
+
+
 def test_later_hits_get_shrunk_schemas():
     big = {
         "type": "object",

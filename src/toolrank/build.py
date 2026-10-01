@@ -160,11 +160,12 @@ RERANK_OWN = (
 def rerank_args(a: Any) -> Any:
     """The second scorer's flags: ``--rerank`` as its ``--scorer``, every ``--rerank-<flag>`` that
     was given over the main flag of the same name, the rest inherited (cache dir, ``--with-inst``,
-    stemming); never hybrid, never a persistent index."""
+    stemming); never hybrid, never a persistent index, no server term."""
     import copy
 
     b = copy.copy(a)
     b.scorer, b.rerank, b.hybrid, b.index, b.index_dir = a.rerank, None, False, "numpy", None
+    b.server_weight = 0.0
     for f in RERANK_FLAGS:
         v = getattr(a, "rerank_" + f, None)
         if v is not None:
@@ -178,6 +179,8 @@ def rerank_args(a: Any) -> Any:
 def _base_factory(
     a: Any, *, query_timeout: float | None = None, query_attempts: int | None = None
 ) -> tuple[Callable[[], Any], dict[str, Any]]:
+    if a.scorer not in ("dense", "clm") and getattr(a, "server_weight", 0.0):
+        raise ValueError("--server-weight adds a server term to a dense or clm scorer's cosines")
     if a.scorer == "bm25":
         from toolrank.adapters.bm25 import BM25Scorer
 
@@ -249,15 +252,17 @@ def _base_factory(
         qf = a.query_format or ((serving.get("query_format") or "clm") if a.with_inst else "plain")
     fp = fingerprint(a, tf, ck)
 
+    route = float(getattr(a, "server_weight", 0.0) or 0.0)
+
     def make() -> Any:
         if a.scorer == "dense":
             from toolrank.adapters.dense import DenseScorer
 
-            scorer: Any = DenseScorer(enc, tf, qf, index=build_index(a), fingerprint=fp)
+            scorer: Any = DenseScorer(enc, tf, qf, index=build_index(a), fingerprint=fp, server_weight=route)
         else:
             from toolrank.adapters.clm import CLMScorer
 
-            scorer = CLMScorer(enc, heads, tf, qf, index=build_index(a), fingerprint=fp)
+            scorer = CLMScorer(enc, heads, tf, qf, index=build_index(a), fingerprint=fp, server_weight=route)
             scorer.serving = serving
         if not getattr(a, "hybrid", False):
             return scorer
@@ -322,6 +327,17 @@ def build_retriever(
             b, query_timeout=10.0 if serving_limits else None, query_attempts=2 if serving_limits else None
         )[0]
 
+    co_use, extra = None, int(getattr(a, "co_use", 0) or 0)
+    if extra > 0:
+        from toolrank.couse import CoUseTable
+
+        if getattr(a, "no_usage_log", False):
+            raise ValueError("--co-use reads the usage log: it cannot be combined with --no-usage-log")
+        co_use = CoUseTable(getattr(a, "usage_log", None) or Path(a.data) / "usage")
+        if notify is not None:
+            notify(
+                f"co-use: {len(co_use.table())} tools have partners in the usage log (up to {extra} added)"
+            )
     return Retriever(
         Path(a.data),
         make,
@@ -338,6 +354,8 @@ def build_retriever(
         variants=variant,
         candidate_share=getattr(a, "candidate_share", 0.1),
         use_current=not explicit_heads,
+        co_use=co_use,
+        co_use_extra=extra,
     )
 
 

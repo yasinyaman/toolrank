@@ -391,6 +391,11 @@ _SCHEMAS: dict[str, Any] = {
             "inputSchema": {"type": "object"},
             "inputSchemaShrunk": {"type": "boolean"},
             "annotations": {"type": "object"},
+            "used_with": {
+                "type": "string",
+                "description": "Set on a tool that was not ranked into the list: the returned tool that "
+                "agents call it together with (`serve --co-use`).",
+            },
         },
         "required": ["name", "api_name", "server", "kind", "score", "description", "inputSchema"],
     },

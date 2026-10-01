@@ -17,6 +17,9 @@ Query side ("state"):
 * ``instruct_query`` - ``Instruct: <instruction>\\nQuery: <request>`` (e5-mistral / Qwen3-Embedding style).
 * ``clm``            - request, blank line, instruction: the ``context + question`` layout the CLM
                        heads were trained on (``clm.schema.state_text``).
+
+``server_summary`` is the text a whole server (a tool's ``category``) is embedded as when a scorer
+adds a server term to its tool scores (``DenseScorer(server_weight=...)``).
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from __future__ import annotations
 import ast
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -173,6 +176,16 @@ QUERY_FORMATS: dict[str, NamedFormatter] = {
         NamedFormatter("clm", q_clm),
     )
 }
+
+
+SERVER_SUMMARY_CHARS = 4000
+
+
+def server_summary(server: str, tools: Sequence[Tool]) -> str:
+    """What a server offers, in the shape of an ingested tool's text: its name and its tools' names,
+    cut to ``SERVER_SUMMARY_CHARS`` (a server of a thousand operations is its first few hundred)."""
+    text = json.dumps({"server": server, "tools": [t.name for t in tools]}, ensure_ascii=False)
+    return text[:SERVER_SUMMARY_CHARS]
 
 
 def tool_format(name: str) -> NamedFormatter:

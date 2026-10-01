@@ -44,6 +44,10 @@ LEXICAL_NOTE = (
     "The semantic index is still being built, so these are keyword matches; search again shortly "
     "for better ones."
 )
+EMPTY_NOTE = (
+    "No tool in this catalogue is close enough to the request. Answer without a tool, or search again "
+    "in other words."
+)
 INSTRUCTIONS = (
     "This server fronts many tools. Call search_tools with what you want to do, then call_tool with "
     "a returned tool name and arguments that match its inputSchema."
@@ -62,6 +66,8 @@ def hit_json(hit: Any, *, full: bool) -> dict[str, Any]:
         "description": desc if len(desc) <= DESCRIPTION_CHARS else desc[:DESCRIPTION_CHARS] + "…",
         "inputSchema": schema,
     }
+    if getattr(hit, "used_with", None):
+        out["used_with"] = hit.used_with  # not a match by itself: agents call it along with that tool
     if shrunk:
         out["inputSchemaShrunk"] = True
     if hit.tool.doc.get("annotations"):
@@ -223,6 +229,8 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
         }
         if res.mode == "lexical":
             payload["note"] = LEXICAL_NOTE
+        elif not res.hits:  # a threshold with --cut-min 0 turned every tool away
+            payload["note"] = EMPTY_NOTE
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
         )

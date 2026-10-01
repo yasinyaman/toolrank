@@ -155,6 +155,7 @@ class CLMScorer(DenseScorer):
         *,
         index: VectorIndex | None = None,
         fingerprint: str = "",
+        server_weight: float = 0.0,
     ):
         super().__init__(
             encoder,
@@ -165,5 +166,6 @@ class CLMScorer(DenseScorer):
             label=f"clm[{heads.path.stem}]",
             index=index,
             fingerprint=fingerprint,
+            server_weight=server_weight,
         )
         self.heads = heads

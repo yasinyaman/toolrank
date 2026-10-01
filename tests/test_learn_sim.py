@@ -80,7 +80,14 @@ def test_play_logs_searches_and_the_calls_of_the_gold_tools_shown(tmp_path):
     gold = [next(iter(q.qrels)) for q in queries]  # one gold tool each, named by the request
     queries = [type(q)(q.id, f"find {g}", {g: 1}, "inst") for q, g in zip(queries, gold, strict=True)]
     arms = sim.play(_Retriever(tools, 2), UsageLog(tmp_path / "usage"), queries)
-    assert arms["base"] == {"searches": 3, "gold_shown": 1.0, "top1": 0.0, "mrr": 0.5, "shown": 4.0}
+    assert arms["base"] == {
+        "searches": 3,
+        "gold_shown": 1.0,
+        "complete": 1.0,
+        "top1": 0.0,
+        "mrr": 0.5,
+        "shown": 4.0,
+    }
     events = read_events(tmp_path / "usage")
     pairs, counts = mine(events)
     assert (
