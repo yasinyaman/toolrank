@@ -103,6 +103,14 @@ def test_state_vectors_come_from_the_cache_through_the_logs_key(tmp_path):
     other = UsageLog(tmp_path / "other")  # another install's key finds nothing
     assert state_vectors(tmp_path / "cache" / "embeddings.sqlite", other._key, wanted) == {}
     assert state_vectors(tmp_path / "missing.sqlite", log._key, wanted) == {}
+    many = [f"request {i}" for i in range(2000)]  # more than one SQLite statement can name
+    enc.cache.put_many(many, np.arange(1, 8001, dtype=np.float32).reshape(2000, 4))
+    found = state_vectors(
+        tmp_path / "cache" / "embeddings.sqlite", log._key, [log.digest(enc.cache_key(t)) for t in many]
+    )
+    assert len(found) == 2000
+    last = found[log.digest(enc.cache_key(many[-1]))]
+    assert np.allclose(last, np.arange(7997, 8001) / np.linalg.norm(np.arange(7997, 8001)))
 
 
 def test_split_holds_out_the_newest_requests_and_batches_index_the_catalogue():

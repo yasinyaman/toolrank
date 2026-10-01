@@ -173,7 +173,8 @@ def mine(
 def state_vectors(cache: str | Path, key: bytes, wanted: Iterable[str]) -> dict[str, np.ndarray]:
     """The requests' backbone vectors: each key of the embedding cache digested with the log's key
     and kept when the digest is a wanted ``emb_hmac``; rows L2-normalised, as the encoder returns
-    them. The cache is opened read-only."""
+    them. The cache is opened read-only, and its keys are read before any vector: a cache that has
+    served a large catalogue is gigabytes of vectors, of which only the requests' are needed."""
     from toolrank.adapters.embeddings_api import l2_normalize
 
     want, out = set(wanted), {}
@@ -181,10 +182,17 @@ def state_vectors(cache: str | Path, key: bytes, wanted: Iterable[str]) -> dict[
         return out
     db = sqlite3.connect(f"file:{Path(cache).resolve()}?mode=ro", uri=True)
     try:
-        for k, dim, vec in db.execute("SELECT key, dim, vec FROM emb"):
+        found: dict[str, str] = {}
+        for (k,) in db.execute("SELECT key FROM emb"):
             digest = hmac.new(key, k.encode("utf-8"), sha256).hexdigest()
             if digest in want:
-                out[digest] = l2_normalize(np.frombuffer(vec, dtype=np.float32)[:dim].copy())
+                found[k] = digest
+        keys = list(found)
+        for start in range(0, len(keys), 900):  # SQLite variable limit
+            chunk = keys[start : start + 900]
+            q = f"SELECT key, dim, vec FROM emb WHERE key IN ({','.join('?' * len(chunk))})"
+            for k, dim, vec in db.execute(q, chunk):
+                out[found[k]] = l2_normalize(np.frombuffer(vec, dtype=np.float32)[:dim].copy())
     finally:
         db.close()
     return out
