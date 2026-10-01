@@ -113,6 +113,18 @@ def cmd_eval(a: argparse.Namespace) -> int:
                 if "jev" in info
                 else None
             ),
+            "rerank": (
+                {
+                    "scorer": scorer.second.name,
+                    "depth": a.rerank_depth,
+                    "emb_url": getattr(scorer.second, "encoder", None) and scorer.second.encoder.base_url,
+                    "heads_sha256": file_sha256(str(info["rerank"]["heads_path"]))
+                    if info["rerank"].get("heads_path")
+                    else None,
+                }
+                if "rerank" in info
+                else None
+            ),
             "task_counts": dict(counts),
             "version": __version__,
         },
@@ -586,8 +598,23 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group(
         "Jev (TypeSafe AI; key in $TYPESAFE_API_KEY): --rerank jev over any scorer, or --scorer jev alone"
     )
-    g.add_argument("--rerank", choices=["jev"], default=None, help="reorder the top --rerank-depth with Jev")
-    g.add_argument("--rerank-depth", type=int, default=100, help="tools per query sent to Jev (max 255)")
+    g.add_argument(
+        "--rerank",
+        choices=["jev", "dense", "clm"],
+        default=None,
+        help="reorder the top --rerank-depth: with Jev, or with a second dense / clm scorer (--rerank-* flags)",
+    )
+    g.add_argument("--rerank-depth", type=int, default=100, help="tools per query reranked (Jev: max 255)")
+    g.add_argument("--rerank-emb-url", default=None, help="the second scorer's endpoint (default: --emb-url)")
+    g.add_argument("--rerank-emb-model", default=None, help="(default: --emb-model)")
+    g.add_argument("--rerank-truncate", type=int, default=None, help="(default: --truncate)")
+    g.add_argument("--rerank-clm-ckpt", default=None, help="--rerank clm: its heads (default: --clm-ckpt)")
+    g.add_argument(
+        "--rerank-tool-format", choices=list(TOOL_FORMATS), default=None, help="(default: --tool-format)"
+    )
+    g.add_argument(
+        "--rerank-query-format", choices=list(QUERY_FORMATS), default=None, help="(default: --query-format)"
+    )
     g.add_argument(
         "--jev-model", default="jev-1.13.0", help="a versioned id: aliases such as jev-latest move"
     )

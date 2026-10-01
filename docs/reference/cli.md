@@ -39,8 +39,14 @@ index a tool set and score a query set
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
-| `--rerank {jev}` |  | reorder the top --rerank-depth with Jev |
-| `--rerank-depth RERANK_DEPTH` | `100` | tools per query sent to Jev (max 255) |
+| `--rerank {jev,dense,clm}` |  | reorder the top --rerank-depth: with Jev, or with a second dense / clm scorer (--rerank-* flags) |
+| `--rerank-depth RERANK_DEPTH` | `100` | tools per query reranked (Jev: max 255) |
+| `--rerank-emb-url RERANK_EMB_URL` |  | the second scorer's endpoint (default: --emb-url) |
+| `--rerank-emb-model RERANK_EMB_MODEL` |  | (default: --emb-model) |
+| `--rerank-truncate RERANK_TRUNCATE` |  | (default: --truncate) |
+| `--rerank-clm-ckpt RERANK_CLM_CKPT` |  | --rerank clm: its heads (default: --clm-ckpt) |
+| `--rerank-tool-format {documentation,name_desc,schema,example_call}` |  | (default: --tool-format) |
+| `--rerank-query-format {plain,concat,instruct_query,clm}` |  | (default: --query-format) |
 | `--jev-model JEV_MODEL` | `jev-1.13.0` | a versioned id: aliases such as jev-latest move |
 | `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
 | `--jev-tool-format {documentation,name_desc,schema,example_call}` |  | text per option (default: name_desc) |

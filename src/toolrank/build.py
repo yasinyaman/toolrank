@@ -104,6 +104,17 @@ def scorer_factory(
     rerank = getattr(a, "rerank", None)
     if rerank is None:
         return make, info
+    if rerank in ("dense", "clm"):  # a local second scorer with its own --rerank-* flags
+        from toolrank.adapters.rerank import ScorerReranker
+
+        second_make, second_info = _base_factory(rerank_args(a))
+        info["rerank"] = second_info
+        base = make
+
+        def reranked() -> Any:
+            return ScorerReranker(base(), second_make(), depth=a.rerank_depth)
+
+        return reranked, info
     if rerank != "jev":
         raise ValueError(f"unknown reranker {rerank!r}")
     from toolrank.adapters.jev import JevReranker
@@ -122,6 +133,33 @@ def scorer_factory(
         )
 
     return wrapped, info
+
+
+RERANK_FLAGS = (
+    "emb_url",
+    "emb_model",
+    "truncate",
+    "clm_ckpt",
+    "tool_format",
+    "query_format",
+    "emb_batch",
+    "device",
+)
+
+
+def rerank_args(a: Any) -> Any:
+    """The second scorer's flags: ``--rerank`` as its ``--scorer``, every ``--rerank-<flag>`` that
+    was given over the main flag of the same name, the rest inherited (cache dir, ``--with-inst``,
+    stemming); never hybrid, never a persistent index."""
+    import copy
+
+    b = copy.copy(a)
+    b.scorer, b.rerank, b.hybrid, b.index, b.index_dir = a.rerank, None, False, "numpy", None
+    for f in RERANK_FLAGS:
+        v = getattr(a, "rerank_" + f, None)
+        if v is not None:
+            setattr(b, f, v)
+    return b
 
 
 def _base_factory(
@@ -213,7 +251,9 @@ def build_retriever(
     notify: Callable[[str], None] | None = None,
 ) -> Any:
     """``toolrank search`` / ``serve``: product defaults, a scorer factory, the cut rule and the
-    instruction, wrapped in a ``Retriever`` over ``a.data``. ``serving_limits`` gives query embeddings
+    instruction, wrapped in a ``Retriever`` over ``a.data``. ``DATA/heads`` is the retriever's heads
+    dir: ``current.npz`` there replaces the heads the flags chose (unless ``--clm-ckpt`` named some),
+    ``candidate.npz`` takes a share of the requests, ``tenants/<name>/`` the same per API key. ``serving_limits`` gives query embeddings
     a 10 s timeout and one retry (a server must not hang on a dead embedding endpoint); indexing the
     catalogue keeps the long ones, since a batch of long tool texts can take a while. A background
     build gets a BM25 stand-in (tool text as indexed, request without instruction) that answers
@@ -221,6 +261,7 @@ def build_retriever(
     from toolrank.cut import rule_from_flags
     from toolrank.retriever import Retriever
 
+    explicit_heads = a.clm_ckpt is not None  # --clm-ckpt wins over a learned DATA/heads/current.npz
     search_defaults(a)
     if a.scorer == "dense" and notify is not None:  # a server without heads should say so, once
         notify("no heads found: ranking with the embedding model alone (`toolrank heads pull` fetches them)")
@@ -240,6 +281,19 @@ def build_retriever(
 
             return BM25Scorer("documentation", "plain", stem=not getattr(a, "no_stem", False))
 
+    def variant(heads: Path, name: str) -> Any:
+        """A scorer over the same encoder flags with ``heads`` (a file toolrank learn wrote), its
+        index snapshot under ``index/variants/<name>``."""
+        import copy
+
+        b = copy.copy(a)
+        b.clm_ckpt, b.scorer = str(heads), "clm"
+        if getattr(a, "index_dir", None):
+            b.index_dir = str(Path(a.index_dir) / "variants" / name.replace(":", "_"))
+        return scorer_factory(
+            b, query_timeout=10.0 if serving_limits else None, query_attempts=2 if serving_limits else None
+        )[0]
+
     return Retriever(
         Path(a.data),
         make,
@@ -252,6 +306,10 @@ def build_retriever(
         background=background,
         fallback=fallback,
         notify=notify,
+        heads_dir=Path(a.data) / "heads",
+        variants=variant,
+        candidate_share=getattr(a, "candidate_share", 0.1),
+        use_current=not explicit_heads,
     )
 
 
