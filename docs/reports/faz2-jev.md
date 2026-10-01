@@ -11,8 +11,8 @@ heads'in ilk 20'sini tam dokümantasyonla yeniden sıralamak NDCG@10'u 54.03'ten
 47.13'ten 52.71'e (Faz 0 kapısının 50 eşiği, ama dış bir API ile), LiveMCPBench'te ilk 100 ile
 NDCG@10'u 53.95'ten 66.25'e, MCP-Zero'da top-1'i 79.87'den 91.55'e taşıyor; bedeli sorgu başına
 0.3 s ve 0.0002 $. Jev tek başına LiveMCPBench'te aynı yere 6 kat token ile geliyor; 255 seçenek
-sınırı yüzünden ToolRet'te tek başına koşamıyor, MCP-Zero'daki tek başına satırı kredi bitince
-(HTTP 402) tamamlanamadı. Yerel alternatif olarak CLM_v0.1-8B aynı role konduğunda listeyi bozuyor:
+sınırı yüzünden ToolRet'te tek başına koşamıyor; MCP-Zero'da tek başına top-1 90.04, heads'in
+üstünde (79.87) ama heads → Jev'in altında (91.55), sorgu başına 81 bin token ile. Yerel alternatif olarak CLM_v0.1-8B aynı role konduğunda listeyi bozuyor:
 heads'in ilk 100'ü ToolRet'te 54.03'ten 15.36'ya (Faz 0'ın fine-tune'lu CLM'iyle 34.20'ye) düşüyor;
 araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu değiştirmiyor.
 
@@ -40,7 +40,7 @@ araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu de�
 | heads ilk 100 → Jev, name_desc, 1000 karakter | evet | evet | evet |
 | heads ilk 20 → Jev, documentation, 3000 karakter | evet | evet | evet |
 | BM25 ilk 30 → Jev, name_desc (cookbook düzeni) | evet | evet | evet |
-| Jev tek başına, parça 200, parça başı 20 kazanan | hayır (44k araç) | evet (3 parça) | 402, eksik |
+| Jev tek başına, parça 200, parça başı 20 kazanan | hayır (44k araç) | evet (3 parça) | evet (14 parça) |
 | heads ilk 100 ve ilk 20 → CLM_v0.1-8B (8090, example_call, `clm` sorgu formatı) | evet | evet | evet |
 | heads ilk 100 → fine-tune'lu CLM (`clm_60k_lr1e-2.pt`) | evet | evet | evet |
 | BM25 ilk 30 → CLM_v0.1-8B | evet | evet | evet |
@@ -110,6 +110,7 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads | 88.53 | 94.20 | 96.12 | 96.02 | 79.87 | 0.1 | — | — | — |
 | heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 | 0.36 $ |
 | heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 | 0.21 $ |
+| Jev tek başına | 93.95 | 96.61 | 96.81 | 96.67 | 90.04 | 629.7 | 320 | 90,831 | 10.65 $ |
 | Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 | 0.37 $ |
 | Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 | 0.20 $ |
 | heads → CLM-8B, ilk 100 | 13.11 | 16.10 | 25.81 | 25.68 | 3.76 | 2.4 | — | — | — |
@@ -217,8 +218,9 @@ bf16 `--max-model-len 8192` (8091), paketlenmiş head'ler v0.1 (`.npz`, numpy). 
 commit `c40419e`. Jev: `api.typesafe.ai`, `jev-1.13.0`, 8 eşzamanlı istek, çağrılar GB10'dan
 (İstanbul; TypeSafe'in sunucuları Batı Kıyısı'nda, Mac'ten tek küçük istek 0.30 s, GB10'dan p50
 285–360 ms, p95 415–540 ms). Gömme önbelleği sıcak; Jev önbelleği duman testinin 50 sorgusu dışında
-soğuk. Harcama: tam koşunun 10 satırı 111.0 M token = 4.66 $, duman testi 0.35 $; hesabın kredisi
-MCP-Zero'nun tek başına satırında (~3.240 çağrıdan sonra, tahmini 247 M token = 10.4 $ daha) bitti.
+soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ (ilk 10 satır 4.66 $, zero-shot → Jev
+satırları 3.8 $, MCP-Zero tek başına 9.51 $), duman testi 0.35 $. İlk koşuda hesabın kredisi tek
+başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
 CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
 `data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
 (encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun
@@ -238,8 +240,9 @@ dokümantasyonlar 8090'da yeniden kodlandı).
 - Jev'in çağrı başına p50'si 285–360 ms; heads'in sorgu başına 0.86 ms'i (sıcak) yanında serve'deki
   `search_tools` p50'sini 5 ms'den 300 ms'in üstüne çıkarır. Sorgu metni dış bir servise gider;
   kullanım günlüğündeki HMAC gizliliği bu yolda geçerli değil.
-- Jev tek başına MCP-Zero satırı yok: hesap kredisi bitti (HTTP 402 `billing_error`). Kredi
-  eklenirse `bash scripts/jev_compare.sh` kaldığı yerden devam eder; yapılan ~3.240 çağrı önbellekte.
+- Jev tek başına MCP-Zero'da (14 parça + son tur, sorgu başına 15 çağrı) heads → Jev'in 1.5 puan
+  altında: parçalı sıralama, kazananları tek listede karşılaştıran ikinci tura rağmen, iyi bir kısa
+  listeden daha kötü. Gömme modeli ucuz ve iyi bir ilk aşama olarak kalıyor.
 - Duman testinin ToolRet satırları (ilk 50 sorgu, tek görev) tavana yakındı ve yanıltıcıydı; tam
   koşu şart.
 - CLM satırlarında ikinci encoder'ın önbellek ıskaları rapora yazılmıyor (`encoder_tokens` taban
@@ -290,9 +293,9 @@ FlagEmbedding'in `A:/B:/prompt` biçimi). Puanlar `.cache/toolrank/scores.sqlite
 
 - Karar: `toolrank search` / `serve` için isteğe bağlı `--rerank jev` (bugün yalnız eval'de). Bedeli
   gecikme (≈ +300 ms) ve sorgu metninin dışarı çıkması; kazancı üç sette de ölçüldü.
-- Kredi eklenirse MCP-Zero tek başına satırı (~10 $) ve bir derinlik / metin taraması (ilk 30 ve 50,
-  documentation 2000 karakter) ile uyarlanabilir K için Noul kapısı (cut.AdaptiveK'nın kosinüs marjı
-  Jev olasılıklarına uymuyor; `score_kind = "jev"` bugün cut'ı reddediyor).
+- Bir derinlik / metin taraması (ilk 30 ve 50, documentation 2000 karakter) ile uyarlanabilir K için
+  Noul kapısı (cut.AdaptiveK'nın kosinüs marjı Jev olasılıklarına uymuyor; `score_kind = "jev"` bugün
+  cut'ı reddediyor).
 - Yayın için TypeSafe'e sormak.
 - Cross-encoder'ın kalan satırları ve LoRA'lı omurganın üç setteki sayıları (koşuyor:
   `scripts/lora_train.py`, 20 bin çift, MCP-Zero'da seçim, birleştirilmiş ağırlıklar 8097'de).
