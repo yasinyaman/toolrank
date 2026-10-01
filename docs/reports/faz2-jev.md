@@ -44,6 +44,7 @@ araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu de�
 | heads ilk 100 ve ilk 20 → CLM_v0.1-8B (8090, example_call, `clm` sorgu formatı) | evet | evet | evet |
 | heads ilk 100 → fine-tune'lu CLM (`clm_60k_lr1e-2.pt`) | evet | evet | evet |
 | BM25 ilk 30 → CLM_v0.1-8B | evet | evet | evet |
+| aynı üç satır, Jev'in okuduğu metinle: name_desc 1000 karakter, documentation 3000 karakter (`--rerank-max-chars`) | evet | evet | evet |
 
 ## Tablo
 
@@ -68,6 +69,9 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, ilk 20 | 28.94 | 31.37 | 48.72 | 38.61 | 24.80 | 1.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 34.20 | 36.50 | 46.57 | 37.77 | 22.68 | 3.2 | — | — | — |
 | BM25 → CLM-8B, ilk 30 | 22.33 | 25.39 | 36.33 | 29.83 | 19.59 | 1.7 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 13.84 | 15.26 | 23.61 | 18.62 | 11.03 | 3.8 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 28.65 | 31.21 | 48.09 | 38.49 | 23.89 | 7.0 | — | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 21.08 | 23.63 | 34.86 | 28.64 | 18.56 | 1.8 | — | — | — |
 
 ### LiveMCPBench (w/ inst, n=94)
 
@@ -84,6 +88,9 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, ilk 20 | 27.65 | 29.27 | 43.90 | 15.96 | 3.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 13.49 | 11.23 | 21.22 | 10.64 | 5.0 | — | — | — |
 | BM25 → CLM-8B, ilk 30 | 15.07 | 15.47 | 22.91 | 9.57 | 4.0 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 10.93 | 10.76 | 18.46 | 9.57 | 135.0 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 21.06 | 16.98 | 36.90 | 14.89 | 323.1 | — | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 13.48 | 12.75 | 22.65 | 9.57 | 4.1 | — | — | — |
 
 ### MCP-Zero (w/ inst, n=2792)
 
@@ -99,6 +106,9 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, ilk 20 | 33.22 | 39.42 | 65.25 | 64.97 | 10.10 | 1.1 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 20.01 | 23.59 | 37.67 | 37.54 | 7.23 | 2.3 | — | — | — |
 | BM25 → CLM-8B, ilk 30 | 27.64 | 32.68 | 60.30 | 60.10 | 5.27 | 1.2 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 12.76 | 15.20 | 24.79 | 24.71 | 4.08 | 6.2 | — | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 32.60 | 38.20 | 64.40 | 64.04 | 9.63 | 26.8 | — | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 26.65 | 35.79 | 57.03 | 56.88 | 3.94 | 1.1 | — | — | — |
 
 ### ToolRet, kategori bazında NDCG@10: heads → heads + Jev 100
 
@@ -143,7 +153,11 @@ Sonuç her sette listeyi bozmak: ToolRet NDCG@10 54.03 → 15.36 (ilk 100) / 28.
 LiveMCPBench 53.95 → 11.85 / 27.65, MCP-Zero top-1 79.87 → 3.76 / 10.10. Faz 0'ın fine-tune'lu CLM
 head'leri (ToolRet'te tek başına 17.68) yeniden sıralayıcı olarak 34.20'ye çıkıyor, yine heads'in
 20 puan altında. Derinlik 20'nin 100'den iyi olması, CLM'in listeyi rastgeleye yakın karıştırdığını
-gösterir: 20 araçlık pencerede recall@10 zaten yüksek kalır. Jev'in katkısı modelin "ikinci aşama"
+gösterir: 20 araçlık pencerede recall@10 zaten yüksek kalır. Metin biçimi açıklama değil: aynı üç
+satır Jev'in okuduğu metinle (ad + açıklama 1000 karakter, dokümantasyon 3000 karakter,
+`--rerank-max-chars`) tekrarlandı ve CLM her sette 1–7 puan daha da düştü (ToolRet ilk 100: 15.36 →
+13.84; LiveMCPBench ilk 20: 27.65 → 21.06), yani Faz 0'ın `example_call` seçimi CLM'in en iyi
+şansıydı. Jev'in katkısı modelin "ikinci aşama"
 olmasından değil, araç metnini okuyup isteğe göre karar verebilmesinden geliyor; CLM soru → cevap
 ve ajan adımı çiftleriyle eğitildiği için araç açıklamaları onun dağılımının dışında (Faz 0 kapı
 raporu), ve 100 adaylık kısa liste bunu değiştirmiyor. Yerel bir Jev alternatifi istenirse adres,
@@ -177,6 +191,8 @@ toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-q
   --rerank-tool-format example_call --rerank-query-format clm --rerank-clm-ckpt ~/.cache/clm/CLM_v0.1-8B.pt --rerank-depth 100
 # ... --rerank-depth 20; --rerank-clm-ckpt data/heads/clm_60k_lr1e-2.pt; BM25 base with --rerank-depth 30
 PYTHONUNBUFFERED=1 nohup bash scripts/clm_rerank.sh > data/logs/clm_rerank.log 2>&1 &
+# the same with exactly Jev's text (results/clmj_*.json): name_desc cut to 1000, the top 20 with documentation cut to 3000
+CLM_FORMAT=name_desc CLM_MAX_CHARS=1000 ROWS="heads_clm100 heads_clm20doc bm25_clm30" TAG=clmj bash scripts/clm_rerank.sh
 # Mac
 scp 'gb10:toolrank/results/jev*_*.json' 'gb10:toolrank/results/clm_*.json' results/
 toolrank compare results/jev_*.json results/clm_*.json docs/results/readme_*.json --metrics NDCG@10,Recall@5,Recall@10,Precision@1
@@ -193,7 +209,8 @@ soğuk. Harcama: tam koşunun 10 satırı 111.0 M token = 4.66 $, duman testi 0.
 MCP-Zero'nun tek başına satırında (~3.240 çağrıdan sonra, tahmini 247 M token = 10.4 $ daha) bitti.
 CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
 `data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
-(encoder tokens 0); commit `c4723b1`.
+(encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun
+dokümantasyonlar 8090'da yeniden kodlandı).
 
 ## Sapmalar ve açıklamalar
 
