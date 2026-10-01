@@ -654,6 +654,13 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="--scorer cross: the prompt format (default qwen3)",
     )
+    g.add_argument(
+        "--rerank-query-chars",
+        type=int,
+        default=None,
+        help="--rerank cross: characters of the request kept (6000)",
+    )
+    g.add_argument("--cross-query-chars", type=int, default=None, help="--scorer cross: the same (6000)")
 
 
 def _cut_rule(a: argparse.Namespace):

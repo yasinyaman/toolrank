@@ -57,6 +57,8 @@ index a tool set and score a query set
 | `--rerank-max-chars RERANK_MAX_CHARS` |  | cut each candidate's text, like --jev-max-chars does for Jev |
 | `--rerank-template {qwen3,bge}` |  | --rerank cross: the reranker's prompt format |
 | `--cross-template {qwen3,bge}` |  | --scorer cross: the prompt format (default qwen3) |
+| `--rerank-query-chars RERANK_QUERY_CHARS` |  | --rerank cross: characters of the request kept (6000) |
+| `--cross-query-chars CROSS_QUERY_CHARS` |  | --scorer cross: the same (6000) |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
 

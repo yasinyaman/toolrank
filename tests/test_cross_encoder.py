@@ -81,6 +81,9 @@ def test_scorer_ranks_a_small_corpus_and_refuses_a_large_one(fake_score):
     assert "<Instruct>: Pick the tool.\n<Query>: send an email message\n" in body["text_1"]
     docs = [d[len("<Document>: ") :].split("<|im_end|>")[0] for d in body["text_2"]]
     assert all(d.startswith("<Document>: ") for d in body["text_2"]) and max(map(len, docs)) <= 30  # cut
+    s.max_query_chars = 8
+    s.rank([Query(id="q", text="send an email message", qrels={})], k=1)
+    assert "<Query>: send an \n" in ScoreClient.posted[-1]["text_1"]  # the request is cut, the format kept
     s.max_tools = 2
     with pytest.raises(ValueError, match="scores every pair"):
         s.rank([Query(id="q", text="x", qrels={})], k=1)
