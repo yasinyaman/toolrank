@@ -26,13 +26,15 @@ EMB="$EMB --tool-format documentation --query-format instruct_query --with-inst"
 LIM=()
 [[ $LIMIT -gt 0 ]] && LIM=(--limit "$LIMIT")
 
-endpoint() { # endpoint <model> -> "--rerank-emb-url ... --rerank-emb-model ... --rerank-template ..."
+url() { # url <model> -> the score endpoint
   case $1 in
-    qwen3) echo "--rerank-emb-url http://127.0.0.1:8095 --rerank-emb-model qwen3-reranker --rerank-template qwen3" ;;
-    bge) echo "--rerank-emb-url http://127.0.0.1:8096 --rerank-emb-model bge-reranker --rerank-template bge" ;;
+    qwen3) echo http://127.0.0.1:8095 ;;
+    bge) echo http://127.0.0.1:8096 ;;
     *) echo "unknown model $1" >&2; exit 1 ;;
   esac
 }
+served() { [[ $1 == qwen3 ]] && echo qwen3-reranker || echo bge-reranker; }
+endpoint() { echo "--rerank-emb-url $(url $1) --rerank-emb-model $(served $1) --rerank-template $1"; }
 
 run() { # run <row> <set> <toolrank eval args...> -> results/<TAG>_<set>_<row>.json
   local row=$1 out="results/${TAG}_$2_$1.json"
@@ -58,10 +60,8 @@ for m in $MODELS; do
     run "${m}_heads_x100" "$d" --data "data/$d" --scorer clm --clm-ckpt "$HEADS" $EMB "${KS[@]}" \
       $X --rerank-depth 100 --rerank-tool-format name_desc --rerank-max-chars 1000
     if [[ $d == livemcpbench_server ]]; then
-      e=$(endpoint $m)
       run "${m}_alone" "$d" --data "data/$d" --scorer cross --with-inst --tool-format name_desc \
-        --emb-url "${e#*--rerank-emb-url }" --emb-model "$([[ $m == qwen3 ]] && echo qwen3-reranker || echo bge-reranker)" \
-        --cross-template "$m" --emb-batch 64
+        --emb-url "$(url $m)" --emb-model "$(served $m)" --cross-template "$m" --emb-batch 64
     fi
   done
 done
