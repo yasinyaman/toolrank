@@ -20,7 +20,7 @@ def _result(tools=("gh/a", "gh/b"), query="open an issue", **kw):
         ranked=[(h.id, h.score) for h in hits] + [("gh/c", 0.1)],
         took_ms=12.345,
         rule="adaptive K (margin 0.2, max 10, min 1)",
-        emb_key="abc",
+        emb_key="key-of-the-request",  # no hex string: a digest must not contain it by chance
         scorer="dense/emb/x",
         catalog="cafe",
         **kw,
@@ -43,7 +43,9 @@ def test_search_and_call_events_keep_hashes_not_text(tmp_path):
     )
     assert search["query"] is None and search["query_hmac"] != sha256(b"open an issue").hexdigest()
     # the cache key is an unkeyed hash of the request: in the log it would confirm a guess at it
-    assert search["emb_hmac"] == log.digest("abc") and "abc" not in json.dumps(search)
+    assert search["emb_hmac"] == log.digest("key-of-the-request") and "key-of-the-request" not in json.dumps(
+        search
+    )
     assert (search["instruction"], search["instruction_hmac"]) == ("Find tools.", log.digest("Find tools."))
     assert search["results"][-1] == ["gh/c", 0.1] and search["shown"] == 2 and search["heads"] == "f3c1"
     assert search["arm"] is None  # which heads answered: set by a server whose heads change while it runs
