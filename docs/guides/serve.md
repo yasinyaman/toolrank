@@ -61,6 +61,38 @@ The same port serves REST for platforms that search and call tools themselves:
 
 See the [REST reference](../reference/rest.md).
 
+## Many servers, several tools, nothing that fits
+
+Three options for catalogues where plain ranking leaves something on the table. All are off by
+default; the numbers are from the benchmarks ([Benchmarks](../benchmarks.md) explains the sets).
+
+**`--server-weight 0.2`: a vote for the right server.** Each server is embedded once as a summary
+(its name and tool names), and a tool's score becomes its own cosine plus 0.2 of the request's
+cosine with its server. On catalogues of many servers this lifts the first hit: MCP-Zero (293
+servers) top-1 79.9 → 81.0, LiveMCPBench NDCG@10 54.0 → 55.1, with fewer tools returned at a higher
+recall. Choosing servers first and searching only those loses points everywhere (the right server
+ranks first only 70–85% of the time), so the vote is soft. On a catalogue whose "servers" are a few
+huge groups it does nothing useful (ToolRet's three categories: −0.1 NDCG@10, −0.8 averaged by
+category), which is why it is not the default.
+
+**`--co-use 2`: tools that are called together.** The usage log knows which tools agents called
+after the same request. With `--co-use N`, a result gains up to N tools that were called along with
+one of its tools in at least two requests and at least half of that tool's requests; they come
+last, marked `used_with`. On a simulated log this changed one list in twenty and raised the share
+of requests that got *every* tool they needed by 0.6 points for 0.05 more tools per list; making
+the ranked list longer buys a seventh of that per tool. The table is rebuilt from the last 30 daily
+log files every five minutes, counts all API keys together, and is not applied to a request that
+names its own `k`.
+
+**`--cut-threshold T --cut-min 0`: say so when nothing fits.** By default a search returns at least
+one tool. With a threshold and a minimum of zero, a request whose best score is below T gets an
+empty list and a note telling the agent to answer without a tool or rephrase (add `--cut-margin 0.2`
+to keep the usual cut above the threshold). Choose T on your own traffic: the scores of requests
+that have a tool and of those that do not overlap, and their scale moves with the catalogue and the
+way requests are written. At a T that turns away 1% of answerable requests, MCP-Zero catches a
+quarter of the unanswerable ones; on LiveMCPBench no threshold is that cheap. The log keeps what a
+turned-away search would have shown (`results`, with `shown: 0`), which is what to calibrate on.
+
 ## The usage log
 
 Every search and call goes to `DATA/usage/` (or `--usage-log DIR`), one JSON line per event in a
@@ -77,7 +109,8 @@ What it holds, and what it does not:
   32-byte key made on first use, mode 0600): repeats are recognisable, guesses are not, and the log
   alone reconstructs nothing. The request's embedding-cache key is a digest too (`emb_hmac`), which
   is how `learn` finds its vector without its text.
-- Tool names, scores, outcomes, latencies and the server's own instruction are text. An
+- Tool names, scores, outcomes, latencies and the server's own instruction are text; so are the
+  tools a search added by co-use (`added`). An
   instruction sent with a request is a digest. The client (API key name, client app, remote address)
   is a digest; the session id and the tenant (the API key's name) are text.
 - `--log-text` adds the request text and the error text of failed calls; `--mask-pii` then replaces

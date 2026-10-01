@@ -194,6 +194,11 @@ toolrank ab --data data/mytools [--dry-run] && toolrank learn --data data/mytool
 # logged by an agent that calls the gold tools shown, learn on that log, eval on the 30% never served;
 # NAME/BENCH/GUARD/EVALS/SIZES/NOISE/SEED/TAG/LEARN in the script's header; LEARN="--device cpu" when the GPU is full
 bash scripts/learn_sim.sh                                               # ToolRet, sizes 100..all -> results/sim_toolret_*.json
+# Faz 2 week 5: a server vote, co-use partners and the no-tool gate (all off by default)
+toolrank eval --data data/mcp_zero_server --scorer clm ... --server-weight 0.2    # tool cosine + 0.2 * its server's
+toolrank serve --data data/mytools --server-weight 0.2 --co-use 2 [--cut-margin 0.2 --cut-threshold T --cut-min 0]
+uv run python scripts/routing_sweep.py [--gate] -- <eval flags>         # rank once: server rules (and the gate table)
+uv run python scripts/couse_sweep.py --log RUN/usage -- <eval flags> --cut-margin 0.2   # co-use partners vs a longer list
 
 # Faz 1 week 7: launch (every public step after 19:00 and approved one by one)
 uv run --with huggingface_hub python scripts/publish_heads.py --repo USER/NAME [--upload]   # dry run without --upload
@@ -301,6 +306,17 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   10, chosen on ToolRet) keeps the tools within the margin of the best cosine; on hybrid lists the
   count comes from `last_semantic`. Eval reports it as `K@cut`, `Recall@cut`, `Precision@cut`,
   `Comprehensiveness@cut` next to the untouched fixed-k metrics.
+- **Server vote and co-use** (Faz 2 week 5, both opt-in): `DenseScorer(server_weight=W)` (`--server-weight`)
+  embeds each server (`Tool.category`) as `formats.server_summary` (name + tool names, 4,000 characters) and
+  re-scores the index's top 100 as cosine + W × the request's cosine with the tool's server; scores are then no
+  longer plain cosines (the name ends in `+srv<W>`, adaptive K cuts on them as they are), one server = no-op.
+  Picking servers first (MCP-Zero's pattern) loses everywhere. `couse.py`: `co_use(events)` counts, per request
+  (`emb_hmac`), the tools whose calls ended `ok` together; `serve --co-use N` keeps a `CoUseTable` of the last
+  30 daily log files (rebuilt in the background every 5 minutes, all API keys together) and `Retriever.search`
+  appends up to N partners of the shown tools (`Hit.used_with`, `SearchResult.added`; never for a request's
+  own `k`). The log keeps them apart: `shown` is what the ranking returned, `added` the partners; `learn.mine`
+  counts both as shown. A "no tool fits" gate is `--cut-threshold T --cut-min 0` (an empty list plus a note in
+  `search_tools`); there is no default T, the best cosine does not separate well (`docs/reports/faz2-week5.md`).
 - **Jev** (TypeSafe AI's "System One" model, `adapters/jev.py`): no text, one Choice question over
   up to 255 options returns a probability per option. `--rerank jev` wraps any scorer (BM25, dense,
   clm, hybrid): the base top `--rerank-depth` becomes one Choice per query, probabilities are the
@@ -461,7 +477,8 @@ src/toolrank/adapters/backends.py MCPBackend, OpenAPIExecutor, Backends (call_to
 src/toolrank/adapters/mcp_proxy.py  build_proxy (search_tools + call_tool), serve_stdio, Guard, http_app
 src/toolrank/adapters/rest.py     rest_routes (/v1/search, /v1/rank, /v1/call, /v1/tools, /openapi.json, /healthz), platform_record, OPENAPI
 src/toolrank/retriever.py         Retriever (state swap, background first index; pick: heads variants current/candidate/tenant), bucket, Hit, SearchResult
-src/toolrank/usage.py             UsageLog (schema v3: search and call events, HMAC digests, client key, call → search links)
+src/toolrank/usage.py             UsageLog (schema v3: search and call events, HMAC digests, client key, call → search links), read_events
+src/toolrank/couse.py             co_use (log -> tool partners), partners / expand, CoUseTable (a server's table, refreshed in the background)
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
 src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)
 src/toolrank/integrations/        anthropic.py, openai.py (Toolbox, run), _common.py (read_only, get);
@@ -497,7 +514,8 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   launch_metrics.py (the Faz 1 gate's numbers);
                                   jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
                                   lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write);
-                                  learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size)
+                                  learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size);
+                                  routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
 ```
 
@@ -610,6 +628,18 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   An agent that calls a wrong tool 1 time in 5 (`tool_error`): the default publishes nothing, `--strict`
   restores the gain (57.22 / 52.45). A/B on the held-out queries at share 0.5: `mrr` 0.572 → 0.593,
   `promote`. A perfect simulated agent on benchmark queries: the shape of the curve, not real traffic.
+- Faz 2 week 5 (`docs/reports/faz2-week5.md`; v0.1 heads, w/ inst): server → tool routing. Searching only the
+  best servers loses on every set (MCP-Zero top-1 79.87 → 63.07 / 74.46 / 78.37 for the best 1 / 3 / 10
+  servers; the right server ranks first 68–86% of the time), MCP-Zero's product formula is erratic (ToolRet
+  −22). Adding 0.2 × the server summary's cosine: MCP-Zero top-1 80.98, NDCG@10 88.53 → 89.28, K@cut 5.88 →
+  5.52 at a higher recall; LiveMCPBench NDCG@10 53.95 → 55.06; ToolRet (three categories as "servers") 54.03
+  → 53.93, cat-macro 47.13 → 46.36: hence opt-in. Without the server name in the tool text the same rule is
+  worth +2.2 top-1. No-tool gate on the best cosine (answerable vs the same request with its gold servers
+  removed): AUROC 0.882 MCP-Zero, 0.761 LiveMCPBench, means 0.71 / 0.51 for answerable requests, so no
+  threshold carries over (0.45 turns away 0.8% and catches 23% on MCP-Zero, turns away 30% on LiveMCPBench).
+  Co-use on the simulated ToolRet log (count ≥ 2, share ≥ 0.5, ≤ 2 partners): 111 of 2,388 held-out lists
+  change, K 8.33 → 8.38, completeness 54.15 → 54.73 (multi-tool requests 31.48 → 32.80), the same +0.6 with
+  heads learned from that log; a longer ranked list (max 12) pays +2.05 for 1.32 more tools.
 
 ## Where we are
 

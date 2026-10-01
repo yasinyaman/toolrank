@@ -32,6 +32,16 @@ change behaviour.
   the arms on the log and promotes the candidate, sets it aside, or waits.
 - `toolrank serve --mask-pii`: with `--log-text`, e-mail addresses, phone, card and IBAN numbers are
   replaced by tags before the request or error text is written.
+- `--server-weight W` (`eval`, `search`, `serve`): each server is embedded as a summary of its tools
+  and a tool's score gains W times the request's cosine with its server. Off by default; 0.2 lifts
+  the first hit on catalogues of many servers (MCP-Zero top-1 79.9 → 81.0) and does nothing for a
+  catalogue of a few huge groups.
+- `toolrank search` / `serve --co-use N`: a result gains up to N tools that the usage log shows were
+  called together with one of its tools; hits carry `used_with`, the log's search events `added`.
+- `search_tools` says so when a threshold (`--cut-threshold T --cut-min 0`) turned every tool away,
+  instead of returning an empty list without a word.
+- `scripts/routing_sweep.py` and `scripts/couse_sweep.py`: the measurements behind the two options
+  and the no-tool gate.
 - `scripts/learn_sim.py` and `scripts/learn_sim.sh`: the learning loop measured on simulated traffic.
   A benchmark is served as a catalogue, a share of its queries is logged by an agent that calls the
   gold tools it is shown, `toolrank learn` trains on that log and the queries never served are the

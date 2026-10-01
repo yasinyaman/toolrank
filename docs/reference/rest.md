@@ -22,7 +22,8 @@ Searches the catalogue. `k` fixes the number of tools (default: adaptive K); `in
 the serving instruction; `full_schemas` returns every hit's full input schema (default: the first
 three, the rest shortened). The answer has `search_id`, `mode` (`semantic`, or `lexical` while the
 first index builds), `took_ms`, `rule` and `tools`. Each tool has `name` (its id), `api_name`,
-`server`, `kind` (`mcp` or `openapi`), `score`, `description` and `inputSchema`.
+`server`, `kind` (`mcp` or `openapi`), `score`, `description` and `inputSchema`; a tool appended by
+`serve --co-use` also has `used_with`, the returned tool it is called together with.
 
 ### `POST /v1/rank`
 
