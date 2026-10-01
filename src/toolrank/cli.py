@@ -633,6 +633,12 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
         "--jev-per-chunk", type=int, default=20, help="--scorer jev: chunk winners into the final round"
     )
     g.add_argument("--jev-workers", type=int, default=8, help="concurrent requests (TypeSafe: 40/s)")
+    g.add_argument(
+        "--rerank-max-chars",
+        type=int,
+        default=None,
+        help="cut each candidate's text, like --jev-max-chars does for Jev",
+    )
 
 
 def _cut_rule(a: argparse.Namespace):

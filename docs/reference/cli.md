@@ -54,6 +54,7 @@ index a tool set and score a query set
 | `--jev-chunk JEV_CHUNK` | `200` | --scorer jev: tools per Choice question (max 255) |
 | `--jev-per-chunk JEV_PER_CHUNK` | `20` | --scorer jev: chunk winners into the final round |
 | `--jev-workers JEV_WORKERS` | `8` | concurrent requests (TypeSafe: 40/s) |
+| `--rerank-max-chars RERANK_MAX_CHARS` |  | cut each candidate's text, like --jev-max-chars does for Jev |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
 

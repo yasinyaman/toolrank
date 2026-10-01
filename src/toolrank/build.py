@@ -112,7 +112,9 @@ def scorer_factory(
         base = make
 
         def reranked() -> Any:
-            return ScorerReranker(base(), second_make(), depth=a.rerank_depth)
+            return ScorerReranker(
+                base(), second_make(), depth=a.rerank_depth, max_chars=getattr(a, "rerank_max_chars", None)
+            )
 
         return reranked, info
     if rerank != "jev":

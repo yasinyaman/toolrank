@@ -15,16 +15,27 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from toolrank.domain import Query, RankedList, Tool
+from toolrank.formats import NamedFormatter
 
-__all__ = ["ScorerReranker"]
+__all__ = ["ScorerReranker", "cut_formatter"]
+
+
+def cut_formatter(f: NamedFormatter, max_chars: int) -> NamedFormatter:
+    """``f``'s text cut to ``max_chars`` characters, named ``<f>[:<n>]``: the text a Jev option gets
+    (``--jev-max-chars``), so a second scorer can read exactly what Jev read."""
+    return NamedFormatter(f"{f.name}[:{max_chars}]", lambda t: f(t)[:max_chars])
 
 
 class ScorerReranker:
-    def __init__(self, base: Any, second: Any, *, depth: int = 100):
+    def __init__(self, base: Any, second: Any, *, depth: int = 100, max_chars: int | None = None):
         if depth < 2:
             raise ValueError("--rerank-depth must be at least 2")
         if not hasattr(second, "score_tools"):
             raise ValueError(f"{second.name} cannot rerank: it has no score_tools (dense and clm can)")
+        if max_chars:  # the second scorer reads cut candidate text, and says so in its name
+            old = second.tool_format
+            second.tool_format = cut_formatter(old, max_chars)
+            second.name = second.name.replace(f"/{old.name}/", f"/{second.tool_format.name}/", 1)
         self.base, self.second, self.depth = base, second, depth
         self.score_kind = getattr(second, "score_kind", "cosine")
         self.tool_format, self.query_format = base.tool_format, base.query_format

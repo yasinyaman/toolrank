@@ -54,6 +54,14 @@ def test_second_scorer_reorders_the_head_and_keeps_the_tail():
     assert rr.score_tools(q, _tools()[:2]) == second.score_tools(q, _tools()[:2])
 
 
+def test_max_chars_cuts_what_the_second_scorer_reads_and_names_it():
+    second = DenseScorer(_ToyEncoder(), "name_desc", "plain")
+    rr = ScorerReranker(_Fixed(["w", "f"], [0.9, 0.8]), second, depth=2, max_chars=11)
+    assert second.tool_format.name == "name_desc[:11]" and second.tool_format(_tools()[0]) == "get_weather"
+    assert second.name == "dense/toy/name_desc[:11]/plain"
+    assert rr.name == "rerank[dense/toy/name_desc[:11]/plain,d2]/fixed"
+
+
 def test_reranker_rejects_a_scorer_without_score_tools_and_a_depth_below_two():
     second = DenseScorer(_ToyEncoder(), "name_desc", "plain")
     with pytest.raises(ValueError, match="at least 2"):
@@ -103,5 +111,7 @@ def test_eval_cli_reranks_bm25_with_a_dense_scorer_and_records_it(tmp_path, monk
         "scorer": "dense/emb/m/name_desc/plain", "depth": 10, "emb_url": "http://unused/v1", "heads_sha256": None
     }  # fmt: skip
     assert rep["config"]["jev"] is None and "K@cut" in rep["overall"]  # cosine scores: the cut applies
+    assert main(args + ["--rerank-max-chars", "40"]) == 0
+    assert json.loads(out.read_text())["scorer"].startswith("rerank[dense/emb/m/name_desc[:40]/plain,d10]/")
     with pytest.raises(SystemExit, match="at least 2"):
         main(args[:-2] + ["--rerank-depth", "1"])
