@@ -13,6 +13,14 @@ change behaviour.
   Choice questions, the chunk winners re-ranked once). The key is read from `TYPESAFE_API_KEY`;
   answers are cached in `jev.sqlite` next to the embedding cache; `scripts/jev_compare.sh` runs the
   comparison rows.
+- `toolrank eval --rerank dense|clm|cross`: a second scorer over the first one's shortlist, with its
+  own `--rerank-*` endpoint, formats, heads and text cut (`--rerank-max-chars`); `--scorer cross` and
+  `--rerank cross` run a cross-encoder behind vLLM's score API (Qwen3-Reranker and
+  bge-reranker-v2-gemma prompt formats, scores cached in `scores.sqlite`); compose profile `rerank`
+  serves both on the GB10; `scripts/clm_rerank.sh` and `scripts/cross_rerank.sh` run the rows.
+- `scripts/lora_train.py` (`[lora]` extra): LoRA fine-tuning of Qwen3-Embedding-8B on the
+  fine-tuning data path, a parity check against the served vectors, the best adapter picked on a dev
+  set and merged into weights that compose profile `lora` serves as `qwen3-emb-lora`.
 - `toolrank learn`: heads trained from what `toolrank serve` logged (calls that ended `ok` as
   positives, `tool_error` as weak positives, tools shown but not called as hard negatives), with the
   requests' vectors found through the log's key and never their text; the newest requests are the

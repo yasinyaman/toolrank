@@ -140,6 +140,12 @@ toolrank eval --data data/toolret --scorer clm ... --index faiss|pgvector --hybr
 toolrank eval --data data/toolret --scorer clm ... --rerank jev --rerank-depth 100   # TypeSafe AI's Jev over the top K
 # (key in TYPESAFE_API_KEY, answers cached in .cache/toolrank/jev.sqlite); --scorer jev = Jev alone, chunked, MCP sets only.
 # GB10, key exported in the shell: LIMIT=50 TAG=jevsmoke bash scripts/jev_compare.sh, then the full run under nohup
+toolrank eval ... --rerank clm|dense|cross --rerank-depth 20 --rerank-emb-url ... --rerank-tool-format documentation \
+  --rerank-max-chars 3000 [--rerank-template qwen3|bge]   # a local second scorer over the shortlist (scripts/clm_rerank.sh, cross_rerank.sh)
+docker compose -f deploy/spark/compose.yaml --profile rerank up -d qwen3-reranker bge-reranker   # 8095 / 8096, vLLM score API
+uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pairs.jsonl --dev data/mcp_zero_server \
+  --eval data/toolret --eval data/livemcpbench_server --n-train 20000 --out data/lora/<name> --check-parity   # GB10, hours
+TOOLRANK_LORA=$HOME/toolrank/data/lora/<name>/merged docker compose -f deploy/spark/compose.yaml --profile lora up -d qwen3-emb-lora  # 8097
 toolrank heads export data/heads/<run>.pt dist/heads/<name>.npz --dtype float16 --tool-format documentation ...
 uv run python scripts/adaptive_k_sweep.py --margins 0.1,0.2 -- <eval flags>     # rank once, cut many ways
 uv run python scripts/heads_parity.py --a x.pt --b x.npz -- <eval flags>         # do two checkpoints rank alike
@@ -299,7 +305,11 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `jev-1.13.0` (aliases move), answers cached by request body so a rerun ranks the same for free;
   the report's `config["jev"]` has calls, cached hits, billed tokens and per-call p50. MCA 2.3(b)
   forbids training on its output or building a competing product with it: eval and an optional
-  adapter only, never a training signal.
+  adapter only, never a training signal. The same seat for local models: `--rerank dense|clm|cross`
+  (`adapters/rerank.py`, the second scorer's own `--rerank-*` flags, `--rerank-max-chars` = Jev's
+  text cut) and `adapters/cross_encoder.py` (vLLM `/score`; the request is in every pair, so it is
+  cut to `--rerank-query-chars` and the rerankers serve an 8192-token window). CLM in that seat
+  breaks the list (ToolRet 54 → 15); the cross-encoders are the real local candidates.
 - **Packaged heads**: `NumpyHeads` reads `.npz` checkpoints (`allow_pickle=False`) and runs
   `make_head`'s forward in numpy; the `.npz` `cfg` carries serving defaults (backbone, formats,
   truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz` or `default`
@@ -422,6 +432,8 @@ src/toolrank/adapters/dense.py    DenseScorer (+ row_hash; tool vectors in a Vec
 src/toolrank/adapters/index_numpy.py, index_faiss.py, index_pgvector.py   the VectorIndex adapters
 src/toolrank/adapters/hybrid.py   HybridScorer (RRF)
 src/toolrank/adapters/jev.py      JevClient (+ SQLite answer cache), JevReranker (Jev over a scorer's top K), JevScorer (Jev alone, chunked)
+src/toolrank/adapters/rerank.py   ScorerReranker (a second dense/clm/cross scorer over a scorer's top K), cut_formatter
+src/toolrank/adapters/cross_encoder.py  CrossEncoderScorer + ScoreClient (vLLM /score; qwen3 and bge prompt templates, SQLite cache)
 src/toolrank/adapters/clm.py      CLMHeads (mirrors clm/heads.py; torch), CLMScorer
 src/toolrank/adapters/heads_np.py NumpyHeads, load_heads, export_npz, default_heads, download
 src/toolrank/adapters/chat_api.py OpenAIChat (query generation only, never ranking)
