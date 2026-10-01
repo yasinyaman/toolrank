@@ -16,6 +16,27 @@ sınırı yüzünden ToolRet'te tek başına koşamıyor; MCP-Zero'da tek başı
 heads'in ilk 100'ü ToolRet'te 54.03'ten 15.36'ya (Faz 0'ın fine-tune'lu CLM'iyle 34.20'ye) düşüyor;
 araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu değiştirmiyor.
 
+## Ölçüler, birimler ve yön
+
+Her tablo başlığında ok yönü (↑ yüksek iyi, ↓ düşük iyi) ve birim var. Tüm sıralama ölçüleri
+ToolRet protokolüyle (tüm külliyat üstünde top-100, sorgular üstünde mikro ortalama) hesaplanıyor
+ve yüzde olarak yazılıyor; "fark" sütunları yüzde puanı.
+
+| Ölçü | Ne | Birim | İyi olan |
+|---|---|---|---|
+| NDCG@k | ilk k'daki sıralama kalitesi; doğru araç ne kadar üstteyse o kadar yüksek | % (0–100) | ↑ |
+| Recall@k | doğru araçların ilk k içinde bulunan payı | % | ↑ |
+| Precision@1 | ilk sıradaki aracın doğru olduğu sorguların payı; MCP-Zero'nun "top-1 doğruluğu" | % | ↑ |
+| Comprehensiveness@k | bütün doğru araçları ilk k içinde bulunan sorguların payı | % | ↑ |
+| cat-macro | NDCG@10'un önce ToolRet kategorisi (web / code / customized) içinde görevler üstünde, sonra kategoriler üstünde düz ortalaması; kâğıdın "Average"ı | % | ↑ |
+| sorgu p50 | eval'in `rank` adımının sorgu başına medyan süresi; Jev ve cross-encoder satırlarında 8 eşzamanlı isteğin toplam süresi bölü sorgu sayısı, yani verim | ms | ↓ |
+| çağrı p50 | tek bir Jev ya da skor API çağrısının medyan süresi, GB10'dan | ms | ↓ |
+| token / sorgu | Jev'e gönderilen, faturalanan girdi tokenı, sorgu başına | token | ↓ |
+| çift / sorgu | cross-encoder'ın puanladığı (istek, aday) çifti sayısı, sorgu başına | adet | ↓ |
+| ücret | satırın tamamı, 0.042 $ / M token ile | $ | ↓ |
+| parite kosinüsü | süreç içi vektör ile servisten gelen vektörün kosinüs benzerliği; 1 = aynı | 0–1 | ↑ |
+| loss | InfoNCE eğitim kaybı | nat | ↓ |
+
 ## Jev nedir, buraya nasıl oturur
 
 - Jev metin üretmiyor: bir "state" ve tipli sorular alıyor; bir Choice sorusu en fazla 255 seçenek
@@ -34,7 +55,7 @@ araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu de�
 
 ## Kollar
 
-| Kol | ToolRet | LiveMCPBench | MCP-Zero |
+| Kol (koşuldu mu) | ToolRet | LiveMCPBench | MCP-Zero |
 |---|---|---|---|
 | BM25 (w/ inst), Qwen3-Embedding-8B, heads | README satırları | README satırları | README satırları |
 | heads ilk 100 → Jev, name_desc, 1000 karakter | evet | evet | evet |
@@ -57,16 +78,16 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 
 ### ToolRet (w/ inst, n=7961)
 
-| Satır | NDCG@10 | Recall@5 | Recall@10 | Comprehensiveness@10 | cat-macro | sorgu p50 ms | Jev çağrı p50 ms | token / sorgu | ücret |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | cat-macro ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | BM25 (w/ inst) | 39.27 | 42.42 | 49.49 | 40.70 | 36.41 | 0.4 | — | — | — |
-| BM25 → Jev, ilk 30 | 47.81 | 51.56 | 56.30 | 46.72 | 45.19 | 39.8 | 285 | 1,965 | 0.66 $ |
+| BM25 → Jev, ilk 30 | 47.81 | 51.56 | 56.30 | 46.72 | 45.19 | 39.8 | 285 | 1,965 token | 0.66 |
 | Qwen3-Embedding-8B | 51.11 | 54.24 | 62.32 | 51.60 | 46.54 | 0.8 | — | — | — |
 | heads | 54.03 | 57.39 | 65.59 | 55.06 | 47.13 | 0.9 | — | — | — |
-| heads → Jev, ilk 100 | 55.04 | 58.25 | 66.76 | 56.81 | 51.41 | 43.1 | 310 | 5,564 | 1.86 $ |
-| heads → Jev, ilk 20, documentation | 57.69 | 61.56 | 68.35 | 58.30 | 52.71 | 42.0 | 303 | 4,047 | 1.35 $ |
-| Qwen3-Emb → Jev, ilk 100 | 54.59 | 58.04 | 66.03 | 55.90 | 52.05 | 45.0 | 320 | 5,459 | 1.83 $ |
-| Qwen3-Emb → Jev, ilk 20, documentation | 55.98 | 59.55 | 65.41 | 54.80 | 52.67 | 43.2 | 306 | 4,138 | 1.38 $ |
+| heads → Jev, ilk 100 | 55.04 | 58.25 | 66.76 | 56.81 | 51.41 | 43.1 | 310 | 5,564 token | 1.86 |
+| heads → Jev, ilk 20, documentation | 57.69 | 61.56 | 68.35 | 58.30 | 52.71 | 42.0 | 303 | 4,047 token | 1.35 |
+| Qwen3-Emb → Jev, ilk 100 | 54.59 | 58.04 | 66.03 | 55.90 | 52.05 | 45.0 | 320 | 5,459 token | 1.83 |
+| Qwen3-Emb → Jev, ilk 20, documentation | 55.98 | 59.55 | 65.41 | 54.80 | 52.67 | 43.2 | 306 | 4,138 token | 1.38 |
 | heads → CLM-8B, ilk 100 | 15.36 | 17.25 | 25.56 | 20.31 | 12.47 | 3.6 | — | — | — |
 | heads → CLM-8B, ilk 20 | 28.94 | 31.37 | 48.72 | 38.61 | 24.80 | 1.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 34.20 | 36.50 | 46.57 | 37.77 | 22.68 | 3.2 | — | — | — |
@@ -79,17 +100,17 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 
 ### LiveMCPBench (w/ inst, n=94)
 
-| Satır | NDCG@10 | Recall@5 | Recall@10 | Comprehensiveness@10 | sorgu p50 ms | Jev çağrı p50 ms | token / sorgu | ücret |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | BM25 (w/ inst) | 25.38 | 22.92 | 31.41 | 17.02 | 0.3 | — | — | — |
-| BM25 → Jev, ilk 30 | 39.47 | 38.09 | 44.07 | 22.34 | 11.0 | 298 | 3,438 | 0.01 $ |
+| BM25 → Jev, ilk 30 | 39.47 | 38.09 | 44.07 | 22.34 | 11.0 | 298 | 3,438 token | 0.01 |
 | Qwen3-Embedding-8B | 53.74 | 50.82 | 61.09 | 37.23 | 0.4 | — | — | — |
 | heads | 53.95 | 53.03 | 61.66 | 36.17 | 0.1 | — | — | — |
-| heads → Jev, ilk 100 | 66.25 | 65.84 | 73.68 | 46.81 | 12.2 | 329 | 7,018 | 0.03 $ |
-| heads → Jev, ilk 20, documentation | 64.03 | 64.70 | 69.63 | 44.68 | 11.7 | 313 | 4,984 | 0.02 $ |
-| Jev tek başına | 65.05 | 66.44 | 73.81 | 45.74 | 49.5 | 360 | 40,910 | 0.16 $ |
-| Qwen3-Emb → Jev, ilk 100 | 66.00 | 66.15 | 74.99 | 51.06 | 46.1 | 327 | 7,010 | 0.03 $ |
-| Qwen3-Emb → Jev, ilk 20, documentation | 62.48 | 63.99 | 68.81 | 43.62 | 45.6 | 315 | 5,062 | 0.02 $ |
+| heads → Jev, ilk 100 | 66.25 | 65.84 | 73.68 | 46.81 | 12.2 | 329 | 7,018 token | 0.03 |
+| heads → Jev, ilk 20, documentation | 64.03 | 64.70 | 69.63 | 44.68 | 11.7 | 313 | 4,984 token | 0.02 |
+| Jev tek başına | 65.05 | 66.44 | 73.81 | 45.74 | 49.5 | 360 | 40,910 token | 0.16 |
+| Qwen3-Emb → Jev, ilk 100 | 66.00 | 66.15 | 74.99 | 51.06 | 46.1 | 327 | 7,010 token | 0.03 |
+| Qwen3-Emb → Jev, ilk 20, documentation | 62.48 | 63.99 | 68.81 | 43.62 | 45.6 | 315 | 5,062 token | 0.02 |
 | heads → CLM-8B, ilk 100 | 11.85 | 12.36 | 19.79 | 8.51 | 5.5 | — | — | — |
 | heads → CLM-8B, ilk 20 | 27.65 | 29.27 | 43.90 | 15.96 | 3.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 13.49 | 11.23 | 21.22 | 10.64 | 5.0 | — | — | — |
@@ -102,17 +123,17 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 
 ### MCP-Zero (w/ inst, n=2792)
 
-| Satır | NDCG@10 | Recall@5 | Recall@10 | Comprehensiveness@10 | Precision@1 | sorgu p50 ms | Jev çağrı p50 ms | token / sorgu | ücret |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | Precision@1 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | BM25 (w/ inst) | 63.32 | 73.94 | 84.95 | 84.78 | 45.63 | 0.1 | — | — | — |
-| BM25 → Jev, ilk 30 | 92.84 | 94.55 | 94.89 | 94.70 | 90.29 | 39.1 | 286 | 1,289 | 0.15 $ |
+| BM25 → Jev, ilk 30 | 92.84 | 94.55 | 94.89 | 94.70 | 90.29 | 39.1 | 286 | 1,289 token | 0.15 |
 | Qwen3-Embedding-8B | 87.21 | 92.31 | 95.63 | 95.52 | 78.19 | 0.1 | — | — | — |
 | heads | 88.53 | 94.20 | 96.12 | 96.02 | 79.87 | 0.1 | — | — | — |
-| heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 | 0.36 $ |
-| heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 | 0.21 $ |
-| Jev tek başına | 93.95 | 96.61 | 96.81 | 96.67 | 90.04 | 629.7 | 320 | 90,831 | 10.65 $ |
-| Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 | 0.37 $ |
-| Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 | 0.20 $ |
+| heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 token | 0.36 |
+| heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 token | 0.21 |
+| Jev tek başına | 93.95 | 96.61 | 96.81 | 96.67 | 90.04 | 629.7 | 320 | 90,831 token | 10.65 |
+| Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 token | 0.37 |
+| Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 token | 0.20 |
 | heads → CLM-8B, ilk 100 | 13.11 | 16.10 | 25.81 | 25.68 | 3.76 | 2.4 | — | — | — |
 | heads → CLM-8B, ilk 20 | 33.22 | 39.42 | 65.25 | 64.97 | 10.10 | 1.1 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 20.01 | 23.59 | 37.67 | 37.54 | 7.23 | 2.3 | — | — | — |
@@ -125,7 +146,7 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 
 ### ToolRet, kategori bazında NDCG@10: heads → heads + Jev 100
 
-| Kategori | heads | heads → Jev | fark |
+| Kategori | heads ↑ % | heads → Jev ↑ % | fark ↑ puan |
 |---|---:|---:|---:|
 | code | 54.40 | 56.60 | +2.19 |
 | customized | 46.58 | 52.73 | +6.15 |
@@ -133,7 +154,7 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 
 ### ToolRet, görev bazında en büyük hareketler (NDCG@10)
 
-| Görev | n | heads | heads → Jev | fark |
+| Görev | n | heads ↑ % | heads → Jev ↑ % | fark ↑ puan |
 |---|---:|---:|---:|---:|
 | autotools-food | 22 | 49.37 | 32.83 | -16.54 |
 | appbench | 32 | 62.67 | 52.99 | -9.67 |
@@ -265,12 +286,12 @@ karakter; istek 6000 karakterde kesilir, çünkü her çiftte yinelenir): Qwen3-
 reçetesiyle orijinal model, `<Instruct>/<Query>/<Document>` şablonu) ve bge-reranker-v2-gemma (8096,
 FlagEmbedding'in `A:/B:/prompt` biçimi). Puanlar `.cache/toolrank/scores.sqlite`'ta.
 
-| heads'in ilk 20'si + dokümantasyon | heads | Jev | Qwen3-Reranker-8B | bge-reranker-v2-gemma |
+| heads'in ilk 20'si + dokümantasyon (↑ %) | heads | Jev | Qwen3-Reranker-8B | bge-reranker-v2-gemma |
 |---|---:|---:|---:|---:|
 | ToolRet NDCG@10 | 54.03 | 57.69 | 58.05 | 53.96 |
-| ToolRet cat-macro | 47.13 | 52.71 | 52.93 | 50.26 |
+| ToolRet cat-macro NDCG@10 | 47.13 | 52.71 | 52.93 | 50.26 |
 | LiveMCPBench NDCG@10 | 53.95 | 64.03 | 62.68 | 36.19 |
-| MCP-Zero top-1 | 79.87 | 92.34 | 91.26 | 48.24 |
+| MCP-Zero Precision@1 | 79.87 | 92.34 | 91.26 | 48.24 |
 
 - **Qwen3-Reranker-8B Jev'in yerel karşılığı.** ToolRet'te aynı düzende Jev'in 0.2–0.4 puan önünde,
   MCP setlerinde 1.1–1.4 geride; ücretsiz, kendi makinede, sorgu dışarı çıkmıyor. Gecikme, GPU'yu

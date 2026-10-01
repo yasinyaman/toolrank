@@ -4,9 +4,16 @@
 
 Bu hafta ne ölçüldü, sayı ne çıktı, karar ne.
 
+## Ölçüler, birimler ve yön
+
+Her tablo başlığında ok yönü (↑ yüksek iyi, ↓ düşük iyi) ve birim: `NDCG@10 ↑ %`, `p50 ↓ ms`,
+`token / sorgu ↓`, `ücret ↓ $`. Rapora özgü bir ölçü varsa burada tek satırla tanımla (ne ölçüyor,
+birimi, hangi yön iyi). Sıralama ölçüleri yüzde, "fark" sütunları yüzde puanı.
+
 ## Tablo
 
-`toolrank compare results/<...>.json` çıktısı buraya; her satırın komutu aşağıda.
+`toolrank compare results/<...>.json` çıktısı buraya, başlıklarında ok ve birimle; her satırın komutu
+aşağıda.
 
 ## Komutlar
 
