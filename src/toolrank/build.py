@@ -147,7 +147,10 @@ RERANK_FLAGS = (
     "emb_batch",
     "device",
 )
-RERANK_OWN = ("template",)  # --rerank-<flag> with no main counterpart: the second scorer's cross_<flag>
+RERANK_OWN = (
+    "template",
+    "query_chars",
+)  # --rerank-<flag> with no main counterpart: the second scorer's cross_<flag>
 
 
 def rerank_args(a: Any) -> Any:
@@ -195,6 +198,7 @@ def _base_factory(
                 a.tool_format or "name_desc",
                 template=getattr(a, "cross_template", None) or "qwen3",
                 max_chars=getattr(a, "cross_max_chars", None),
+                max_query_chars=getattr(a, "cross_query_chars", None) or 6000,
             )
         ), {"serving": {}, "encoder": None, "heads_path": None, "cross": client}
     if a.scorer == "jev":

@@ -190,11 +190,14 @@ class CrossEncoderScorer:
         *,
         template: str = "qwen3",
         max_chars: int | None = None,
+        max_query_chars: int = 6000,
         max_tools: int = 5000,
     ):
         if template not in TEMPLATES:
             raise ValueError(f"unknown template {template!r}; choose from {TEMPLATES}")
         self.client, self.template, self.max_chars, self.max_tools = client, template, max_chars, max_tools
+        self.max_query_chars = max_query_chars  # the request is in every pair: one 18k-character
+        # LiveMCPBench task blew a 4096-token window; the head of a request carries the task
         self.tool_format = TOOL_FORMATS[tool_format] if isinstance(tool_format, str) else tool_format
         self.query_format = QUERY_FORMATS["plain"]  # the instruction has its own slot in the prompt
         self.name = f"cross[{client.model},{template}]/{self.tool_format.name}"
@@ -210,7 +213,8 @@ class CrossEncoderScorer:
     def score_tools(self, query: Query, tools: Sequence[Tool]) -> list[float]:
         if not tools:
             return []
-        text_1, text_2 = prompts(self.template, query.text, query.instruction, [self._text(t) for t in tools])
+        request = query.text[: self.max_query_chars] if self.max_query_chars else query.text
+        text_1, text_2 = prompts(self.template, request, query.instruction, [self._text(t) for t in tools])
         return self.client.score(text_1, text_2)
 
     def rank(self, queries: Sequence[Query], k: int) -> list[RankedList]:
