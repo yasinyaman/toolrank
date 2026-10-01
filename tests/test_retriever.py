@@ -200,3 +200,118 @@ def test_keyword_stand_in_until_the_index_is_built_and_a_failed_build_is_retried
     assert r.search("refund this payment").mode == "semantic" and len(builds) == 2
     kinds = [e.split(":")[0] for e in events]  # the two first builds run in parallel
     assert sorted(kinds[:2]) == ["index build failed", "keyword index ready"] and kinds[2:] == ["index ready"]
+
+
+def _npz_heads(path, seed, hidden=16, width=8):
+    """Skip heads NumpyHeads can load, without torch: random weights, so each file ranks differently."""
+    import json as _json
+
+    rng = np.random.default_rng(seed)
+    cfg = {"width": width, "depth": 2, "hidden_size": hidden, "projection_dim": hidden, "skip": True}
+    arrays = {"cfg": np.array(_json.dumps(cfg)), "logit_scale": np.zeros(1, np.float32)}
+    for head in ("state_head", "action_head"):
+        arrays[f"{head}/inp.weight"] = rng.standard_normal((width, hidden)).astype(np.float32)
+        arrays[f"{head}/inp.bias"] = np.zeros(width, np.float32)
+        arrays[f"{head}/out.weight"] = rng.standard_normal((hidden, width)).astype(np.float32)
+        arrays[f"{head}/out.bias"] = np.zeros(hidden, np.float32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as f:
+        np.savez(f, **arrays)
+    tmp.replace(path)
+
+
+def _with_heads(tmp_path, **kw):
+    from toolrank.adapters.clm import CLMScorer
+    from toolrank.adapters.heads_np import NumpyHeads
+
+    built = []
+
+    def variants(path, name):
+        built.append(name)
+        return lambda: CLMScorer(_HashEncoder(), NumpyHeads(path), "name_desc", "instruct_query")
+
+    r = Retriever(_dir(tmp_path), _make, fixed_k=3, heads_dir=tmp_path / "heads", variants=variants, **kw)
+    return r, built
+
+
+def _ready(r, name, timeout=10.0):
+    """Ask for a request (which starts the build) until the variant ``name`` is built."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r.pick(arm_key="k", tenant=name.split(":")[1] if name.startswith("tenant:") else None)
+        v = r.status()["heads"].get(name)
+        if v and (v["ready"] or v["error"]):
+            return v
+        time.sleep(0.02)
+    raise AssertionError(f"{name} was not built: {r.status()['heads']}")
+
+
+def test_heads_files_are_picked_up_while_serving(tmp_path):
+    from toolrank.retriever import bucket
+
+    r, built = _with_heads(tmp_path, candidate_share=0.5)
+    first = r.search("tool 3")
+    assert (first.arm, first.heads) == ("base", None) and r.status()["heads"] == {"base": None}
+    heads = tmp_path / "heads"
+    _npz_heads(heads / "current.npz", seed=1)
+    assert _ready(r, "current")["ready"]
+    cur = r.search("tool 3", arm_key="anyone")
+    assert (
+        cur.arm == "current" and cur.heads == r.status()["heads"]["current"]["sha"] and len(cur.heads) == 16
+    )
+    assert cur.scorer.startswith("clm[current]") and cur.scorer != first.scorer
+
+    # a candidate answers a sticky share of the requests, by the session or client key
+    _npz_heads(heads / "candidate.npz", seed=2)
+    assert _ready(r, "candidate")["ready"]
+    inside = next(k for k in (f"s{i}" for i in range(100)) if bucket(k, 0.5))
+    outside = next(k for k in (f"s{i}" for i in range(100)) if not bucket(k, 0.5))
+    assert [r.search("tool 3", arm_key=inside).arm for _ in range(3)] == ["candidate"] * 3
+    assert [r.search("tool 3", arm_key=outside).arm for _ in range(3)] == ["current"] * 3
+    assert r.search("tool 3", arm_key=inside).heads != cur.heads
+
+    # one API key's own heads, and its own candidate; other tenants stay on the shared ones
+    _npz_heads(heads / "tenants" / "acme" / "current.npz", seed=3)
+    assert _ready(r, "tenant:acme")["ready"]
+    assert r.search("tool 3", arm_key=outside, tenant="acme").arm == "tenant:acme"
+    assert r.search("tool 3", arm_key=outside, tenant="other").arm == "current"
+    assert (
+        r.search("tool 3", arm_key=inside, tenant="acme").arm == "tenant:acme"
+    )  # the shared candidate is not acme's
+    _npz_heads(heads / "tenants" / "acme" / "candidate.npz", seed=4)
+    assert _ready(r, "tenant:acme:candidate")["ready"]
+    assert r.search("tool 3", arm_key=inside, tenant="acme").arm == "tenant:acme:candidate"
+
+    # a new file under the same name is rebuilt; a file that goes takes its variant with it
+    before = r.status()["heads"]["current"]["sha"]
+    time.sleep(0.01)
+    _npz_heads(heads / "current.npz", seed=5)
+    deadline = time.time() + 10
+    while r.status()["heads"]["current"]["sha"] == before and time.time() < deadline:
+        r.pick(arm_key=outside)
+        time.sleep(0.02)
+    assert r.search("tool 3", arm_key=outside).heads not in (before, None)
+    (heads / "candidate.npz").unlink()
+    assert r.search("tool 3", arm_key=inside).arm == "current" and "candidate" not in r.status()["heads"]
+    assert sorted(set(built)) == ["candidate", "current", "tenant:acme", "tenant:acme:candidate"]
+
+
+def test_a_broken_heads_file_or_an_explicit_checkpoint_leaves_the_base_in_place(tmp_path):
+    r, _ = _with_heads(tmp_path)
+    (tmp_path / "heads").mkdir()
+    (tmp_path / "heads" / "current.npz").write_bytes(b"not heads")
+    v = _ready(r, "current")
+    assert not v["ready"] and v["error"] and r.search("tool 3").arm == "base"
+    # --clm-ckpt names the heads to serve: a learned current.npz does not replace them, a candidate still runs
+    (tmp_path / "x").mkdir()
+    explicit, _ = _with_heads(tmp_path / "x", use_current=False, candidate_share=1.0)
+    _npz_heads(tmp_path / "x" / "heads" / "current.npz", seed=1)
+    _npz_heads(tmp_path / "x" / "heads" / "candidate.npz", seed=2)
+    assert _ready(explicit, "candidate")["ready"]
+    assert (
+        explicit.search("tool 3", arm_key="a").arm == "candidate"
+        and "current" not in explicit.status()["heads"]
+    )
+    plain = Retriever(_dir(tmp_path / "x"), _make)  # no heads dir: nothing to pick
+    assert plain.search("tool 3").arm == "base" and "heads" not in plain.status()

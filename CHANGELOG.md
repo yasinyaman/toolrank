@@ -25,6 +25,11 @@ change behaviour.
   positives, `tool_error` as weak positives, tools shown but not called as hard negatives), with the
   requests' vectors found through the log's key and never their text; the newest requests are the
   dev set, and the heads are written only when they beat the served ones there.
+- Heads that change while serving: `toolrank serve` follows `DATA/heads` (`current.npz` replaces the
+  served heads, `candidate.npz` answers a sticky `--candidate-share` of the requests, `tenants/<name>/`
+  the same per API key), and the usage log records which arm answered. `toolrank learn` writes its
+  result as the candidate and takes `--replay pairs.jsonl` against forgetting; `toolrank ab` compares
+  the arms on the log and promotes the candidate, sets it aside, or waits.
 - `toolrank serve --mask-pii`: with `--log-text`, e-mail addresses, phone, card and IBAN numbers are
   replaced by tags before the request or error text is written.
 

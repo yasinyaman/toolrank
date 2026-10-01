@@ -37,7 +37,7 @@ def test_search_and_call_events_keep_hashes_not_text(tmp_path):
     log.call(
         tool="gh/b", kind="mcp", session="stdio", via="mcp", outcome="ok", took_ms=40.2, arguments={"x": 1}
     )
-    search, call = _events(tmp_path / "usage")
+    search, call = _events(tmp_path / "usage")[:2]
     assert (
         search["event"] == "search" and search["id"] == sid and search["v"] == 3 and search["client"] is None
     )
@@ -46,6 +46,9 @@ def test_search_and_call_events_keep_hashes_not_text(tmp_path):
     assert search["emb_hmac"] == log.digest("abc") and "abc" not in json.dumps(search)
     assert (search["instruction"], search["instruction_hmac"]) == ("Find tools.", log.digest("Find tools."))
     assert search["results"][-1] == ["gh/c", 0.1] and search["shown"] == 2 and search["heads"] == "f3c1"
+    assert search["arm"] is None  # which heads answered: set by a server whose heads change while it runs
+    log.search(_result(), session="stdio", via="mcp", heads="aa", arm="candidate")
+    assert _events(tmp_path / "usage")[-1]["arm"] == "candidate"
     assert (call["search_id"], call["rank"], call["link"], call["error"]) == (sid, 2, "session", None)
     assert call["args_hmac"] == log.digest(json.dumps({"x": 1}, sort_keys=True))
     key = tmp_path / "usage" / ".key"

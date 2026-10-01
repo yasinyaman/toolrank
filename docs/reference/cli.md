@@ -237,6 +237,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--timeout TIMEOUT` | `60.0` | seconds per backend call and connection |
 | `--usage-log USAGE_LOG` |  | usage log directory (default: DATA/usage) |
 | `--no-usage-log` |  |  |
+| `--candidate-share CANDIDATE_SHARE` | `0.1` | share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session) |
 | `--log-text` |  | also log request and error text |
 | `--mask-pii` |  | with --log-text: mask e-mail, phone, card and IBAN numbers |
 
@@ -291,7 +292,10 @@ From an ingest dir toolrank serve has served: the log's searches and calls becom
 | Argument | Default | Description |
 | --- | --- | --- |
 | `--data DATA` | required | the ingest dir: tools.jsonl, cache/, usage/ |
-| `--out OUT` |  | the .npz to write (default: DATA/heads/learned-<stamp>.npz) |
+| `--out OUT` |  | the .npz to write (default: DATA/heads/candidate.npz, or tenants/<name>/ with --tenant: a running server gives it a share of the requests) |
+| `--replace-candidate` |  | train even though a candidate is still being judged |
+| `--replay REPLAY` |  | general pairs.jsonl mixed into training, against forgetting |
+| `--replay-n REPLAY_N` | `1000` | how many of --replay's pairs |
 | `--dev DEV` |  | benchmark-format dir scored alongside: a guard against forgetting |
 | `--init INIT` | `default` | heads to start from: default (the served ones), a path, or none |
 | `--since SINCE` |  | only searches from this ISO date or timestamp on |
@@ -321,6 +325,22 @@ From an ingest dir toolrank serve has served: the log's searches and calls becom
 | `--emb-batch EMB_BATCH` | `128` |  |
 | `--truncate TRUNCATE` |  | vLLM truncate_prompt_tokens (CLM reference: 2048) |
 | `--cache-dir CACHE_DIR` |  | embedding cache directory (default: DIR/cache, next to tools.jsonl; '' = none) |
+
+## `toolrank ab`
+
+Since DATA/heads/candidate.npz appeared, a share of the requests was answered with it. Per arm: the searches, how many led to a call, and how high the called tool stood (mrr: the mean of 1/rank over all the arm's searches). The candidate becomes current.npz when its mrr is --margin above the control's with --min-searches on both sides, is set aside when it is that much below, and keeps running otherwise. A running server follows the files.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--data DATA` | required | the ingest dir: usage/ and heads/ |
+| `--tenant TENANT` |  | one API key's heads (DATA/heads/tenants/<name>) |
+| `--min-searches MIN_SEARCHES` | `100` | per arm, before anything is decided |
+| `--margin MARGIN` | `0.01` | the mrr difference that decides |
+| `--since SINCE` |  | ISO timestamp (default: when the candidate appeared) |
+| `--dry-run` |  | say the decision, move nothing |
+| `--promote` |  | promote now |
+| `--rollback` |  | roll back now |
+| `--results RESULTS` | `results` | where the report goes |
 
 ## `toolrank heads export`
 

@@ -13,6 +13,15 @@ index is ready — minutes when every tool has to be embedded — searches get i
 ``lexical``) instead of an error, and ``get``/``tools`` work, so ``call_tool`` does too. A first
 build that fails is retried every ``retry_s`` seconds when a request comes in. ``notify`` receives
 one line per index event (keyword index up, index ready, build failed).
+
+Heads can change while the server runs (``toolrank learn`` writes them). With ``heads_dir`` (serve
+and search: ``DATA/heads``), ``current.npz`` there replaces the heads the flags chose, ``candidate.npz``
+answers a sticky ``candidate_share`` of the requests (by ``arm_key``: the session, else the client)
+next to it, and ``tenants/<name>/current.npz`` / ``candidate.npz`` do the same for one API key's
+requests. Each is a variant: its own scorer over the same tools, built in the background when the
+file appears or changes and dropped when it goes, its index snapshot under ``index/variants/<name>``.
+Until a variant is built, requests get the one before it. ``SearchResult.arm`` and ``heads`` say
+which answered, for the usage log and ``toolrank ab``.
 """
 
 from __future__ import annotations
@@ -73,6 +82,8 @@ class SearchResult:
     scorer: str
     catalog: str
     mode: str = "semantic"  # "lexical": the keyword stand-in answered, the index is still building
+    arm: str = "base"  # which heads answered: base, current, candidate, tenant:<name>[:candidate]
+    heads: str | None = None  # sha256 prefix of that heads file
     # whether the request brought its instruction (request text, a digest in the usage log) or it is
     # the server's own; True unless the retriever says otherwise, so a result built elsewhere hides it
     own_instruction: bool = True
@@ -88,6 +99,31 @@ class _State:
     index_s: float
     sync: dict[str, int]
     lexical: bool = False
+
+
+@dataclass
+class _Variant:
+    """A heads file next to the log and the state built from it (``None`` until built)."""
+
+    name: str
+    path: Path
+    state: _State | None = None
+    stamp: tuple[Any, ...] | None = (
+        None  # the heads file's (mtime, size) and the tools stamp it was built for
+    )
+    sha: str | None = None
+    building: bool = False
+    error: str | None = None
+
+
+def bucket(key: str | None, share: float) -> bool:
+    """Whether ``key`` falls in the first ``share`` of a stable hash: the same session or client
+    keeps getting the same arm."""
+    if share <= 0:
+        return False
+    if key is None:
+        key = uuid.uuid4().hex
+    return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) % 10_000 < share * 10_000
 
 
 class Retriever:
@@ -107,6 +143,10 @@ class Retriever:
         fallback: Callable[[], Any] | None = None,
         retry_s: float = 30.0,
         notify: Callable[[str], None] | None = None,
+        heads_dir: str | Path | None = None,
+        variants: Callable[[Path, str], Callable[[], Any]] | None = None,
+        candidate_share: float = 0.1,
+        use_current: bool = True,
     ):
         self.data_dir = Path(data_dir).resolve()
         self.path = self.data_dir / "tools.jsonl"
@@ -114,6 +154,11 @@ class Retriever:
         self.fixed_k, self.depth, self.cache_key, self.heads_sha = fixed_k, depth, cache_key, heads_sha
         self.ready_timeout, self.make_fallback, self.retry_s = ready_timeout, fallback, retry_s
         self.notify = notify or (lambda msg: None)
+        # heads files that come and go while serving; ``variants(path, name)`` makes their scorers
+        self.heads_dir = Path(heads_dir).resolve() if heads_dir and variants else None
+        self.make_variant, self.candidate_share, self.use_current = variants, candidate_share, use_current
+        self._variants: dict[str, _Variant] = {}
+        self._variants_lock = threading.Lock()
         self._state: _State | None = None
         self._fallback: _State | None = None  # only until the first semantic state exists
         self._error: BaseException | None = None
@@ -265,7 +310,7 @@ class Retriever:
             mode = "lexical"
         else:
             mode = "failed" if self._error is not None else "starting"
-        return {
+        out = {
             "ready": sem is not None,
             "mode": mode,
             "tools": len(st.tools) if st else 0,
@@ -276,6 +321,79 @@ class Retriever:
             "sync": dict(st.sync) if st else None,
             "error": str(self._error) if self._error else None,
         }
+        if self.heads_dir is not None:
+            with self._variants_lock:
+                out["heads"] = {
+                    "base": self.heads_sha,
+                    **{
+                        v.name: {"sha": v.sha, "ready": v.state is not None, "error": v.error}
+                        for v in self._variants.values()
+                    },
+                }
+        return out
+
+    # -- heads that change while serving ------------------------------------------------------------
+    def _variant(self, name: str, path: Path) -> _Variant | None:
+        """The variant for ``path``, built (again) in the background when the file is new or changed;
+        None when there is no such file. What comes back may be the previous build while a new one
+        runs, or None while the first one does."""
+        try:
+            st = path.stat()
+        except OSError:
+            with self._variants_lock:
+                if self._variants.pop(name, None) is not None:
+                    self.notify(f"heads {name}: {path.name} is gone")
+            return None
+        stamp = (st.st_mtime_ns, st.st_size, self._stamp())
+        with self._variants_lock:
+            v = self._variants.setdefault(name, _Variant(name, path))
+            if v.stamp != stamp and not v.building:
+                v.building = True
+                threading.Thread(
+                    target=self._build_variant, args=(v, stamp), name=f"toolrank-heads-{name}", daemon=True
+                ).start()
+        return v
+
+    def _build_variant(self, v: _Variant, stamp: tuple[Any, ...]) -> None:
+        assert self.make_variant is not None
+        try:
+            state = self._build(self.make_variant(v.path, v.name))
+            sha = hashlib.sha256(v.path.read_bytes()).hexdigest()[:16]
+        except Exception as e:  # the file may be half-written, or not heads at all
+            with self._variants_lock:
+                v.error, v.stamp, v.building = f"{type(e).__name__}: {e}", stamp, False
+            self.notify(f"heads {v.name}: {v.path.name} could not be loaded: {v.error}")
+            return
+        with self._variants_lock:
+            v.state, v.sha, v.error, v.stamp, v.building = state, sha, None, stamp, False
+        self.notify(f"heads {v.name}: {v.path.name} ({sha[:8]}) in {state.index_s:.1f} s")
+
+    def pick(
+        self, *, arm_key: str | None = None, tenant: str | None = None
+    ) -> tuple[_State, str, str | None]:
+        """The state a request is answered with -> (state, arm, heads sha): the tenant's current
+        heads if it has some, else ``current.npz``, else the base; and the matching candidate for
+        the share of ``arm_key`` values that fall in the candidate bucket. A variant that is not
+        built yet is skipped, so a request never waits for one."""
+        base = self.state(fallback=self.make_fallback is not None)
+        chosen, arm, sha = base, "base", self.heads_sha
+        if self.heads_dir is None or base.lexical:
+            return chosen, arm, sha
+        where, prefix = self.heads_dir, ""
+        if tenant:
+            where, prefix = self.heads_dir / "tenants" / tenant, f"tenant:{tenant}"
+            current = self._variant(prefix, where / "current.npz")
+            if current is not None and current.state is not None:
+                chosen, arm, sha = current.state, prefix, current.sha
+        if arm == "base" and self.use_current:
+            current = self._variant("current", self.heads_dir / "current.npz")
+            if current is not None and current.state is not None:
+                chosen, arm, sha = current.state, "current", current.sha
+        name = f"{prefix}:candidate" if prefix else "candidate"
+        candidate = self._variant(name, where / "candidate.npz")  # built as soon as it appears
+        if candidate is not None and candidate.state is not None and bucket(arm_key, self.candidate_share):
+            chosen, arm, sha = candidate.state, name, candidate.sha
+        return chosen, arm, sha
 
     # -- queries -------------------------------------------------------------------------------
     def describe(self, k: int | None = None) -> str:
@@ -284,8 +402,16 @@ class Retriever:
             return f"top {fixed}"
         return f"adaptive K ({self.rule.describe()})" if self.rule else f"top {self.depth}"
 
-    def search(self, query: str, *, k: int | None = None, instruction: str | None = None) -> SearchResult:
-        st = self.state(fallback=self.make_fallback is not None)
+    def search(
+        self,
+        query: str,
+        *,
+        k: int | None = None,
+        instruction: str | None = None,
+        arm_key: str | None = None,
+        tenant: str | None = None,
+    ) -> SearchResult:
+        st, arm, heads = self.pick(arm_key=arm_key, tenant=tenant)
         inst = self.instruction if instruction is None else instruction
         q = Query(id=uuid.uuid4().hex, text=query, qrels={}, instruction=inst)
         fixed = k or self.fixed_k
@@ -322,6 +448,8 @@ class Retriever:
             catalog=st.catalog,
             mode="lexical" if st.lexical else "semantic",
             own_instruction=inst != self.instruction,
+            arm=arm,
+            heads=heads,
         )
 
     def rank(

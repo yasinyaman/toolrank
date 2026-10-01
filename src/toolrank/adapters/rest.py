@@ -176,15 +176,17 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         k = body.get("k")
         if k is not None and (not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= MAX_K):
             raise _Reject(400, f"k must be an integer from 1 to {MAX_K}")
+        session, client, tenant = identity(request)
         try:
-            res = await in_thread(retriever.search, query, k=k, instruction=inst)
+            res = await in_thread(
+                retriever.search, query, k=k, instruction=inst, arm_key=session or client, tenant=tenant
+            )
         except IndexNotReady:
             raise
         except Exception as e:  # the embedding endpoint is down, ...
             raise _Reject(503, f"search failed: {type(e).__name__}: {e}") from e
-        session, client, tenant = identity(request)
         sid = usage.search(
-            res, session=session, via="rest", heads=retriever.heads_sha, client=client, tenant=tenant
+            res, session=session, via="rest", heads=res.heads, client=client, tenant=tenant, arm=res.arm
         )
         full = body.get("full_schemas") is True
         tools = [

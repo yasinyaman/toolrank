@@ -187,6 +187,9 @@ docker compose -f deploy/spark/compose.yaml --profile fp8 up -d qwen3-embedding-
 
 # Faz 2 week 1: learn from what serve logged (no request text leaves the machine; --dry-run needs no torch)
 toolrank learn --data data/mytools [--dev data/livemcpbench_server] [--since 2026-10-01] [--tenant NAME] [--dry-run]
+# Faz 2 week 3: learn writes DATA/heads/candidate.npz, a running serve gives it --candidate-share (0.1) of the
+# requests, ab reads the log back and promotes it to current.npz or sets it aside; every night:
+toolrank ab --data data/mytools [--dry-run] && toolrank learn --data data/mytools --replay data/toolret_train/pairs.jsonl
 
 # Faz 1 week 7: launch (every public step after 19:00 and approved one by one)
 uv run --with huggingface_hub python scripts/publish_heads.py --repo USER/NAME [--upload]   # dry run without --upload
@@ -405,9 +408,21 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `tools.jsonl` through the same cache. Training is `finetune.train_heads` from the served heads (lr 1e-5,
   5 shown negatives, `neg_filter` 0.95); the newest 20% of requests are the dev set (`log.Recall@5`: the called
   tool in the catalogue's top 5), an optional `--dev` benchmark set is a guard, and the heads are written
-  (`DATA/heads/learned-<stamp>.npz`) only when epoch > 0 beats the start on the log without losing more
-  than `--max-drop` NDCG@10 points on the benchmark; `--dry-run` mines without torch. `serve --mask-pii`
-  (with `--log-text`) tags e-mail, phone, card and IBAN numbers before they are written.
+  (`DATA/heads/candidate.npz`, `tenants/<name>/` with `--tenant`) only when epoch > 0 beats the start on the
+  log without losing more than `--max-drop` NDCG@10 points on the benchmark; `--dry-run` mines without torch;
+  `--replay pairs.jsonl` mixes general pairs into the batches against forgetting (selection stays on the
+  log). `serve --mask-pii` (with `--log-text`) tags e-mail, phone, card and IBAN numbers before they are written.
+- **Heads that change while serving** (Faz 2 week 3): `Retriever.pick` answers a request with a variant, a
+  state built from a heads file under `DATA/heads` by `build_retriever`'s `variant` factory (same encoder
+  flags, index snapshot under `index/variants/<name>`): `current.npz` replaces the flags' heads (not when
+  `--clm-ckpt` named some), `candidate.npz` takes a sticky `--candidate-share` (`retriever.bucket` of the
+  session, else the client), `tenants/<name>/` does both for one API key. Variants build in the background
+  when the file appears or changes (mtime + size + the tools stamp), a request never waits for one, a file
+  that cannot be loaded leaves an `error` in `status()["heads"]`. `SearchResult.arm` / `heads` go to the
+  log. `toolrank ab` (`learn.judge`, `decide`, `apply`): per arm since the candidate appeared, searches,
+  called, top-1 and `mrr` (mean 1/rank of the called tool over all the arm's searches); promote
+  (`candidate` → `current`, the old one kept as `previous-<stamp>`), roll back (`rejected-<stamp>`) or wait
+  (`--min-searches` 100 a side, `--margin` 0.01); renames only, which the running server follows.
 - **Head fine-tuning** (`toolrank finetune` → `finetune.run`): the backbone stays frozen and training
   reads only cached vectors (one command embeds what the cache lacks, then trains). Training requests
   equal to a dev or eval query are dropped (counted per source); `split_pairs` takes a seeded
@@ -441,7 +456,7 @@ src/toolrank/adapters/mcp_client.py  fetch_tools / fetch_many / MCPServerSource 
 src/toolrank/adapters/backends.py MCPBackend, OpenAPIExecutor, Backends (call_tool's router)
 src/toolrank/adapters/mcp_proxy.py  build_proxy (search_tools + call_tool), serve_stdio, Guard, http_app
 src/toolrank/adapters/rest.py     rest_routes (/v1/search, /v1/rank, /v1/call, /v1/tools, /openapi.json, /healthz), platform_record, OPENAPI
-src/toolrank/retriever.py         Retriever (state swap, background first index), Hit, SearchResult
+src/toolrank/retriever.py         Retriever (state swap, background first index; pick: heads variants current/candidate/tenant), bucket, Hit, SearchResult
 src/toolrank/usage.py             UsageLog (schema v3: search and call events, HMAC digests, client key, call → search links)
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
 src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)
@@ -453,10 +468,11 @@ src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py
 src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_eval, summarize, format_table, save_report);
                                   table.py (the README's results table: render, splice, the protocol checks)
 src/toolrank/finetune.py          toolrank finetune: Job/run, EvalSet (dev curves), train_heads(select=), load_checkpoint
-src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids), state_vectors (emb_hmac -> cache), split, run
+src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids), state_vectors (emb_hmac -> cache), split, run;
+                                  toolrank ab: judge, decide, apply (candidate -> current | rejected), heads_home
 src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint
 src/toolrank/cut.py               AdaptiveK (+ defaults), cutter
-src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | heads (export, pull) | formats
+src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | ab | heads (export, pull) | formats
 docs/plan/                        private repo (ignored here): faz-0..3.md, backlog.md, acik-cekirdek.md, claude-code-handoff.md, lansman-kiti.md
 docs/reports/                     weekly numbers; TEMPLATE.md
 docs/results.toml, docs/results/  the README's results table: its rows and the curated eval reports behind them

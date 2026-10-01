@@ -67,6 +67,10 @@ Every search and call goes to `DATA/usage/` (or `--usage-log DIR`), one JSON lin
 file per day, each call tied to the search that found its tool. It is what
 [`toolrank learn`](learn.md) trains the heads on.
 
+The server also follows `DATA/heads` while it runs: `current.npz` there replaces the served heads,
+`candidate.npz` takes `--candidate-share` of the requests, and `tenants/<name>/` holds the same for one
+API key. See [Learn from the usage log](learn.md#trying-the-new-heads-on-live-traffic).
+
 What it holds, and what it does not:
 
 - Requests and call arguments are keyed digests (HMAC-SHA256 under `DATA/usage/.key`, a random

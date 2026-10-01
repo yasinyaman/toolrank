@@ -207,15 +207,15 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
             return error_result("search_tools needs a non-empty query")
         if k is not None and (not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= 50):
             return error_result("k must be an integer from 1 to 50")
+        session, client, tenant = who
         try:
-            res = await in_thread(retriever.search, query, k=k)
+            res = await in_thread(retriever.search, query, k=k, arm_key=session or client, tenant=tenant)
         except IndexNotReady as e:
             return error_result(str(e))
         except Exception as e:  # the embedding endpoint is down, ...
             return error_result(f"search failed: {type(e).__name__}: {e}")
-        session, client, tenant = who
         sid = usage.search(
-            res, session=session, via="mcp", heads=retriever.heads_sha, client=client, tenant=tenant
+            res, session=session, via="mcp", heads=res.heads, client=client, tenant=tenant, arm=res.arm
         )
         payload: dict[str, Any] = {
             "search_id": sid,

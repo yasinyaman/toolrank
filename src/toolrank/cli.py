@@ -495,7 +495,7 @@ def cmd_finetune(a: argparse.Namespace) -> int:
 def cmd_learn(a: argparse.Namespace) -> int:
     from toolrank.build import DEFAULT_EMB_MODEL, DEFAULT_EMB_URL, DEFAULT_SERVING
     from toolrank.finetune import TrainConfig
-    from toolrank.learn import Job, run
+    from toolrank.learn import CANDIDATE, Job, heads_home, run
 
     data = Path(a.data).resolve()
     if not (data / "tools.jsonl").exists():
@@ -506,8 +506,13 @@ def cmd_learn(a: argparse.Namespace) -> int:
         except ImportError:
             sys.exit("toolrank learn trains with torch: pip install 'toolrank[clm]' (--dry-run needs none)")
     _data_cache(a, data)
-    stamp = time.strftime("%Y%m%d-%H%M")
-    out = Path(a.out).resolve() if a.out else data / "heads" / f"learned-{stamp}.npz"
+    # by default the result is the candidate a running server gives a share of the requests to
+    out = Path(a.out).resolve() if a.out else heads_home(data, a.tenant) / CANDIDATE
+    if out.name == CANDIDATE and out.exists() and not (a.replace_candidate or a.dry_run):
+        print(
+            f"{out} is still being judged (toolrank ab decides); --replace-candidate trains a new one over it"
+        )
+        return 0
     name = a.name or out.stem
     job = Job(
         data=data,
@@ -529,6 +534,9 @@ def cmd_learn(a: argparse.Namespace) -> int:
         dev_share=a.dev_share,
         max_drop=a.max_drop,
         dry_run=a.dry_run,
+        replay=Path(a.replay) if a.replay else None,
+        replay_n=a.replay_n if a.replay else 0,
+        instruction=str(DEFAULT_SERVING["instruction"]),
         train=TrainConfig(
             epochs=a.epochs,
             batch=a.batch,
@@ -550,6 +558,41 @@ def cmd_learn(a: argparse.Namespace) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
     print(f"{report['decision']}; report: {path}")
+    return 0
+
+
+def cmd_ab(a: argparse.Namespace) -> int:
+    from datetime import UTC, datetime
+
+    from toolrank.learn import CANDIDATE, apply, decide, heads_home, judge, read_events
+
+    data = Path(a.data).resolve()
+    home = heads_home(data, a.tenant)
+    candidate = home / CANDIDATE
+    if not candidate.exists():
+        print(f"no candidate: {candidate} does not exist (toolrank learn writes it)")
+        return 0
+    # the candidate's arm starts when its file appears: only searches from then on are compared
+    since = a.since or datetime.fromtimestamp(candidate.stat().st_mtime, UTC).isoformat(
+        timespec="milliseconds"
+    )
+    stats = judge(read_events(data / "usage"), since=since, tenant=a.tenant)
+    decision = a.force or decide(stats, min_searches=a.min_searches, margin=a.margin)
+    print(f"since {since}" + (f", tenant {a.tenant}" if a.tenant else ""))
+    print("| arm | searches | called | top-1 | mrr |\n| --- | ---: | ---: | ---: | ---: |")
+    for name in ("control", "candidate"):
+        r = stats[name]
+        print(f"| {name} | {r['searches']} | {r['called']} | {r['top1']:.3f} | {r['mrr']:.3f} |")
+    moved = {} if a.dry_run else apply(home, decision)
+    report = {"data": str(data), "tenant": a.tenant, "since": since, "stats": stats, "decision": decision}
+    report.update(moved=moved, forced=bool(a.force), min_searches=a.min_searches, margin=a.margin)
+    path = Path(a.results) / f"ab_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    done = ", ".join(f"{k} -> {v}" for k, v in moved.items()) or (
+        "nothing moved" if not a.dry_run else "dry run"
+    )
+    print(f"{decision}: {done}; report: {path}")
     return 0
 
 
@@ -1016,6 +1059,12 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--timeout", type=float, default=60.0, help="seconds per backend call and connection")
     sv.add_argument("--usage-log", default=None, help="usage log directory (default: DATA/usage)")
     sv.add_argument("--no-usage-log", action="store_true")
+    sv.add_argument(
+        "--candidate-share",
+        type=float,
+        default=0.1,
+        help="share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session)",
+    )
     sv.add_argument("--log-text", action="store_true", help="also log request and error text")
     sv.add_argument(
         "--mask-pii", action="store_true", help="with --log-text: mask e-mail, phone, card and IBAN numbers"
@@ -1092,7 +1141,19 @@ def build_parser() -> argparse.ArgumentParser:
         "when they beat the starting ones there, and, with --dev, do not fall on a benchmark set.",
     )
     ln.add_argument("--data", required=True, help="the ingest dir: tools.jsonl, cache/, usage/")
-    ln.add_argument("--out", default=None, help="the .npz to write (default: DATA/heads/learned-<stamp>.npz)")
+    ln.add_argument(
+        "--out",
+        default=None,
+        help="the .npz to write (default: DATA/heads/candidate.npz, or tenants/<name>/ with --tenant: "
+        "a running server gives it a share of the requests)",
+    )
+    ln.add_argument(
+        "--replace-candidate", action="store_true", help="train even though a candidate is still being judged"
+    )
+    ln.add_argument(
+        "--replay", default=None, help="general pairs.jsonl mixed into training, against forgetting"
+    )
+    ln.add_argument("--replay-n", type=int, default=1000, help="how many of --replay's pairs")
     ln.add_argument(
         "--dev", default=None, help="benchmark-format dir scored alongside: a guard against forgetting"
     )
@@ -1129,6 +1190,26 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--device", default=None)
     _add_encoder_args(ln, url=None, model=None, cache_dir=None)
     ln.set_defaults(fn=cmd_learn, emb_batch=128)
+
+    ab = sub.add_parser(
+        "ab",
+        help="compare the candidate heads with the served ones on the usage log; promote or roll back",
+        description="Since DATA/heads/candidate.npz appeared, a share of the requests was answered with "
+        "it. Per arm: the searches, how many led to a call, and how high the called tool stood (mrr: "
+        "the mean of 1/rank over all the arm's searches). The candidate becomes current.npz when its "
+        "mrr is --margin above the control's with --min-searches on both sides, is set aside when it is "
+        "that much below, and keeps running otherwise. A running server follows the files.",
+    )
+    ab.add_argument("--data", required=True, help="the ingest dir: usage/ and heads/")
+    ab.add_argument("--tenant", default=None, help="one API key's heads (DATA/heads/tenants/<name>)")
+    ab.add_argument("--min-searches", type=int, default=100, help="per arm, before anything is decided")
+    ab.add_argument("--margin", type=float, default=0.01, help="the mrr difference that decides")
+    ab.add_argument("--since", default=None, help="ISO timestamp (default: when the candidate appeared)")
+    ab.add_argument("--dry-run", action="store_true", help="say the decision, move nothing")
+    ab.add_argument("--promote", dest="force", action="store_const", const="promote", help="promote now")
+    ab.add_argument("--rollback", dest="force", action="store_const", const="rollback", help="roll back now")
+    ab.add_argument("--results", default="results", help="where the report goes")
+    ab.set_defaults(fn=cmd_ab, force=None)
 
     hd = sub.add_parser("heads", help="head checkpoints")
     hds = hd.add_subparsers(dest="heads_cmd", required=True)

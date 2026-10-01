@@ -13,7 +13,19 @@ from toolrank.datasets.jsonl import write_queries, write_tools
 from toolrank.datasets.synthetic import make_queries, make_tools
 from toolrank.domain import Tool
 from toolrank.formats import tool_format
-from toolrank.learn import Job, LogPair, batches, mine, run, split, state_vectors
+from toolrank.learn import (
+    Job,
+    LogPair,
+    apply,
+    batches,
+    decide,
+    heads_home,
+    judge,
+    mine,
+    run,
+    split,
+    state_vectors,
+)
 from toolrank.retriever import Hit, SearchResult
 from toolrank.usage import UsageLog
 
@@ -204,6 +216,12 @@ def test_learn_dry_run_reports_the_pairs_without_torch(tmp_path, capsys):
         == 0
     )
     assert "not enough pairs" in capsys.readouterr().out
+    # a candidate that toolrank ab has not decided on is not trained over
+    waiting = heads_home(tmp_path) / "candidate.npz"
+    waiting.parent.mkdir()
+    waiting.write_bytes(b"still judged")
+    assert main(["learn", "--data", str(tmp_path), "--emb-url", URL, "--emb-model", MODEL]) == 0
+    assert "still being judged" in capsys.readouterr().out and waiting.read_bytes() == b"still judged"
 
 
 def test_learn_publishes_heads_that_beat_the_start_on_the_logs_newest_requests(tmp_path):
@@ -263,3 +281,171 @@ def test_learn_needs_a_log_and_matching_vectors(tmp_path):
     write_tools(tmp_path / "tools.jsonl", [Tool(id="a/b", doc={"name": "b"})])
     with pytest.raises(FileNotFoundError, match="no usage log"):
         run(Job(data=tmp_path, out=tmp_path / "x.npz", dry_run=True), log=lambda _: None)
+
+
+def _arm_search(sid, arm, ts, tenant=None):
+    return {"v": 3, "event": "search", "id": sid, "ts": ts, "arm": arm, "tenant": tenant}
+
+
+def _ranked_call(sid, rank, outcome="ok"):
+    return {"v": 3, "event": "call", "tool": "t", "search_id": sid, "outcome": outcome, "rank": rank}
+
+
+def test_judge_compares_the_arms_on_what_the_agents_called():
+    events = [
+        _arm_search("a1", "current", "2026-10-01T10:00:00"),
+        _ranked_call("a1", 2),
+        _arm_search("a2", "base", "2026-10-01T10:01:00"),  # the control is whatever is not the candidate
+        _arm_search("a3", "current", "2026-10-01T10:02:00"),
+        _ranked_call("a3", 4, "refused"),  # says nothing
+        _arm_search("b1", "candidate", "2026-10-01T10:03:00"),
+        _ranked_call("b1", 1),
+        _ranked_call("b1", 3, "tool_error"),  # the best rank of the search counts
+        _arm_search("b2", "candidate", "2026-10-01T10:04:00"),
+        _ranked_call("b2", 2, "tool_error"),
+        _arm_search("old", "candidate", "2026-09-30T10:00:00"),
+        _ranked_call("old", 1),
+        _arm_search("t1", "tenant:acme:candidate", "2026-10-01T10:05:00", tenant="acme"),
+        _ranked_call("t1", 1),
+        _arm_search("t2", "tenant:acme", "2026-10-01T10:06:00", tenant="acme"),
+    ]
+    stats = judge(events, since="2026-10-01")
+    assert stats["control"] == {"searches": 3, "called": 1, "top1": 0.0, "mrr": pytest.approx(0.5 / 3)}
+    assert stats["candidate"] == {"searches": 2, "called": 2, "top1": 0.5, "mrr": pytest.approx(0.75)}
+    acme = judge(events, since="2026-10-01", tenant="acme")
+    assert (acme["control"]["searches"], acme["candidate"]["searches"], acme["candidate"]["mrr"]) == (
+        1,
+        1,
+        1.0,
+    )
+    assert judge(events)["candidate"]["searches"] == 3  # without since, the old search counts too
+
+    row = lambda n, mrr: {"searches": n, "called": n, "top1": 0.0, "mrr": mrr}  # noqa: E731
+    assert decide({"control": row(100, 0.50), "candidate": row(100, 0.60)}) == "promote"
+    assert decide({"control": row(100, 0.50), "candidate": row(100, 0.40)}) == "rollback"
+    assert decide({"control": row(100, 0.50), "candidate": row(100, 0.505)}) == "wait"  # inside the margin
+    assert decide({"control": row(100, 0.50), "candidate": row(99, 0.90)}) == "wait"  # too few searches yet
+    assert decide({"control": row(20, 0.5), "candidate": row(20, 0.9)}, min_searches=20) == "promote"
+
+
+def test_apply_moves_the_files_a_running_server_follows(tmp_path):
+    home = heads_home(tmp_path)
+    assert (
+        home == tmp_path / "heads" and heads_home(tmp_path, "acme") == tmp_path / "heads" / "tenants" / "acme"
+    )
+    home.mkdir()
+    for name, body in (("current.npz", b"old"), ("candidate.npz", b"new"), ("candidate.pt", b"new-pt")):
+        (home / name).write_bytes(body)
+    assert apply(home, "wait") == {} and (home / "candidate.npz").exists()
+    moved = apply(home, "promote", stamp="S")
+    assert moved == {
+        "current.npz": "previous-S.npz",
+        "candidate.npz": "current.npz",
+        "candidate.pt": "current.pt",
+    }
+    assert (home / "current.npz").read_bytes() == b"new" and (home / "previous-S.npz").read_bytes() == b"old"
+    assert (home / "current.pt").read_bytes() == b"new-pt" and not (home / "candidate.npz").exists()
+    (home / "candidate.npz").write_bytes(b"worse")
+    assert apply(home, "rollback", stamp="T") == {"candidate.npz": "rejected-T.npz"}
+    assert (home / "current.npz").read_bytes() == b"new" and (
+        home / "rejected-T.npz"
+    ).read_bytes() == b"worse"
+
+
+def test_ab_cli_reports_and_moves_only_when_decided(tmp_path, capsys):
+    usage = UsageLog(tmp_path / "usage")
+    tools = [Tool(id="s/a", category="s"), Tool(id="s/b", category="s")]
+
+    def search(arm, session, called_rank):
+        res = SearchResult(
+            query="q", instruction="", hits=[Hit(t, 0.5) for t in tools], ranked=[(t.id, 0.5) for t in tools],
+            took_ms=1.0, rule="top 2", emb_key="k", scorer="x", catalog="c", arm=arm,
+        )  # fmt: skip
+        sid = usage.search(res, session=session, via="mcp", arm=arm)
+        if called_rank:
+            usage.call(
+                tool=tools[called_rank - 1].id,
+                kind="mcp",
+                session=session,
+                via="mcp",
+                outcome="ok",
+                took_ms=1,
+                search_id=sid,
+            )
+
+    (tmp_path / "heads").mkdir()
+    assert main(["ab", "--data", str(tmp_path), "--results", str(tmp_path / "res")]) == 0
+    assert "no candidate" in capsys.readouterr().out
+    (tmp_path / "heads" / "candidate.npz").write_bytes(b"new")
+    for i in range(6):
+        search("current", f"c{i}", 2)  # the control's tool stood second
+        search("candidate", f"n{i}", 1)  # the candidate's first
+    args = ["ab", "--data", str(tmp_path), "--results", str(tmp_path / "res"), "--since", "2000-01-01"]
+    assert main(args) == 0  # six searches a side: nothing is decided yet
+    out = capsys.readouterr().out
+    assert "| candidate | 6 | 6 | 1.000 | 1.000 |" in out and "| control | 6 | 6 | 0.000 | 0.500 |" in out
+    assert "wait: nothing moved" in out and (tmp_path / "heads" / "candidate.npz").exists()
+    assert main([*args, "--min-searches", "5", "--dry-run"]) == 0
+    assert "promote: dry run" in capsys.readouterr().out and (tmp_path / "heads" / "candidate.npz").exists()
+    assert main([*args, "--min-searches", "5"]) == 0
+    assert "promote: candidate.npz -> current.npz" in capsys.readouterr().out
+    assert (tmp_path / "heads" / "current.npz").read_bytes() == b"new"
+    (report,) = sorted((tmp_path / "res").glob("ab_*.json"))[-1:]
+    assert json.loads(report.read_text())["decision"] == "promote"
+
+
+def test_learn_writes_the_candidate_and_mixes_in_general_pairs(tmp_path):
+    pytest.importorskip("torch")
+    from toolrank.adapters.heads_np import NumpyHeads
+    from toolrank.datasets.jsonl import write_pairs
+    from toolrank.domain import TrainPair
+    from toolrank.finetune import TrainConfig
+    from toolrank.formats import query_format
+
+    _served(tmp_path)
+    general = [
+        TrainPair(
+            id=str(i),
+            text=f"general request {i}",
+            positives=(json.dumps({"name": f"g{i % 7}", "description": "x"}),),
+        )
+        for i in range(40)
+    ]
+    write_pairs(tmp_path / "pairs.jsonl", general)
+    enc, tf, qf = _enc(tmp_path), tool_format("documentation"), query_format("instruct_query")
+    rng = np.random.default_rng(9)
+    from toolrank.domain import Query
+
+    texts = [qf(Query(id=p.id, text=p.text, qrels={}, instruction="Find the tool.")) for p in general]
+    docs = sorted(
+        {tf(Tool(id="", doc=json.loads(p.positives[0]), documentation=p.positives[0])) for p in general}
+    )
+    enc.cache.put_many(texts + docs, rng.standard_normal((len(texts) + len(docs), 16)).astype(np.float32))
+    cfg = TrainConfig(
+        epochs=6,
+        batch=32,
+        neg_per_pair=3,
+        lr=3e-3,
+        neg_filter=0.95,
+        head_cfg={"width": 64, "depth": 3, "skip": True},
+    )
+    out = heads_home(tmp_path) / "candidate.npz"
+    job = Job(
+        data=tmp_path,
+        out=out,
+        init=None,
+        emb_url=URL,
+        emb_model=MODEL,
+        train=cfg,
+        replay=tmp_path / "pairs.jsonl",
+        replay_n=25,
+        instruction="Find the tool.",
+    )
+    lines = []
+    report = run(job, log=lines.append)
+    assert (
+        report["replay"] == {"pairs": 25, "tools": 7, "from": "pairs.jsonl"} and report["tokens_spent"] == 0
+    )
+    assert report["decision"] == "published", lines
+    assert any("a running server gives it a share" in line for line in lines)
+    assert NumpyHeads(out).cfg["learned_from"]["requests"] == 48 and out.with_suffix(".pt").exists()

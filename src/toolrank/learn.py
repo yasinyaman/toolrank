@@ -20,13 +20,30 @@ benchmark-format ``dev`` set can be scored alongside as a guard against forgetti
 heads compete as epoch 0, and the result is published (an ``.npz`` next to the log) only when it
 beats them on the log's dev set without falling below them on the benchmark by more than
 ``max_drop`` NDCG@10 points. ``torch`` is imported inside functions (``toolrank[clm]``).
+
+Forgetting (``replay``): general request -> tool pairs (``pairs.jsonl``, e.g. ToolRet's training
+set) can be mixed into the training batches, so heads learned from one catalogue's traffic keep
+what the released ones knew; they are embedded through the same cache, and selection stays on the
+log.
+
+A/B (``judge``, ``decide``, ``apply``; ``toolrank ab``): published heads go to
+``DATA/heads/candidate.npz`` (``tenants/<name>/`` for one API key), where a running server gives
+them a sticky share of the requests (``retriever.Retriever.pick``) and logs which arm answered. The
+log then says how each arm did: of its searches, how many led to a call that ended ``ok`` or
+``tool_error``, and how high the called tool stood (``mrr``: the mean of 1/rank over all the arm's
+searches, 0 for a search nobody acted on). The candidate is promoted to ``current.npz`` when its
+``mrr`` beats the control's by ``margin`` with ``min_searches`` on both sides, rolled back when it is
+that much worse, and left running otherwise. Both moves are file renames the server picks up.
 """
 
 from __future__ import annotations
 
 import hmac
 import json
+import os
+import random
 import sqlite3
+import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -220,6 +237,9 @@ class Job:
     dev_share: float = 0.2
     max_drop: float = 0.5  # NDCG@10 points the benchmark dev may lose
     dry_run: bool = False
+    replay: Path | None = None  # general pairs.jsonl mixed into training, against forgetting
+    replay_n: int = 0
+    instruction: str = ""  # given to replay pairs without one (the serving instruction)
     train: TrainConfig = field(
         default_factory=lambda: TrainConfig(epochs=3, batch=256, neg_per_pair=5, lr=1e-5, neg_filter=0.95)
     )
@@ -309,6 +329,26 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
         batches(train_pairs, states, index, tool_vecs),
         batches(dev_pairs, states, index, tool_vecs),
     )
+    if job.replay is not None and job.replay_n > 0:
+        from toolrank.datasets.jsonl import load_pairs
+        from toolrank.finetune import index_tools, pair_texts, with_instruction
+
+        # the head of the file is enough to sample from: ToolRet's training set is 3.3 GB
+        general = [p for p in load_pairs(job.replay, limit=max(4 * job.replay_n, 1000)) if p.positives]
+        picked = random.Random(job.train.seed).sample(general, min(job.replay_n, len(general)))
+        picked, _ = with_instruction(picked, job.instruction)
+        state_texts, pos_texts, neg_texts = pair_texts(picked, tf, qf)
+        tool_texts, pos, neg = index_tools(pos_texts, neg_texts)
+        off = len(tools)  # replay tools follow the catalogue in the training matrix only
+        train_b = Batches(
+            np.vstack([train_b.states, enc.encode(state_texts, kind="query")]),
+            np.vstack([tool_vecs, enc.encode(tool_texts)]),
+            train_b.pos + [[off + j for j in row] for row in pos],
+            train_b.neg + [[off + j for j in row] for row in neg],
+        )
+        report["replay"] = {"pairs": len(picked), "tools": len(tool_texts), "from": job.replay.name}
+        report["tokens_spent"] = enc.tokens_spent
+        log(f"replay: {len(picked)} general pairs over {len(tool_texts)} tools from {job.replay.name}")
     bench = None
     if job.dev is not None:
         from toolrank.finetune import EvalSet
@@ -397,6 +437,94 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
     }
     log(
         f"epoch {best}: {select} {start[select]:.3f} -> {chosen[select]:.3f}; wrote {job.out} "
-        f"(serve it with TOOLRANK_HEADS={job.out})"
+        + (
+            "(a running server gives it a share of the requests; toolrank ab decides)"
+            if job.out.name == CANDIDATE
+            else f"(serve it with TOOLRANK_HEADS={job.out})"
+        )
     )
     return report
+
+
+# -- A/B: the log says how each arm did ------------------------------------------------------------
+CURRENT, CANDIDATE = "current.npz", "candidate.npz"
+
+
+def heads_home(data: Path, tenant: str | None = None) -> Path:
+    """Where a server looks for heads that change while it runs: ``DATA/heads``, or
+    ``DATA/heads/tenants/<name>`` for one API key's requests."""
+    return data / "heads" / "tenants" / tenant if tenant else data / "heads"
+
+
+def judge(
+    events: Iterable[dict[str, Any]], *, since: str | None = None, tenant: str | None = None
+) -> dict[str, dict[str, float]]:
+    """How the control and the candidate did since ``since`` -> {"control" | "candidate": {searches,
+    called, top1, mrr}}. A search belongs to the candidate when its ``arm`` ends in ``candidate``,
+    with ``tenant`` only that key's searches count; a search counts as called when a linked call
+    ended ``ok`` or ``tool_error``, at the best rank among those calls."""
+    arms: dict[str, str] = {}
+    for e in events:
+        if e.get("event") != "search" or (since and str(e.get("ts", "")) < since):
+            continue
+        arm = str(e.get("arm") or "base")
+        if tenant is not None and e.get("tenant") != tenant:
+            continue
+        if tenant is None and arm.startswith("tenant:"):
+            continue  # a tenant's own heads are another experiment
+        arms[e["id"]] = "candidate" if arm.endswith("candidate") else "control"
+    best: dict[str, int] = {}
+    for e in events:
+        sid = e.get("search_id")
+        if (
+            e.get("event") == "call"
+            and sid in arms
+            and e.get("outcome") in (POSITIVE, WEAK)
+            and e.get("rank")
+        ):
+            best[sid] = min(best.get(sid, 10**9), int(e["rank"]))
+    out: dict[str, dict[str, float]] = {}
+    for name in ("control", "candidate"):
+        ids = [sid for sid, arm in arms.items() if arm == name]
+        ranks = [best[sid] for sid in ids if sid in best]
+        n = len(ids)
+        out[name] = {
+            "searches": n,
+            "called": len(ranks),
+            "top1": sum(r == 1 for r in ranks) / n if n else 0.0,
+            "mrr": sum(1.0 / r for r in ranks) / n if n else 0.0,
+        }
+    return out
+
+
+def decide(stats: dict[str, dict[str, float]], *, min_searches: int = 100, margin: float = 0.01) -> str:
+    """``promote``, ``rollback`` or ``wait``: nothing is decided before both arms have
+    ``min_searches``, and the candidate's ``mrr`` has to differ from the control's by ``margin``."""
+    control, candidate = stats["control"], stats["candidate"]
+    if min(control["searches"], candidate["searches"]) < min_searches:
+        return "wait"
+    diff = candidate["mrr"] - control["mrr"]
+    return "promote" if diff > margin else "rollback" if diff < -margin else "wait"
+
+
+def apply(home: Path, decision: str, *, stamp: str | None = None) -> dict[str, str]:
+    """Carry ``promote`` or ``rollback`` out with renames (a running server follows the files):
+    the candidate becomes ``current.npz`` and the heads it replaces ``previous-<stamp>.npz``, or the
+    candidate is set aside as ``rejected-<stamp>.npz``; the ``.pt`` next to each moves with it.
+    -> what moved where."""
+    stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
+    moved: dict[str, str] = {}
+
+    def move(src: Path, dst: Path) -> None:
+        for suffix in (".npz", ".pt"):
+            a, b = src.with_suffix(suffix), dst.with_suffix(suffix)
+            if a.exists():
+                os.replace(a, b)
+                moved[a.name] = b.name
+
+    if decision == "promote":
+        move(home / CURRENT, home / f"previous-{stamp}.npz")
+        move(home / CANDIDATE, home / CURRENT)
+    elif decision == "rollback":
+        move(home / CANDIDATE, home / f"rejected-{stamp}.npz")
+    return moved

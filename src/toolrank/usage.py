@@ -15,7 +15,8 @@ it is logged as text, cut at ``UNKNOWN_TOOL_CHARS``.
 
 ``search``: v, event, ts, id, session, client, via, tenant, query_hmac, query, emb_hmac,
 instruction_hmac, instruction, rule, results ([[tool, score], ...], the top 20 before the cut),
-shown (tools returned), took_ms, scorer, heads, catalog.
+shown (tools returned), took_ms, scorer, heads, arm (which heads answered: base, current, candidate,
+tenant:<name>[:candidate]; added to v3 with ``toolrank learn``), catalog.
 
 ``call``: v, event, ts, id, session, client, via, tenant, tool, kind (mcp | openapi), search_id,
 rank, link, outcome (ok | tool_error | protocol_error | timeout | refused | unknown_tool),
@@ -152,6 +153,7 @@ class UsageLog:
         heads: str | None = None,
         client: str | None = None,
         tenant: str | None = None,
+        arm: str | None = None,
     ) -> str:
         """Log a ``retriever.SearchResult``; -> its search id (returned to the agent)."""
         sid = "s-" + uuid.uuid4().hex[:16]
@@ -183,6 +185,7 @@ class UsageLog:
                 "took_ms": round(result.took_ms, 2),
                 "scorer": result.scorer,
                 "heads": heads,
+                "arm": arm,
                 "catalog": result.catalog,
             }
         )
