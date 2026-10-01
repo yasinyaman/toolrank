@@ -1,4 +1,4 @@
-# Faz 2 — Jev karşılaştırması (30 Eyl – 1 Eki 2026)
+# Faz 2 — Jev, CLM, cross-encoder ve LoRA karşılaştırması (30 Eyl – 1 Eki 2026)
 
 TypeSafe AI'ın 15 Eylül 2026'da duyurduğu "System One" modeli Jev, toolrank'in kendi scorer'larının
 yanında, aynı protokol, aynı setler ve aynı araç metniyle ölçüldü. Plan maddesi değil; Faz 2'nin
@@ -65,6 +65,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads | 54.03 | 57.39 | 65.59 | 55.06 | 47.13 | 0.9 | — | — | — |
 | heads → Jev, ilk 100 | 55.04 | 58.25 | 66.76 | 56.81 | 51.41 | 43.1 | 310 | 5,564 | 1.86 $ |
 | heads → Jev, ilk 20, documentation | 57.69 | 61.56 | 68.35 | 58.30 | 52.71 | 42.0 | 303 | 4,047 | 1.35 $ |
+| Qwen3-Emb → Jev, ilk 100 | 54.59 | 58.04 | 66.03 | 55.90 | 52.05 | 45.0 | 320 | 5,459 | 1.83 $ |
+| Qwen3-Emb → Jev, ilk 20, documentation | 55.98 | 59.55 | 65.41 | 54.80 | 52.67 | 43.2 | 306 | 4,138 | 1.38 $ |
 | heads → CLM-8B, ilk 100 | 15.36 | 17.25 | 25.56 | 20.31 | 12.47 | 3.6 | — | — | — |
 | heads → CLM-8B, ilk 20 | 28.94 | 31.37 | 48.72 | 38.61 | 24.80 | 1.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 34.20 | 36.50 | 46.57 | 37.77 | 22.68 | 3.2 | — | — | — |
@@ -72,6 +74,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, Jev'in metni, ilk 100 | 13.84 | 15.26 | 23.61 | 18.62 | 11.03 | 3.8 | — | — | — |
 | heads → CLM-8B, Jev'in metni, ilk 20, documentation | 28.65 | 31.21 | 48.09 | 38.49 | 23.89 | 7.0 | — | — | — |
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 21.08 | 23.63 | 34.86 | 28.64 | 18.56 | 1.8 | — | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 58.05 | 61.80 | 68.41 | 58.12 | 52.93 | 613.3 | 4517 | 20 çift | — |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 53.96 | 57.80 | 66.99 | 56.21 | 50.26 | 231.6 | 1888 | 20 çift | — |
 
 ### LiveMCPBench (w/ inst, n=94)
 
@@ -84,6 +88,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → Jev, ilk 100 | 66.25 | 65.84 | 73.68 | 46.81 | 12.2 | 329 | 7,018 | 0.03 $ |
 | heads → Jev, ilk 20, documentation | 64.03 | 64.70 | 69.63 | 44.68 | 11.7 | 313 | 4,984 | 0.02 $ |
 | Jev tek başına | 65.05 | 66.44 | 73.81 | 45.74 | 49.5 | 360 | 40,910 | 0.16 $ |
+| Qwen3-Emb → Jev, ilk 100 | 66.00 | 66.15 | 74.99 | 51.06 | 46.1 | 327 | 7,010 | 0.03 $ |
+| Qwen3-Emb → Jev, ilk 20, documentation | 62.48 | 63.99 | 68.81 | 43.62 | 45.6 | 315 | 5,062 | 0.02 $ |
 | heads → CLM-8B, ilk 100 | 11.85 | 12.36 | 19.79 | 8.51 | 5.5 | — | — | — |
 | heads → CLM-8B, ilk 20 | 27.65 | 29.27 | 43.90 | 15.96 | 3.9 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 13.49 | 11.23 | 21.22 | 10.64 | 5.0 | — | — | — |
@@ -91,6 +97,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, Jev'in metni, ilk 100 | 10.93 | 10.76 | 18.46 | 9.57 | 135.0 | — | — | — |
 | heads → CLM-8B, Jev'in metni, ilk 20, documentation | 21.06 | 16.98 | 36.90 | 14.89 | 323.1 | — | — | — |
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 13.48 | 12.75 | 22.65 | 9.57 | 4.1 | — | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 62.68 | 62.84 | 71.68 | 47.87 | 198.2 | 1667 | 20 çift | — |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 36.19 | 33.71 | 50.45 | 26.60 | 51.5 | 1938 | 20 çift | — |
 
 ### MCP-Zero (w/ inst, n=2792)
 
@@ -102,6 +110,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads | 88.53 | 94.20 | 96.12 | 96.02 | 79.87 | 0.1 | — | — | — |
 | heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 | 0.36 $ |
 | heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 | 0.21 $ |
+| Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 | 0.37 $ |
+| Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 | 0.20 $ |
 | heads → CLM-8B, ilk 100 | 13.11 | 16.10 | 25.81 | 25.68 | 3.76 | 2.4 | — | — | — |
 | heads → CLM-8B, ilk 20 | 33.22 | 39.42 | 65.25 | 64.97 | 10.10 | 1.1 | — | — | — |
 | heads → CLM fine-tune, ilk 100 | 20.01 | 23.59 | 37.67 | 37.54 | 7.23 | 2.3 | — | — | — |
@@ -109,6 +119,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | heads → CLM-8B, Jev'in metni, ilk 100 | 12.76 | 15.20 | 24.79 | 24.71 | 4.08 | 6.2 | — | — | — |
 | heads → CLM-8B, Jev'in metni, ilk 20, documentation | 32.60 | 38.20 | 64.40 | 64.04 | 9.63 | 26.8 | — | — | — |
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 26.65 | 35.79 | 57.03 | 56.88 | 3.94 | 1.1 | — | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 94.57 | 96.64 | 97.30 | 97.21 | 91.26 | 298.0 | 2476 | 20 çift | — |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 71.41 | 85.32 | 94.56 | 94.45 | 48.24 | 103.4 | 773 | 20 çift | — |
 
 ### ToolRet, kategori bazında NDCG@10: heads → heads + Jev 100
 
@@ -241,6 +253,39 @@ eğitimi ya da benzer/rakip ürün geliştirmeyi kolaylaştırmak için kullanı
 Sonuçları Jev adıyla yayımlamadan önce TypeSafe'e sorulmalı (madde 16: karşı tarafın adını kullanma
 hakkı yok). README tablosuna Jev satırı konmadı.
 
+## Cross-encoder Jev'in yerine
+
+Jev'in kazancı isteği ve adayı birlikte okumaktan geliyorsa, yerel bir cross-encoder aynı koltukta
+aynı işi yapmalı. vLLM'in skor API'si (`/score`) üstünden iki model, aynı sarmalayıcı (`--rerank
+cross`, `adapters/cross_encoder.py`), Jev satırlarının birebir metniyle (ilk 20, dokümantasyon 3000
+karakter; istek 6000 karakterde kesilir, çünkü her çiftte yinelenir): Qwen3-Reranker-8B (8095, vLLM'in
+reçetesiyle orijinal model, `<Instruct>/<Query>/<Document>` şablonu) ve bge-reranker-v2-gemma (8096,
+FlagEmbedding'in `A:/B:/prompt` biçimi). Puanlar `.cache/toolrank/scores.sqlite`'ta.
+
+| heads'in ilk 20'si + dokümantasyon | heads | Jev | Qwen3-Reranker-8B | bge-reranker-v2-gemma |
+|---|---:|---:|---:|---:|
+| ToolRet NDCG@10 | 54.03 | 57.69 | 58.05 | 53.96 |
+| ToolRet cat-macro | 47.13 | 52.71 | 52.93 | 50.26 |
+| LiveMCPBench NDCG@10 | 53.95 | 64.03 | 62.68 | 36.19 |
+| MCP-Zero top-1 | 79.87 | 92.34 | 91.26 | 48.24 |
+
+- **Qwen3-Reranker-8B Jev'in yerel karşılığı.** ToolRet'te aynı düzende Jev'in 0.2–0.4 puan önünde,
+  MCP setlerinde 1.1–1.4 geride; ücretsiz, kendi makinede, sorgu dışarı çıkmıyor. Gecikme, GPU'yu
+  başka işlerle paylaşırken 8 eşzamanlı istekle sorgu başına 0.3–0.6 s (çağrı başına 1.7–2.5 s, 20
+  çift); Jev'in 0.3 s'si ile aynı sınıf. Bellek: bf16 ağırlıklar 16 GB, 8192 token pencere.
+- **bge-reranker-v2-gemma yetmiyor.** ToolRet'te heads ile başa baş (53.96; cat-macro 50.26, +3),
+  MCP setlerinde kısa listeyi bozuyor, LiveMCPBench'te heads'in bile altına iniyor. Faz 0'daki
+  47.52 kâğıdın kendi kurulumuyla tüm külliyat üstündeydi; burada vLLM'in `no_post_processing`
+  yüklemesiyle ham "Yes" logit'i, istem biçimi FlagEmbedding'in `get_inputs`'uyla aynı. MCP
+  dokümantasyonunda (JSON şema, sunucu adı) 2024'ün 2B modeli zayıf; aday olarak elendi.
+- Jev'in kalan satırlarının cevabı (`qwen3emb_jev*`): Jev üstteyken fine-tune'un katkısı küçülüyor.
+  ToolRet ilk 100'de zero-shot Qwen3 → Jev 54.59 / cat-macro 52.05, heads → Jev 55.04 / 51.41; ilk
+  20'de 55.98 / 52.67'ye karşı 57.69 / 52.71. Head'lerin değeri kısa listenin recall'unda (Recall@20
+  72.51'e karşı 69.45): 100 aday verince fark kapanıyor, 20 aday verince 1.7 puan kalıyor. LoRA'nın
+  hedefi de bu: daha iyi kısa liste.
+- Kalan cross-encoder satırları (ilk 100, BM25 ilk 30, LiveMCPBench'te tek başına) LoRA koşusundan
+  sonra; ikisi aynı anda belleğe sığmıyor (reranker'lar 48 GB, LoRA eğitimi 20–30 GB).
+
 ## Sonraki
 
 - Karar: `toolrank search` / `serve` için isteğe bağlı `--rerank jev` (bugün yalnız eval'de). Bedeli
@@ -249,6 +294,8 @@ hakkı yok). README tablosuna Jev satırı konmadı.
   documentation 2000 karakter) ile uyarlanabilir K için Noul kapısı (cut.AdaptiveK'nın kosinüs marjı
   Jev olasılıklarına uymuyor; `score_kind = "jev"` bugün cut'ı reddediyor).
 - Yayın için TypeSafe'e sormak.
-- Yerel bir ikinci aşama isteniyorsa CLM değil cross-encoder: Faz 0'daki bge-reranker-v2-gemma
-  düzenini `--rerank` arayüzüne bir adapter olarak takmak (`score_tools` yeterli) ve aynı 12 satırı
-  koşmak.
+- Cross-encoder'ın kalan satırları ve LoRA'lı omurganın üç setteki sayıları (koşuyor:
+  `scripts/lora_train.py`, 20 bin çift, MCP-Zero'da seçim, birleştirilmiş ağırlıklar 8097'de).
+- Ürün kararı: `search` / `serve` için isteğe bağlı ikinci aşama; yerelde Qwen3-Reranker-8B, barındırılan
+  için Jev. İkisi de ölçüldü, bedelleri gecikme (0.3–0.6 s) ve 16 GB ek bellek ya da sorgunun dışarı
+  çıkması.
