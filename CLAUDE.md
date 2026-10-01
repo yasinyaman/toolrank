@@ -190,6 +190,10 @@ toolrank learn --data data/mytools [--dev data/livemcpbench_server] [--since 202
 # Faz 2 week 3: learn writes DATA/heads/candidate.npz, a running serve gives it --candidate-share (0.1) of the
 # requests, ab reads the log back and promotes it to current.npz or sets it aside; every night:
 toolrank ab --data data/mytools [--dry-run] && toolrank learn --data data/mytools --replay data/toolret_train/pairs.jsonl
+# Faz 2 week 4: the loop on simulated traffic (GB10): a benchmark as the served catalogue, 70% of its queries
+# logged by an agent that calls the gold tools shown, learn on that log, eval on the 30% never served;
+# NAME/BENCH/GUARD/EVALS/SIZES/NOISE/SEED/TAG/LEARN in the script's header; LEARN="--device cpu" when the GPU is full
+bash scripts/learn_sim.sh                                               # ToolRet, sizes 100..all -> results/sim_toolret_*.json
 
 # Faz 1 week 7: launch (every public step after 19:00 and approved one by one)
 uv run --with huggingface_hub python scripts/publish_heads.py --repo USER/NAME [--upload]   # dry run without --upload
@@ -492,7 +496,8 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   publish_heads.py (the Hub, pinned to a tag), leaderboard_table.py (ToolRet leaderboard sheets),
                                   launch_metrics.py (the Faz 1 gate's numbers);
                                   jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
-                                  lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write)
+                                  lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write);
+                                  learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
 ```
 
@@ -593,6 +598,18 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   list-valued `extra_special_tokens` and `rope_parameters`, which the NGC image's 4.51 crashes on or
   misreads (the script copies the originals). The CLM backbone (8090) was stopped to make room;
   rerankers (48 GB) and LoRA training (20–30 GB) do not fit together.
+- Faz 2 week 4, `toolrank learn` on simulated traffic (`docs/reports/faz2-week4.md`; `scripts/learn_sim.sh`,
+  NDCG@10 micro / cat-macro on the 30% of queries never served, start = the v0.1 heads): ToolRet as the
+  catalogue, 5,573 requests logged → 4,313 pairs: 54.20 / 48.59 → 57.23 / 52.55 (another split: 53.97 /
+  48.02 → 57.49 / 53.02); by size 300 → 55.11, 1,000 → 55.27, 3,000 → 56.64, and 100 requests publish
+  nothing. The whole gain is on held-out requests for tools the traffic had asked for (46.62 → 51.95);
+  requests for tools never asked for do not move (63.67 → 63.83). Nothing forgotten without replay
+  (LiveMCPBench 53.95 → 56.05, MCP-Zero 88.53 → 88.96). MCP-Zero as the catalogue (1,954 requests, every
+  held-out request about a new tool): 89.24 → 91.96, ToolRet −0.5. The defaults stay: 10 epochs pick the
+  same epoch, lr 3e-5 is a wash, `--neg 0` loses 1.5 (shown-but-not-called tools are useful negatives).
+  An agent that calls a wrong tool 1 time in 5 (`tool_error`): the default publishes nothing, `--strict`
+  restores the gain (57.22 / 52.45). A/B on the held-out queries at share 0.5: `mrr` 0.572 → 0.593,
+  `promote`. A perfect simulated agent on benchmark queries: the shape of the curve, not real traffic.
 
 ## Where we are
 

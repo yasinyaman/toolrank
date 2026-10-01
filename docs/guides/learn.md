@@ -98,7 +98,40 @@ embedded once into the same cache; the epoch is still picked on the log, and `--
 
 ## What to expect
 
-A few dozen requests move Recall@5 in coarse steps and the decision can go either way from run to
-run; a few hundred, with varied requests, is where the held-out share starts to mean something.
-Heads learned from one catalogue's traffic are for that catalogue: the benchmark guard is there to
-catch the case where they stop being good at anything else.
+Measured on simulated traffic: a benchmark served as a catalogue, 70% of its queries played as
+requests by an agent that calls the right tools when they are shown, and the other 30% never served
+(`scripts/learn_sim.py` and `scripts/learn_sim.sh` in the repository; NDCG@10 on the held-out
+queries, with the released heads as the start).
+
+| Catalogue | Requests logged | Usable pairs | Held-out NDCG@10 |
+| --- | ---: | ---: | --- |
+| ToolRet (44,453 tools) | 100 | 77 | nothing published |
+| | 300 | 246 | 54.2 → 55.1 |
+| | 1,000 | 801 | 54.2 → 55.3 |
+| | 3,000 | 2,309 | 54.2 → 56.6 |
+| | 5,573 | 4,313 | 54.2 → 57.2 |
+| MCP-Zero (2,792 tools) | 300 | 288 | nothing published |
+| | 1,954 | 1,857 | 89.2 → 92.0 |
+
+What the numbers say:
+
+- **A hundred requests are too few.** No epoch beat the starting heads on so small a dev set, and
+  nothing was published; from a few hundred pairs on the gain is small, in the thousands it is three
+  points.
+- **The gain is on the tools your traffic asks for.** On ToolRet, held-out requests for a tool some
+  logged request had also wanted went from 46.6 to 52.0; requests for tools the traffic never asked
+  for stayed where they were (63.7 → 63.8), neither better nor worse. Where requests share one style
+  (MCP-Zero's are all written the same way), new tools gain as well.
+- **Little is forgotten.** Without `--replay`, the worst case on the other benchmarks was half a
+  point (ToolRet, after learning from MCP-Zero traffic); the `--dev` guard watches for more.
+- **Wrong calls need `--strict`.** When the agent picked a wrong tool one time in five and that call
+  ended `tool_error`, the weak positives spoiled the training: nothing was published. With `--strict`
+  the full gain came back from the remaining requests. If your agents' failed calls are mostly wrong
+  picks rather than right tools with bad arguments, use it.
+- **The A/B agrees.** The held-out requests played as the next period's traffic, half to the
+  candidate: `mrr` 0.572 for the control, 0.593 for the candidate, and `toolrank ab` promoted it.
+
+A simulated agent is tidier than a real one, and a benchmark's requests repeat more than yours may:
+take the table as the shape of the curve, not as a promise. Heads learned from one catalogue's traffic
+are for that catalogue: the benchmark guard is there to catch the case where they stop being good at
+anything else.

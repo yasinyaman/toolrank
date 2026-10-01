@@ -32,6 +32,10 @@ change behaviour.
   the arms on the log and promotes the candidate, sets it aside, or waits.
 - `toolrank serve --mask-pii`: with `--log-text`, e-mail addresses, phone, card and IBAN numbers are
   replaced by tags before the request or error text is written.
+- `scripts/learn_sim.py` and `scripts/learn_sim.sh`: the learning loop measured on simulated traffic.
+  A benchmark is served as a catalogue, a share of its queries is logged by an agent that calls the
+  gold tools it is shown, `toolrank learn` trains on that log and the queries never served are the
+  test; the learn guide's "What to expect" carries the numbers.
 
 ## [0.1.0] - 2026-09-30
 
