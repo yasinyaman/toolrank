@@ -161,6 +161,38 @@ def parity(enc: Encoder, texts: list[str], url: str, model: str, max_tokens: int
     return float(np.mean(np.sum(served * mine, axis=1)))
 
 
+ORIGINAL_FILES = [
+    "config.json",
+    "tokenizer_config.json",
+    "tokenizer.json",
+    "vocab.json",
+    "merges.txt",
+    "modules.json",
+    "config_sentence_transformers.json",
+    "1_Pooling/*",
+]
+
+
+def copy_original_files(model: str, merged: Path) -> None:
+    """The merged directory gets the original repository's config, tokenizer and pooling files, not
+    the ones this process's transformers would write: a serving stack with an older transformers
+    reads neither a list-valued ``extra_special_tokens`` (it crashes) nor ``rope_parameters`` (it
+    falls back to the default ``rope_theta`` and the vectors are silently wrong). Only the weights
+    are new."""
+    import shutil
+
+    from huggingface_hub import snapshot_download
+
+    src = Path(snapshot_download(model, allow_patterns=ORIGINAL_FILES))
+    for stale in ("config.json", "tokenizer_config.json", "tokenizer.json", "chat_template.jinja"):
+        (merged / stale).unlink(missing_ok=True)
+    for f in src.rglob("*"):
+        if f.is_file():
+            dest = merged / f.relative_to(src)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(f, dest)
+
+
 def main(argv: list[str] | None = None) -> int:
     a = parse(argv)
     import torch
@@ -290,9 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     base = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
     merged = PeftModel.from_pretrained(base, out / "adapter").merge_and_unload()
     merged.save_pretrained(out / "merged", safe_serialization=True)
-    from transformers import AutoTokenizer
-
-    AutoTokenizer.from_pretrained(a.model).save_pretrained(out / "merged")
+    copy_original_files(a.model, out / "merged")
     log(f"merged weights in {out / 'merged'}: serve them with the compose profile lora")
     return 0
 
