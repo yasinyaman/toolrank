@@ -4,32 +4,38 @@ TypeSafe AI'ın 15 Eylül 2026'da duyurduğu "System One" modeli Jev'den yola ç
 kısa listesinin üstüne, isteği ve adayı birlikte okuyan bir ikinci aşama koymak ne kazandırır, ve
 bunu yerelde ne karşılar? Aynı protokol, aynı setler, aynı araç metniyle ölçüldü: Jev (barındırılan),
 CLM_v0.1-8B (Faz 0'ın çift kodlayıcısı), Qwen3-Reranker-8B ve bge-reranker-v2-gemma (yerel
-cross-encoder'lar); omurganın LoRA ile eğitimi koşuyor. Plan maddesi değil; Faz 2'nin 1. haftası.
+cross-encoder'lar) ve omurganın kendisinin LoRA ile eğitimi. Plan maddesi değil; Faz 2'nin 1. haftası.
 
 ## Sonuç (tek cümle)
 
-Kısa listeyi isteğiyle birlikte okuyan bir ikinci aşama üç sette de kazandırıyor ve yerel
-Qwen3-Reranker-8B bunu Jev ile başa baş yapıyor (heads'in ilk 20'si + dokümantasyon: ToolRet NDCG@10
-54.03 → 57.69 Jev / 58.05 yerel, cat-macro 47.13 → 52.71 / 52.93; LiveMCPBench 53.95 → 64.03 / 62.68;
-MCP-Zero top-1 79.87 → 92.34 / 91.26); çift kodlayıcı CLM aynı koltukta listeyi bozuyor (54.03 →
-28.94), bge-reranker-v2-gemma MCP setlerinde yetmiyor, ve ikinci aşama üstteyken bizim fine-tune'un
-katkısı kısa listenin recall'una iniyor (ilk 20'de +1.7, ilk 100'de ≈ 0), ki LoRA'nın hedefi de bu.
+Omurgayı LoRA ile eğitmek, tek aşamada ve ek gecikme olmadan, ToolRet'te hem head'leri hem ikinci
+aşamalı düzenleri geçiyor (NDCG@10 54.03 → 58.90, cat-macro 47.13 → 54.36: Faz 0 kapısının 50 eşiğinin
+üstü, StackOne v2'nin 54.4'ü düzeyi) ve head'ler onun üstüne bir şey katmıyor; hiç görülmemiş
+LiveMCPBench'te ise LoRA +2 puanda kalırken kısa listeyi isteğiyle birlikte okuyan bir ikinci aşama
++9–12 puan veriyor, ve bunu barındırılan Jev ile yerel Qwen3-Reranker-8B başa baş yapıyor (heads'in
+ilk 20'si + dokümantasyon: ToolRet 57.69 / 58.05, LiveMCPBench 64.03 / 62.68, MCP-Zero top-1 92.34 /
+91.26); çift kodlayıcı CLM aynı koltukta listeyi bozuyor, bge-reranker-v2-gemma MCP setlerinde
+yetmiyor.
 
 ## Özet
 
-Her satırda ilk aşama paketlenmiş head'ler; "sorgu başına bedel" ikinci aşamanın eklediği gecikme,
-ücret ve bellek. Tam tablolar, görev ve kategori hareketleri aşağıda.
+İlk iki satır tek aşama (yalnız gömme modeli); sonrakiler kısa listenin üstünde bir ikinci aşama.
+"Sorgu başına bedel" ikinci aşamanın eklediği gecikme, ücret ve bellek. Bu tablo ve aşağıdaki tam
+tablolar `scripts/rerank_report.py --write` ile sonuç dosyalarından üretiliyor.
 
-| İkinci aşama (ilk aşama: heads) | ToolRet NDCG@10 ↑ % | ToolRet cat-macro ↑ % | LiveMCPBench NDCG@10 ↑ % | MCP-Zero Precision@1 ↑ % | sorgu başına bedel |
+<!-- summary:start -->
+| Düzen | ToolRet NDCG@10 ↑ % | ToolRet cat-macro ↑ % | LiveMCPBench NDCG@10 ↑ % | MCP-Zero Precision@1 ↑ % | sorgu başına bedel |
 |---|---:|---:|---:|---:|---|
-| heads (Qwen3-Embedding-8B + v0.1 head'leri), tek başına | 54.03 | 47.13 | 53.95 | 79.87 | 0.9 ms, yerel |
-| heads → Jev, ilk 20 + dokümantasyon | 57.69 | 52.71 | 64.03 | 92.34 | 0.3 s, 0.0002 $, dış API |
-| heads → Jev, ilk 100 | 55.04 | 51.41 | 66.25 | 91.55 | 0.3 s, 0.0002 $, dış API |
-| heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon | 58.05 | 52.93 | 62.68 | 91.26 | 0.3–0.6 s, yerel, +16 GB |
-| heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon | 53.96 | 50.26 | 36.19 | 48.24 | 0.1 s, yerel, +5 GB |
-| heads → CLM-8B, ilk 20 | 28.94 | 24.80 | 27.65 | 10.10 | 2 ms, yerel |
-| zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon | 55.98 | 52.67 | 62.48 | 91.98 | 0.3 s, dış API |
+| heads (Qwen3-Embedding-8B + v0.1 head'leri), tek aşama | 54.03 | 47.13 | 53.95 | 79.87 | ~1 ms, yerel |
+| Qwen3-Embedding-8B + LoRA, tek aşama | 58.90 | 54.36 | 55.74 | 88.57 | ~1 ms, yerel; MCP-Zero seçim seti |
+| heads → Jev, ilk 20 + dokümantasyon | 57.69 | 52.71 | 64.03 | 92.34 | +0.3 s, 0.0002 $, dış API |
+| heads → Jev, ilk 100 | 55.04 | 51.41 | 66.25 | 91.55 | +0.3 s, 0.0002 $, dış API |
+| heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon | 58.05 | 52.93 | 62.68 | 91.26 | +0.3–0.6 s, yerel, +16 GB |
+| heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon | 53.96 | 50.26 | 36.19 | 48.24 | +0.1 s, yerel, +5 GB |
+| heads → CLM-8B, ilk 20 | 28.94 | 24.80 | 27.65 | 10.10 | +2 ms, yerel |
+| zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon | 55.98 | 52.67 | 62.48 | 91.98 | +0.3 s, dış API |
 | Jev tek başına, parçalı | — | — | 65.05 | 90.04 | 0.3–0.6 s, 40–80k token, dış API |
+<!-- summary:end -->
 
 ## Ölçüler, birimler ve yön
 
@@ -81,6 +87,10 @@ ve yüzde olarak yazılıyor; "fark" sütunları yüzde puanı.
 | heads ilk 100 → fine-tune'lu CLM (`clm_60k_lr1e-2.pt`) | evet | evet | evet |
 | BM25 ilk 30 → CLM_v0.1-8B | evet | evet | evet |
 | aynı üç satır, Jev'in okuduğu metinle: name_desc 1000 karakter, documentation 3000 karakter (`--rerank-max-chars`) | evet | evet | evet |
+| heads ilk 20 → Qwen3-Reranker-8B ve bge-reranker-v2-gemma, Jev'in metniyle | evet | evet | evet |
+| zero-shot Qwen3-Emb ilk 100 ve ilk 20 → Jev | evet | evet | evet |
+| Qwen3-Embedding-8B + LoRA (20 bin çift), tek aşama; üstüne head eğitimi | evet | evet | evet (seçim seti) |
+| heads ilk 100 / BM25 ilk 30 → cross-encoder'lar; cross-encoder tek başına; LoRA → Qwen3-Reranker | koşuyor | koşuyor | koşuyor |
 
 ## Tablo
 
@@ -91,6 +101,7 @@ sayısı, yani verim, çağrı başı gecikme yandaki sütunda; CLM satırların
 önbellek aramaları. Son üç sütun Jev'e ait: GB10'dan çağrı başına p50, sorgu başına faturalanan token
 ve satırın toplam ücreti, 0.042 $ / M token ile.
 
+<!-- tables:start -->
 ### ToolRet (w/ inst, n=7961)
 
 | Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | cat-macro ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
@@ -112,6 +123,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 21.08 | 23.63 | 34.86 | 28.64 | 18.56 | 1.8 | — | — | — |
 | heads → Qwen3-Reranker-8B, ilk 20, documentation | 58.05 | 61.80 | 68.41 | 58.12 | 52.93 | 613.3 | 4517 | 20 çift | — |
 | heads → bge-reranker-v2-gemma, ilk 20, documentation | 53.96 | 57.80 | 66.99 | 56.21 | 50.26 | 231.6 | 1888 | 20 çift | — |
+| Qwen3-Emb + LoRA | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 19.9 | — | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 7.7 | — | — | — |
 
 ### LiveMCPBench (w/ inst, n=94)
 
@@ -135,6 +148,8 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 13.48 | 12.75 | 22.65 | 9.57 | 4.1 | — | — | — |
 | heads → Qwen3-Reranker-8B, ilk 20, documentation | 62.68 | 62.84 | 71.68 | 47.87 | 198.2 | 1667 | 20 çift | — |
 | heads → bge-reranker-v2-gemma, ilk 20, documentation | 36.19 | 33.71 | 50.45 | 26.60 | 51.5 | 1938 | 20 çift | — |
+| Qwen3-Emb + LoRA | 55.74 | 52.06 | 63.34 | 39.36 | 36.5 | — | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 55.74 | 52.06 | 63.34 | 39.36 | 4.1 | — | — | — |
 
 ### MCP-Zero (w/ inst, n=2792)
 
@@ -158,18 +173,20 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | BM25 → CLM-8B, Jev'in metni, ilk 30 | 26.65 | 35.79 | 57.03 | 56.88 | 3.94 | 1.1 | — | — | — |
 | heads → Qwen3-Reranker-8B, ilk 20, documentation | 94.57 | 96.64 | 97.30 | 97.21 | 91.26 | 298.0 | 2476 | 20 çift | — |
 | heads → bge-reranker-v2-gemma, ilk 20, documentation | 71.41 | 85.32 | 94.56 | 94.45 | 48.24 | 103.4 | 773 | 20 çift | — |
+| Qwen3-Emb + LoRA | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 5.4 | — | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 4.9 | — | — | — |
 
 ### ToolRet, kategori bazında NDCG@10: heads → heads + Jev 100
 
-| Kategori | heads ↑ % | heads → Jev ↑ % | fark ↑ puan |
+| Kategori | heads ↑ % | heads + Jev 100 ↑ % | fark ↑ puan |
 |---|---:|---:|---:|
 | code | 54.40 | 56.60 | +2.19 |
 | customized | 46.58 | 52.73 | +6.15 |
 | web | 40.42 | 44.90 | +4.47 |
 
-### ToolRet, görev bazında en büyük hareketler (NDCG@10)
+### ToolRet, görev bazında en büyük hareketler (NDCG@10): heads → heads + Jev 100
 
-| Görev | n | heads ↑ % | heads → Jev ↑ % | fark ↑ puan |
+| Görev | n | heads ↑ % | heads + Jev 100 ↑ % | fark ↑ puan |
 |---|---:|---:|---:|---:|
 | autotools-food | 22 | 49.37 | 32.83 | -16.54 |
 | appbench | 32 | 62.67 | 52.99 | -9.67 |
@@ -185,6 +202,34 @@ ve satırın toplam ücreti, 0.042 $ / M token ile.
 | t-eval-dialog | 50 | 33.89 | 65.91 | +32.01 |
 
 35 görevden 24 yukarı, 11 aşağı (0,5 puandan fazla).
+
+### ToolRet, kategori bazında NDCG@10: heads → LoRA
+
+| Kategori | heads ↑ % | LoRA ↑ % | fark ↑ puan |
+|---|---:|---:|---:|
+| code | 54.40 | 61.39 | +6.99 |
+| customized | 46.58 | 55.29 | +8.71 |
+| web | 40.42 | 46.39 | +5.97 |
+
+### ToolRet, görev bazında en büyük hareketler (NDCG@10): heads → LoRA
+
+| Görev | n | heads ↑ % | LoRA ↑ % | fark ↑ puan |
+|---|---:|---:|---:|---:|
+| restgpt-spotify | 40 | 52.01 | 41.99 | -10.02 |
+| restgpt-tmdb | 54 | 31.91 | 22.93 | -8.99 |
+| autotools-music | 32 | 21.29 | 18.08 | -3.21 |
+| tool-be-honest | 350 | 41.53 | 39.46 | -2.07 |
+| t-eval-step | 50 | 31.50 | 29.51 | -1.99 |
+| apibank | 101 | 59.43 | 57.65 | -1.78 |
+| toolbench | 1100 | 58.38 | 72.97 | +14.60 |
+| autotools-food | 22 | 49.37 | 65.02 | +15.65 |
+| taskbench-multimedia | 40 | 62.85 | 81.42 | +18.57 |
+| toolemu | 38 | 29.78 | 49.80 | +20.02 |
+| taskbench-huggingface | 23 | 31.49 | 60.97 | +29.48 |
+| mnms | 33 | 19.63 | 50.95 | +31.31 |
+
+35 görevden 26 yukarı, 7 aşağı (0,5 puandan fazla).
+<!-- tables:end -->
 
 Jev'in kendisi olmadan LiveMCPBench ve MCP-Zero'da BM25'i Jev'e vermek bile heads'i geçiyor; BM25'in
 recall'u yetmediği ToolRet'te ise BM25 → Jev (47.81) heads'in (54.03) altında kalıyor. Hangi metnin
@@ -242,8 +287,49 @@ FlagEmbedding'in `A:/B:/prompt` biçimi). Puanlar `.cache/toolrank/scores.sqlite
   20'de 55.98 / 52.67'ye karşı 57.69 / 52.71. Head'lerin değeri kısa listenin recall'unda (Recall@20
   72.51'e karşı 69.45): 100 aday verince fark kapanıyor, 20 aday verince 1.7 puan kalıyor. LoRA'nın
   hedefi de bu: daha iyi kısa liste.
-- Kalan cross-encoder satırları (ilk 100, BM25 ilk 30, LiveMCPBench'te tek başına) LoRA koşusundan
-  sonra; ikisi aynı anda belleğe sığmıyor (reranker'lar 48 GB, LoRA eğitimi 20–30 GB).
+- Kalan cross-encoder satırları (ilk 100, BM25 ilk 30, LiveMCPBench'te tek başına) ve LoRA'nın kısa
+  listesi üstünde Qwen3-Reranker satırları koşuyor (`data/lora/chain2.sh`, `chain3.sh`); reranker'lar
+  (48 GB) ile LoRA eğitimi (20–30 GB) aynı anda belleğe sığmadığı için sıraya kondu.
+
+### LoRA: omurganın kendisi
+
+`toolrank finetune` omurgayı dondurup vektörlerin üstünde head eğitiyordu; `scripts/lora_train.py`
+omurganın kendi ağırlıklarına LoRA adaptörleri ekliyor (derece 16, alpha 32, dropout 0.05; q, k, v, o,
+gate, up, down; 36 katman; 43.6 M eğitilen parametre, modelin %0.53'ü). Veri ve metin head eğitimiyle
+aynı yol: ToolRet-train çiftleri, kıyaslama sorgusuna eşit 776 istek düşürülüp 20.000 çift;
+`instruct_query` istek, `documentation` araç metni. Kayıp: 16 çiftlik mikro-partide InfoNCE (τ 0.05),
+partinin öteki pozitifleri negatif, kazılmış negatif yok; 2 mikro-parti birikim, lr 1e-4 kosinüs, 625
+adım, istek 256 / doküman 768 token; son-token havuzlama + L2, vLLM ile aynı (parite kosinüsü 0.9999).
+Her 300 adımda dev (MCP-Zero `_server`) süreç içinde puanlanıp en iyi adaptör saklandı; en iyi adaptör
+ağırlıklara katılıp 8097'de `qwen3-emb-lora` olarak servis edildi ve servis, süreç içi dev skorunu
+yeniden üretti (93.67'ye karşı 93.65).
+
+| Dev, MCP-Zero (seçim seti) | adım 0 | adım 300 | adım 600 | adım 625 |
+|---|---:|---:|---:|---:|
+| NDCG@10 ↑ % | 87.14 | 90.68 | 93.63 | 93.65 |
+| Precision@1 ↑ % | 78.08 | 83.60 | 88.54 | 88.50 |
+
+| Tek aşama, w/ inst | ToolRet NDCG@10 ↑ % | ToolRet cat-macro ↑ % | ToolRet Recall@20 ↑ % | LiveMCPBench NDCG@10 ↑ % | LiveMCPBench Recall@10 ↑ % | MCP-Zero Precision@1 ↑ % |
+|---|---:|---:|---:|---:|---:|---:|
+| Qwen3-Embedding-8B, zero-shot | 51.11 | 46.54 | 69.45 | 53.74 | 61.09 | 78.19 |
+| + v0.1 head'leri (60 bin çift) | 54.03 | 47.13 | 72.51 | 53.95 | 61.66 | 79.87 |
+| + LoRA (20 bin çift) | 58.90 | 54.36 | 75.25 | 55.74 | 63.34 | 88.57 (seçim seti) |
+
+- **ToolRet'te tek aşamada en iyi satır.** cat-macro 54.36, Faz 0 kapısının eşiği 50'nin ve head'lerin
+  47.13'ünün üstünde, StackOne v2'nin 54.4'ü düzeyinde; heads → Jev (52.71) ve heads → Qwen3-Reranker
+  (52.93) satırlarını ikinci aşama olmadan geçiyor. Üç kategoride de artış (code 54.40 → 61.39,
+  customized 46.58 → 55.29, web 40.42 → 46.39); head'lere göre 35 görevden 26'sı yukarı, 7'si aşağı.
+- **Kısa liste de iyileşti**: Recall@20 72.51 → 75.25; üstüne reranker satırları koşuyor.
+- **Genelleme ılımlı.** Hiç görülmemiş LiveMCPBench'te +2.0 NDCG@10 (94 sorgu, gürültü sınırında);
+  MCP-Zero adaptörün seçildiği set, +10.4 top-1 iyimser. ToolRet kazancı eğitim verisiyle aynı
+  aileden; head'ler ve StackOne v2 de aynı veriyle eğitildi, karşılaştırma bu anlamda adil.
+- **Head'ler LoRA'nın üstüne bir şey katmıyor.** Aynı v0.1 reçetesiyle (60 bin çift, parti içi
+  negatif, lr 1e-5) LoRA omurgasında head eğitimi: dev 93.67'den hiçbir epoch'ta yukarı çıkmadı
+  (93.60, 93.62, 93.17, 93.32, 93.44), seçilen epoch 0, yani kimlik; `lora_heads` satırları dense
+  satırlarla aynı.
+- **Maliyet**: eğitim 8.6 saat (adım başına 0.79 dk, dev ölçümü 11 dk), adaptör 167 MB, birleştirilmiş
+  ağırlıklar 16 GB; ToolRet'in 44 bin aracının yeni omurgayla soğuk kodlaması 24 dakika. Çalışma
+  anında fark yok: aynı model boyutu, aynı gecikme.
 
 ### Duman testi: ilk 50 sorgu
 
@@ -292,7 +378,8 @@ toolrank finetune --data data/toolret_train/pairs.jsonl --n-train 60000 --n-val 
   --eval data/toolret --eval data/livemcpbench_server --emb-url http://127.0.0.1:8097/v1 --emb-model qwen3-emb-lora \
   --out data/heads/lora_60k.pt --npz dist/heads/lora_60k.npz        # then --scorer clm --clm-ckpt dist/heads/lora_60k.npz rows
 # Mac
-scp 'gb10:toolrank/results/jev*_*.json' 'gb10:toolrank/results/clm*_*.json' 'gb10:toolrank/results/cross_*.json' results/
+scp 'gb10:toolrank/results/jev*_*.json' 'gb10:toolrank/results/clm*_*.json' 'gb10:toolrank/results/cross*_*.json' 'gb10:toolrank/results/lora_*.json' results/
+uv run python scripts/rerank_report.py --write      # the summary and the tables of this report, from the result files
 toolrank compare results/jev_*.json results/clm_*.json results/cross_*.json docs/results/readme_*.json --metrics NDCG@10,Recall@5,Recall@10,Precision@1
 ```
 
@@ -313,9 +400,11 @@ dokümantasyonlar 8090'da yeniden kodlandı).
 Cross-encoder satırları: aynı NGC imajı, Qwen3-Reranker-8B (8095, bellek payı 0.25) ve
 bge-reranker-v2-gemma (8096, 0.15), ikisi de 8192 token pencere, vLLM'in sıralama sınıflandırıcısı
 yüklemesi (`hf_overrides`), 8 eşzamanlı istek, puanlar `scores.sqlite`'ta; GPU'yu LoRA koşusu ve 8091
-ile paylaşırken; commit'ler `645b026` … `4569341`. LoRA: `scripts/lora_train.py`, 10:01'de başladı,
-20.000 çift, 16'lık mikro-parti × 2 birikim, lr 1e-4 kosinüs, 625 adım, adım başına 0.71 dk, dev
-(MCP-Zero `_server`, 2.792 sorgu) her 300 adımda 11 dk; parite 0.9999; sonrası `data/lora/chain2.sh`.
+ile paylaşırken; commit'ler `645b026` … `4569341`. LoRA: `scripts/lora_train.py` (`[lora]` ekstrası: transformers 5.18, peft), GB10'da 10:01–18:54,
+516.8 dakika eğitim + birleştirme; çıktılar `data/lora/qwen3-emb-lora-20k/{adapter,merged,train.json}`;
+servis `--profile lora`, 8097, `qwen3-emb-lora`; LoRA satırları ve head eğitimi `data/lora/chain2.sh`,
+LoRA üstünde reranker `chain3.sh`. Commit'ler `645b026` (betik), `8000746` (birleştirilmiş klasör
+düzeltmesi).
 
 ## Sapmalar ve açıklamalar
 
@@ -338,6 +427,14 @@ ile paylaşırken; commit'ler `645b026` … `4569341`. LoRA: `scripts/lora_train
   koşu şart.
 - CLM satırlarında ikinci encoder'ın önbellek ıskaları rapora yazılmıyor (`encoder_tokens` taban
   scorer'ın); hepsi önbellekten geldiği için burada fark etmedi.
+- Birleştirilmiş LoRA ağırlıkları ilk seferde servis edilemedi: eğitim ortamındaki transformers 5.18,
+  `tokenizer_config.json`'da `extra_special_tokens`'ı liste olarak yazdı (NGC imajındaki 4.51 bunu
+  sözlük bekleyip çöküyor) ve `config.json`'da `rope_theta` yerine `rope_parameters` yazdı (4.51 onu
+  görmeyip varsayılan theta ile yanlış vektör üretirdi). Birleştirilmiş klasöre orijinal deponun
+  config, tokenizer ve havuzlama dosyaları kondu; betik artık bunu kendisi yapıyor. Zincir bu yüzden
+  18:55–22:35 arasında bekledi. Doğrulama: servis MCP-Zero'da 93.67 / 88.57, süreç içi 93.65 / 88.50.
+- LoRA eğitiminde dokümanlar 768, istekler 256 token'da kesildi; serviste pencere 8192. Uzun
+  dokümantasyonlu araçlarda eğitim ve servis metni aynı değil; etkisi ölçülmedi.
 
 ## Sözleşme notu
 
@@ -349,14 +446,18 @@ hakkı yok). README tablosuna Jev satırı konmadı.
 
 ## Sonraki
 
-- Karar: `toolrank search` / `serve` için isteğe bağlı `--rerank jev` (bugün yalnız eval'de). Bedeli
-  gecikme (≈ +300 ms) ve sorgu metninin dışarı çıkması; kazancı üç sette de ölçüldü.
-- Bir derinlik / metin taraması (ilk 30 ve 50, documentation 2000 karakter) ile uyarlanabilir K için
-  Noul kapısı (cut.AdaptiveK'nın kosinüs marjı Jev olasılıklarına uymuyor; `score_kind = "jev"` bugün
-  cut'ı reddediyor).
-- Yayın için TypeSafe'e sormak.
-- Cross-encoder'ın kalan satırları ve LoRA'lı omurganın üç setteki sayıları (koşuyor:
-  `scripts/lora_train.py`, 20 bin çift, MCP-Zero'da seçim, birleştirilmiş ağırlıklar 8097'de).
-- Ürün kararı: `search` / `serve` için isteğe bağlı ikinci aşama; yerelde Qwen3-Reranker-8B, barındırılan
-  için Jev. İkisi de ölçüldü, bedelleri gecikme (0.3–0.6 s) ve 16 GB ek bellek ya da sorgunun dışarı
-  çıkması.
+- Koşuyor: cross-encoder'ın kalan satırları (ilk 100, BM25 ilk 30, tek başına) ve LoRA'nın kısa listesi
+  üstünde Qwen3-Reranker-8B; gelince `rerank_report.py --write`.
+- LoRA'yı büyütmek: 60 bin ve 206 bin çift, daha uzun doküman penceresi (1024–2048 token), ikinci epoch;
+  her biri 8–24 saatlik GB10 koşusu. Head'lerde daha çok veri yalnız büyük görevlere yaramıştı; LoRA'da
+  ölçülmedi.
+- Ürün kararı 1, omurga: paketlenen varsayılanın LoRA'lı omurga olması (16 GB birleştirilmiş ağırlık ya
+  da 167 MB adaptör; Qwen3-Embedding-8B Apache 2.0, eğitim verisinin lisanssızlığı head'lerdeki gibi
+  model kartına yazılır). README tablosu ve leaderboard satırı buna göre yenilenir; FP8 ile uyumu
+  ölçülmeli.
+- Ürün kararı 2, ikinci aşama: `search` / `serve` için isteğe bağlı reranker; yerelde Qwen3-Reranker-8B
+  (+16 GB, +0.3–0.6 s), barındırılan için Jev (+0.3 s, sorgu dışarı çıkar). MCP setlerindeki +9–12 puan
+  bunu değerli kılıyor; ToolRet'te LoRA tek başına yetiyor.
+- Bir derinlik / metin taraması (ilk 30 ve 50, documentation 2000 karakter) ve uyarlanabilir K için
+  ikinci aşama skorlarıyla kesim (`score_kind` bugün Jev ve cross satırlarında cut'ı reddediyor).
+- Yayın için TypeSafe'e sormak (Jev satırları); sözleşme gereği Jev çıktıları eğitim sinyali olamaz.

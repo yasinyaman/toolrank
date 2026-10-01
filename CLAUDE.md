@@ -477,7 +477,8 @@ docs/plan/                        private repo (ignored here): faz-0..3.md, back
 docs/reports/                     weekly numbers; TEMPLATE.md
 docs/results.toml, docs/results/  the README's results table: its rows and the curated eval reports behind them
 docs/heads/MODEL_CARD.md          the packaged heads' card (sha256, serving, data license, numbers)
-deploy/spark/                     vLLM servers: systemd units, compose.yaml (NGC image, GB10; fp8 (8092 CLM, 8094 embedding), gen and pg profiles)
+deploy/spark/                     vLLM servers: systemd units, compose.yaml (NGC image, GB10; fp8 (8092 CLM, 8094 embedding), gen and pg profiles;
+                                  rerank: Qwen3-Reranker-8B 8095 + bge-reranker-v2-gemma 8096 as vLLM score models; lora: the merged LoRA backbone 8097)
 deploy/docker/                    Dockerfile (toolrank), Dockerfile.vllm + entrypoint-vllm.sh + as-toolrank.sh (toolrank-vllm), compose.yaml,
                                   compose.bundle.yaml, toolrank.json, .env.example
 mkdocs.yml, docs/*.md             the docs site (guides/, reference/ with the generated cli.md); plan/ and reports/ stay off it
@@ -489,7 +490,9 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   readme_results.sh (the README's runs), readme_table.py (--write | --check);
                                   cli_reference.py, third_party.py, release_check.py, container_smoke.py, fp8_agreement.py, latency.py;
                                   publish_heads.py (the Hub, pinned to a tag), leaderboard_table.py (ToolRet leaderboard sheets),
-                                  launch_metrics.py (the Faz 1 gate's numbers)
+                                  launch_metrics.py (the Faz 1 gate's numbers);
+                                  jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
+                                  lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
 ```
 
@@ -571,6 +574,25 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   leaderboard (HF Space, last updated Mar 2025; "w/ meta" = the full documentation, Avg = cat-macro) the
   heads (47.13) and Qwen3-Embedding-8B (46.54) would lead w/ inst over jina-reranker-v2 (45.73); w/o inst
   NV-Embed-v1 leads (35.50). Submissions go in as issues on mangopy/tool-retrieval-benchmark.
+
+- Faz 2 week 1, second stage and LoRA (`docs/reports/faz2-jev.md`, tables from `scripts/rerank_report.py`;
+  w/ inst): a second stage that reads the request with each candidate gains on every set, a bi-encoder
+  in that seat does not. Heads' top 20 with the documentation cut to 3000 characters: ToolRet NDCG@10
+  54.03 → Jev 57.69 / Qwen3-Reranker-8B 58.05 (cat-macro 52.71 / 52.93), LiveMCPBench 53.95 → 64.03 /
+  62.68, MCP-Zero top-1 79.87 → 92.34 / 91.26; Jev over the top 100 gives LiveMCPBench 66.25;
+  bge-reranker-v2-gemma 53.96 on ToolRet and breaks the MCP lists (36.19, 48.24); CLM_v0.1-8B in the
+  seat 15.36 / 28.94 (top 100 / top 20), fine-tuned 34.20. Jev alone (chunked): LiveMCPBench 65.05,
+  MCP-Zero top-1 90.04 at 40–80k tokens a query; all 17 Jev rows cost $18. Under Jev the heads' fine-tune
+  is worth +1.7 at depth 20 and nothing at depth 100 (zero-shot → Jev 55.98 / 54.59). **LoRA on the
+  backbone** (`scripts/lora_train.py`: rank 16, 20k ToolRet-train pairs, in-batch InfoNCE, 625 steps,
+  8.6 h on the GB10, picked on MCP-Zero `_server`): ToolRet 58.90 / cat-macro 54.36 in one stage (the
+  Faz 0 gate's 50, StackOne v2's 54.4), Recall@20 75.25 (heads 72.51), LiveMCPBench 55.74 (+2, held
+  out), MCP-Zero 93.67 / top-1 88.57 (the selection set); heads trained on top keep epoch 0 (identity).
+  The merged weights live in `~/toolrank/data/lora/qwen3-emb-lora-20k/merged` on the GB10 and must
+  carry the original repo's config, tokenizer and `1_Pooling` files: transformers 5.x writes a
+  list-valued `extra_special_tokens` and `rope_parameters`, which the NGC image's 4.51 crashes on or
+  misreads (the script copies the originals). The CLM backbone (8090) was stopped to make room;
+  rerankers (48 GB) and LoRA training (20–30 GB) do not fit together.
 
 ## Where we are
 
