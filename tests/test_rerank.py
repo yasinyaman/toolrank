@@ -62,6 +62,20 @@ def test_max_chars_cuts_what_the_second_scorer_reads_and_names_it():
     assert rr.name == "rerank[dense/toy/name_desc[:11]/plain,d2]/fixed"
 
 
+def test_workers_give_the_same_lists_as_one_thread():
+    base = _Fixed(["w", "f", "m", "r"], [0.9, 0.8, 0.7, 0.6])
+    qs = [
+        Query(id=f"q{i}", text=t, qrels={})
+        for i, t in enumerate(["send an email", "refund the payment", "weather"])
+    ]
+    one = ScorerReranker(base, DenseScorer(_ToyEncoder(), "name_desc", "plain"), depth=4)
+    many = ScorerReranker(base, DenseScorer(_ToyEncoder(), "name_desc", "plain"), depth=4, workers=3)
+    one.index(_tools())
+    many.index(_tools())
+    assert [r.tool_ids for r in many.rank(qs, 4)] == [r.tool_ids for r in one.rank(qs, 4)]
+    assert many.workers == 3 and ScorerReranker(base, one.second, workers=0).workers == 1
+
+
 def test_reranker_rejects_a_scorer_without_score_tools_and_a_depth_below_two():
     second = DenseScorer(_ToyEncoder(), "name_desc", "plain")
     with pytest.raises(ValueError, match="at least 2"):

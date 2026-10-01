@@ -59,6 +59,7 @@ index a tool set and score a query set
 | `--cross-template {qwen3,bge}` |  | --scorer cross: the prompt format (default qwen3) |
 | `--rerank-query-chars RERANK_QUERY_CHARS` |  | --rerank cross: characters of the request kept (6000) |
 | `--cross-query-chars CROSS_QUERY_CHARS` |  | --scorer cross: the same (6000) |
+| `--rerank-workers RERANK_WORKERS` | `1` | queries scored concurrently by the second scorer (cross: 8) |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
 

@@ -661,6 +661,12 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
         help="--rerank cross: characters of the request kept (6000)",
     )
     g.add_argument("--cross-query-chars", type=int, default=None, help="--scorer cross: the same (6000)")
+    g.add_argument(
+        "--rerank-workers",
+        type=int,
+        default=1,
+        help="queries scored concurrently by the second scorer (cross: 8)",
+    )
 
 
 def _cut_rule(a: argparse.Namespace):

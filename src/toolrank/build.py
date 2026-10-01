@@ -113,7 +113,11 @@ def scorer_factory(
 
         def reranked() -> Any:
             return ScorerReranker(
-                base(), second_make(), depth=a.rerank_depth, max_chars=getattr(a, "rerank_max_chars", None)
+                base(),
+                second_make(),
+                depth=a.rerank_depth,
+                max_chars=getattr(a, "rerank_max_chars", None),
+                workers=getattr(a, "rerank_workers", None) or 1,
             )
 
         return reranked, info

@@ -12,6 +12,7 @@ encoded once in that setting costs nothing to rerank.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from toolrank.domain import Query, RankedList, Tool
@@ -27,7 +28,9 @@ def cut_formatter(f: NamedFormatter, max_chars: int) -> NamedFormatter:
 
 
 class ScorerReranker:
-    def __init__(self, base: Any, second: Any, *, depth: int = 100, max_chars: int | None = None):
+    def __init__(
+        self, base: Any, second: Any, *, depth: int = 100, max_chars: int | None = None, workers: int = 1
+    ):
         if depth < 2:
             raise ValueError("--rerank-depth must be at least 2")
         if not hasattr(second, "score_tools"):
@@ -40,7 +43,7 @@ class ScorerReranker:
                 second.name = second.name[: -len(old.name)] + second.tool_format.name
             else:
                 second.name = second.name.replace(f"/{old.name}/", f"/{second.tool_format.name}/", 1)
-        self.base, self.second, self.depth = base, second, depth
+        self.base, self.second, self.depth, self.workers = base, second, depth, max(1, workers)
         self.score_kind = getattr(second, "score_kind", "cosine")
         self.tool_format, self.query_format = base.tool_format, base.query_format
         self.name = f"rerank[{second.name},d{depth}]/{base.name}"
@@ -55,10 +58,18 @@ class ScorerReranker:
     def rank(self, queries: Sequence[Query], k: int) -> list[RankedList]:
         base = self.base.rank(queries, max(k, self.depth))
         self.last_base = {r.query_id: r for r in base}
+        heads = [r.tool_ids[: self.depth] for r in base]
+
+        def score(i: int) -> list[float]:
+            return self.second.score_tools(queries[i], [self.tools[t] for t in heads[i]]) if heads[i] else []
+
+        if self.workers > 1:  # a remote second scorer (vLLM's score API) batches concurrent requests
+            with ThreadPoolExecutor(self.workers) as pool:
+                scored = list(pool.map(score, range(len(queries))))
+        else:
+            scored = [score(i) for i in range(len(queries))]
         out = []
-        for q, r in zip(queries, base, strict=True):
-            head = r.tool_ids[: self.depth]
-            s = self.second.score_tools(q, [self.tools[t] for t in head]) if head else []
+        for r, head, s in zip(base, heads, scored, strict=True):
             order = sorted(range(len(head)), key=lambda i: (-s[i], i))
             ids = [head[i] for i in order] + r.tool_ids[len(head) :]
             scores = [float(s[i]) for i in order] + [
