@@ -47,7 +47,7 @@ run() { # run <row> <set> <toolrank eval args...> -> results/<TAG>_<set>_<row>.j
 }
 
 for m in $MODELS; do
-  X="--rerank cross $(endpoint $m) --rerank-emb-batch 64"
+  X="--rerank cross $(endpoint $m)"
   for d in $SETS; do
     KS=()
     [[ $d == mcp_zero_server ]] && KS=(--ks 1,5,10,20)
