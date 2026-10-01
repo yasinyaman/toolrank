@@ -135,6 +135,9 @@ def cmd_eval(a: argparse.Namespace) -> int:
     jev = info.get("jev")
     if jev is not None:  # calls that reached TypeSafe (the rest came from the cache), tokens billed
         report.config["jev"].update(jev.stats())
+    cross = info.get("cross") or (info.get("rerank") or {}).get("cross")
+    if cross is not None:  # pairs that reached the score endpoint, the rest from the cache
+        report.config["cross"] = cross.stats()
     cols = ("NDCG@10", "Recall@10", "Comprehensiveness@10")
     print(format_table(report, cols + (("K@cut", "Recall@cut", "Comprehensiveness@cut") if rule else ())))
     print(
@@ -600,9 +603,9 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
     )
     g.add_argument(
         "--rerank",
-        choices=["jev", "dense", "clm"],
+        choices=["jev", "dense", "clm", "cross"],
         default=None,
-        help="reorder the top --rerank-depth: with Jev, or with a second dense / clm scorer (--rerank-* flags)",
+        help="reorder the top --rerank-depth: with Jev, or with a second dense / clm / cross-encoder scorer (--rerank-* flags)",
     )
     g.add_argument("--rerank-depth", type=int, default=100, help="tools per query reranked (Jev: max 255)")
     g.add_argument("--rerank-emb-url", default=None, help="the second scorer's endpoint (default: --emb-url)")
@@ -638,6 +641,18 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="cut each candidate's text, like --jev-max-chars does for Jev",
+    )
+    g.add_argument(
+        "--rerank-template",
+        choices=["qwen3", "bge"],
+        default=None,
+        help="--rerank cross: the reranker's prompt format",
+    )
+    g.add_argument(
+        "--cross-template",
+        choices=["qwen3", "bge"],
+        default=None,
+        help="--scorer cross: the prompt format (default qwen3)",
     )
 
 
@@ -838,7 +853,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     e = sub.add_parser("eval", help="index a tool set and score a query set")
     e.add_argument("--data", required=True, help="directory with tools.jsonl and queries.jsonl")
-    e.add_argument("--scorer", choices=["bm25", "dense", "clm", "jev"], default="bm25")
+    e.add_argument("--scorer", choices=["bm25", "dense", "clm", "jev", "cross"], default="bm25")
     e.add_argument("--tool-format", choices=list(TOOL_FORMATS), default=None)
     e.add_argument("--query-format", choices=list(QUERY_FORMATS), default=None)
     e.add_argument(

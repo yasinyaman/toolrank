@@ -10,7 +10,7 @@ index a tool set and score a query set
 | Argument | Default | Description |
 | --- | --- | --- |
 | `--data DATA` | required | directory with tools.jsonl and queries.jsonl |
-| `--scorer {bm25,dense,clm,jev}` | `bm25` |  |
+| `--scorer {bm25,dense,clm,jev,cross}` | `bm25` |  |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--with-inst` |  | keep the task instruction (ToolRet 'w/ inst.' setting) |
@@ -39,7 +39,7 @@ index a tool set and score a query set
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
-| `--rerank {jev,dense,clm}` |  | reorder the top --rerank-depth: with Jev, or with a second dense / clm scorer (--rerank-* flags) |
+| `--rerank {jev,dense,clm,cross}` |  | reorder the top --rerank-depth: with Jev, or with a second dense / clm / cross-encoder scorer (--rerank-* flags) |
 | `--rerank-depth RERANK_DEPTH` | `100` | tools per query reranked (Jev: max 255) |
 | `--rerank-emb-url RERANK_EMB_URL` |  | the second scorer's endpoint (default: --emb-url) |
 | `--rerank-emb-model RERANK_EMB_MODEL` |  | (default: --emb-model) |
@@ -55,6 +55,8 @@ index a tool set and score a query set
 | `--jev-per-chunk JEV_PER_CHUNK` | `20` | --scorer jev: chunk winners into the final round |
 | `--jev-workers JEV_WORKERS` | `8` | concurrent requests (TypeSafe: 40/s) |
 | `--rerank-max-chars RERANK_MAX_CHARS` |  | cut each candidate's text, like --jev-max-chars does for Jev |
+| `--rerank-template {qwen3,bge}` |  | --rerank cross: the reranker's prompt format |
+| `--cross-template {qwen3,bge}` |  | --scorer cross: the prompt format (default qwen3) |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
 

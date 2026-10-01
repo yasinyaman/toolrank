@@ -72,6 +72,54 @@ services:
         --max-model-len 8192 --dtype bfloat16
         --gpu-memory-utilization 0.15 --host 0.0.0.0 --port 8000
 
+  # Cross-encoders in Jev's role (Faz 2, `docs/reports/faz2-jev.md`): vLLM's score API over the
+  # original rerankers, loaded as sequence classifiers (the recipes in vLLM's supported-models
+  # page). The shares are of the GB10's unified memory (0.15 is 18 GB; bge-gemma failed to find
+  # room for its cache blocks at 0.1). Off by default:
+  #   docker compose -f deploy/spark/compose.yaml --profile rerank up -d qwen3-reranker bge-reranker
+  qwen3-reranker:
+    <<: *vllm
+    profiles: ["rerank"]
+    container_name: toolrank-qwen3-reranker
+    ports: ["8095:8000"]
+    command:
+      - >-
+        vllm serve Qwen/Qwen3-Reranker-8B --served-model-name qwen3-reranker
+        --hf-overrides '{"architectures": ["Qwen3ForSequenceClassification"], "classifier_from_token": ["no", "yes"], "is_original_qwen3_reranker": true}'
+        --no-enable-chunked-prefill --max-num-batched-tokens 8192 --max-model-len 4096 --dtype bfloat16
+        --gpu-memory-utilization 0.25 --host 0.0.0.0 --port 8000
+
+  bge-reranker:
+    <<: *vllm
+    profiles: ["rerank"]
+    container_name: toolrank-bge-reranker
+    ports: ["8096:8000"]
+    command:
+      - >-
+        vllm serve BAAI/bge-reranker-v2-gemma --served-model-name bge-reranker
+        --hf-overrides '{"architectures": ["GemmaForSequenceClassification"], "classifier_from_token": ["Yes"], "method": "no_post_processing"}'
+        --no-enable-chunked-prefill --max-num-batched-tokens 8192 --max-model-len 4096 --dtype bfloat16
+        --gpu-memory-utilization 0.15 --host 0.0.0.0 --port 8000
+
+  # The LoRA-merged embedding backbone (Faz 2, scripts/lora_train.py): the merged weights served
+  # exactly like 8091, under their own name so the cache keeps them apart. Off by default:
+  #   TOOLRANK_LORA=$HOME/toolrank/data/lora/qwen3-emb-lora-20k/merged \
+  #     docker compose -f deploy/spark/compose.yaml --profile lora up -d qwen3-emb-lora
+  qwen3-emb-lora:
+    <<: *vllm
+    profiles: ["lora"]
+    container_name: toolrank-qwen3-emb-lora
+    ports: ["8097:8000"]
+    volumes:
+      - ${HOME}/.cache/huggingface:/hf
+      - ${TOOLRANK_LORA:-/nonexistent}:/models/lora:ro
+    command:
+      - >-
+        vllm serve /models/lora --served-model-name qwen3-emb-lora --runner pooling
+        --no-enable-chunked-prefill --max-num-batched-tokens 8192
+        --max-model-len 8192 --dtype bfloat16
+        --gpu-memory-utilization 0.15 --host 0.0.0.0 --port 8000
+
   # Chat model that writes benchmark queries (MCP-Zero, week 4): the backbone's weights in the
   # default generate runner, so nothing new to download. Off by default:
   #   docker compose -f deploy/spark/compose.yaml --profile gen up -d qwen3-8b-chat

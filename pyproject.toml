@@ -31,6 +31,8 @@ data = ["datasets>=2.19", "huggingface_hub>=0.23"]
 stem = ["PyStemmer>=2.2"]
 # CLM projection heads (the encoder itself runs in vLLM; only the 20M-parameter heads run here).
 clm = ["torch>=2.2"]
+# LoRA fine-tuning of the embedding backbone itself (scripts/lora_train.py, GPU, Faz 2).
+lora = ["torch>=2.2", "transformers>=4.51", "peft>=0.14", "accelerate>=1.0"]
 # `toolrank ingest mcp` (list tools from MCP servers) and `toolrank serve` (MCP proxy + REST).
 mcp = ["mcp>=2.2,<3"]
 # `toolrank ingest openapi` on YAML specs (JSON needs nothing).

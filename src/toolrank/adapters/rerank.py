@@ -35,7 +35,11 @@ class ScorerReranker:
         if max_chars:  # the second scorer reads cut candidate text, and says so in its name
             old = second.tool_format
             second.tool_format = cut_formatter(old, max_chars)
-            second.name = second.name.replace(f"/{old.name}/", f"/{second.tool_format.name}/", 1)
+            tail = f"/{old.name}"
+            if second.name.endswith(tail):  # the format last (a cross-encoder's name)
+                second.name = second.name[: -len(old.name)] + second.tool_format.name
+            else:
+                second.name = second.name.replace(f"/{old.name}/", f"/{second.tool_format.name}/", 1)
         self.base, self.second, self.depth = base, second, depth
         self.score_kind = getattr(second, "score_kind", "cosine")
         self.tool_format, self.query_format = base.tool_format, base.query_format

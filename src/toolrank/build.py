@@ -104,7 +104,7 @@ def scorer_factory(
     rerank = getattr(a, "rerank", None)
     if rerank is None:
         return make, info
-    if rerank in ("dense", "clm"):  # a local second scorer with its own --rerank-* flags
+    if rerank in ("dense", "clm", "cross"):  # a local second scorer with its own --rerank-* flags
         from toolrank.adapters.rerank import ScorerReranker
 
         second_make, second_info = _base_factory(rerank_args(a))
@@ -147,6 +147,7 @@ RERANK_FLAGS = (
     "emb_batch",
     "device",
 )
+RERANK_OWN = ("template",)  # --rerank-<flag> with no main counterpart: the second scorer's cross_<flag>
 
 
 def rerank_args(a: Any) -> Any:
@@ -161,6 +162,9 @@ def rerank_args(a: Any) -> Any:
         v = getattr(a, "rerank_" + f, None)
         if v is not None:
             setattr(b, f, v)
+    for f in RERANK_OWN:
+        setattr(b, "cross_" + f, getattr(a, "rerank_" + f, None))
+    b.cross_max_chars = None  # the reranker cuts the text itself (cut_formatter), named in the scorer
     return b
 
 
@@ -179,6 +183,20 @@ def _base_factory(
             "encoder": None,
             "heads_path": None,
         }
+    if a.scorer == "cross":
+        from toolrank.adapters.cross_encoder import CrossEncoderScorer, ScoreClient
+
+        if getattr(a, "hybrid", False):
+            raise ValueError("--hybrid fuses BM25 into a dense or clm scorer")
+        client = ScoreClient(a.emb_model, a.emb_url, cache_dir=a.cache_dir or None, batch=a.emb_batch)
+        return (
+            lambda: CrossEncoderScorer(
+                client,
+                a.tool_format or "name_desc",
+                template=getattr(a, "cross_template", None) or "qwen3",
+                max_chars=getattr(a, "cross_max_chars", None),
+            )
+        ), {"serving": {}, "encoder": None, "heads_path": None, "cross": client}
     if a.scorer == "jev":
         from toolrank.adapters.jev import JevScorer
 
