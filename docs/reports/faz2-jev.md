@@ -1,20 +1,35 @@
 # Faz 2 — Jev, CLM, cross-encoder ve LoRA karşılaştırması (30 Eyl – 1 Eki 2026)
 
-TypeSafe AI'ın 15 Eylül 2026'da duyurduğu "System One" modeli Jev, toolrank'in kendi scorer'larının
-yanında, aynı protokol, aynı setler ve aynı araç metniyle ölçüldü. Plan maddesi değil; Faz 2'nin
-1. haftasında, `toolrank eval --rerank jev` ve `--scorer jev` ile (`adapters/jev.py`).
+TypeSafe AI'ın 15 Eylül 2026'da duyurduğu "System One" modeli Jev'den yola çıkan soru: toolrank'in
+kısa listesinin üstüne, isteği ve adayı birlikte okuyan bir ikinci aşama koymak ne kazandırır, ve
+bunu yerelde ne karşılar? Aynı protokol, aynı setler, aynı araç metniyle ölçüldü: Jev (barındırılan),
+CLM_v0.1-8B (Faz 0'ın çift kodlayıcısı), Qwen3-Reranker-8B ve bge-reranker-v2-gemma (yerel
+cross-encoder'lar); omurganın LoRA ile eğitimi koşuyor. Plan maddesi değil; Faz 2'nin 1. haftası.
 
 ## Sonuç (tek cümle)
 
-toolrank'in kısa listesinin üstünde ikinci aşama olarak Jev üç sette de kazandırıyor: ToolRet'te
-heads'in ilk 20'sini tam dokümantasyonla yeniden sıralamak NDCG@10'u 54.03'ten 57.69'a ve cat-macro'yu
-47.13'ten 52.71'e (Faz 0 kapısının 50 eşiği, ama dış bir API ile), LiveMCPBench'te ilk 100 ile
-NDCG@10'u 53.95'ten 66.25'e, MCP-Zero'da top-1'i 79.87'den 91.55'e taşıyor; bedeli sorgu başına
-0.3 s ve 0.0002 $. Jev tek başına LiveMCPBench'te aynı yere 6 kat token ile geliyor; 255 seçenek
-sınırı yüzünden ToolRet'te tek başına koşamıyor; MCP-Zero'da tek başına top-1 90.04, heads'in
-üstünde (79.87) ama heads → Jev'in altında (91.55), sorgu başına 81 bin token ile. Yerel alternatif olarak CLM_v0.1-8B aynı role konduğunda listeyi bozuyor:
-heads'in ilk 100'ü ToolRet'te 54.03'ten 15.36'ya (Faz 0'ın fine-tune'lu CLM'iyle 34.20'ye) düşüyor;
-araç seçimi CLM'in eğitim dağılımının dışında ve kısa liste bunu değiştirmiyor.
+Kısa listeyi isteğiyle birlikte okuyan bir ikinci aşama üç sette de kazandırıyor ve yerel
+Qwen3-Reranker-8B bunu Jev ile başa baş yapıyor (heads'in ilk 20'si + dokümantasyon: ToolRet NDCG@10
+54.03 → 57.69 Jev / 58.05 yerel, cat-macro 47.13 → 52.71 / 52.93; LiveMCPBench 53.95 → 64.03 / 62.68;
+MCP-Zero top-1 79.87 → 92.34 / 91.26); çift kodlayıcı CLM aynı koltukta listeyi bozuyor (54.03 →
+28.94), bge-reranker-v2-gemma MCP setlerinde yetmiyor, ve ikinci aşama üstteyken bizim fine-tune'un
+katkısı kısa listenin recall'una iniyor (ilk 20'de +1.7, ilk 100'de ≈ 0), ki LoRA'nın hedefi de bu.
+
+## Özet
+
+Her satırda ilk aşama paketlenmiş head'ler; "sorgu başına bedel" ikinci aşamanın eklediği gecikme,
+ücret ve bellek. Tam tablolar, görev ve kategori hareketleri aşağıda.
+
+| İkinci aşama (ilk aşama: heads) | ToolRet NDCG@10 ↑ % | ToolRet cat-macro ↑ % | LiveMCPBench NDCG@10 ↑ % | MCP-Zero Precision@1 ↑ % | sorgu başına bedel |
+|---|---:|---:|---:|---:|---|
+| heads (Qwen3-Embedding-8B + v0.1 head'leri), tek başına | 54.03 | 47.13 | 53.95 | 79.87 | 0.9 ms, yerel |
+| heads → Jev, ilk 20 + dokümantasyon | 57.69 | 52.71 | 64.03 | 92.34 | 0.3 s, 0.0002 $, dış API |
+| heads → Jev, ilk 100 | 55.04 | 51.41 | 66.25 | 91.55 | 0.3 s, 0.0002 $, dış API |
+| heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon | 58.05 | 52.93 | 62.68 | 91.26 | 0.3–0.6 s, yerel, +16 GB |
+| heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon | 53.96 | 50.26 | 36.19 | 48.24 | 0.1 s, yerel, +5 GB |
+| heads → CLM-8B, ilk 20 | 28.94 | 24.80 | 27.65 | 10.10 | 2 ms, yerel |
+| zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon | 55.98 | 52.67 | 62.48 | 91.98 | 0.3 s, dış API |
+| Jev tek başına, parçalı | — | — | 65.05 | 90.04 | 0.3–0.6 s, 40–80k token, dış API |
 
 ## Ölçüler, birimler ve yön
 
@@ -197,87 +212,7 @@ ve ajan adımı çiftleriyle eğitildiği için araç açıklamaları onun dağ�
 raporu), ve 100 adaylık kısa liste bunu değiştirmiyor. Yerel bir Jev alternatifi istenirse adres,
 Faz 0'da ölçülen cross-encoder sınıfı (bge-reranker-v2-gemma, ToolRet 47.52) olur, CLM değil.
 
-### Duman testi: ilk 50 sorgu
-
-Tam koşu öncesi, aynı 50 sorguda taban satırlarıyla (`results/jevsmoke_*.json`; ToolRet'te tek
-görev, craft-math-algebra): heads → Jev 100 LiveMCPBench'te 52.06 → 67.24 NDCG@10, MCP-Zero'da
-top-1 92 → 94, Jev tek başına MCP-Zero'da top-1 98. 11 satır, 8.4 M token, 0.35 $.
-
-## Komutlar
-
-```bash
-# Mac: anahtar .env'de (TYPESAFE_API_KEY=...), GB10'a tek satır olarak geçirildi (mod 600, eşlenmez)
-grep '^TYPESAFE_API_KEY=' ~/toolrank/.env | ssh gb10 'umask 077; cat > ~/toolrank/.env.typesafe; chmod 600 ~/toolrank/.env.typesafe'
-# GB10, ~/toolrank, 8091 ayakta, gömme önbelleği sıcak (her satırda encoder tokens 0)
-set -a; . ./.env.typesafe; set +a
-LIMIT=50 TAG=jevsmoke bash scripts/jev_compare.sh          # duman testi
-PYTHONUNBUFFERED=1 nohup bash scripts/jev_compare.sh > data/logs/jev_compare.log 2>&1 &   # tam koşu, 25 dk (402'ye kadar)
-# satırlar (scripts/jev_compare.sh): EMB = --emb-url http://127.0.0.1:8091/v1 --emb-model qwen3-emb --truncate 8192
-#   --emb-batch 128 --tool-format documentation --query-format instruct_query --with-inst; JEV = --jev-model jev-1.13.0 --jev-workers 8
-toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank jev --rerank-depth 100 $JEV
-toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank jev --rerank-depth 20 --jev-tool-format documentation --jev-max-chars 3000 $JEV
-toolrank eval --data data/$d --scorer bm25 --no-stem --tool-format documentation --with-inst --rerank jev --rerank-depth 30 $JEV
-toolrank eval --data data/$d --scorer jev --with-inst --tool-format name_desc --jev-chunk 200 --jev-per-chunk 20 $JEV   # MCP setleri
-# mcp_zero_server için --ks 1,5,10,20; taban satırları (ilk 50): aynı bayraklar, --rerank yok, --out results/jevsmoke_<set>_base_<row>.json
-# CLM in Jev's role (GB10, 8090 + 8091 up, free): scripts/clm_rerank.sh, i.e. per set
-toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank clm \
-  --rerank-emb-url http://127.0.0.1:8090/v1 --rerank-emb-model qwen3-8b --rerank-truncate 2048 \
-  --rerank-tool-format example_call --rerank-query-format clm --rerank-clm-ckpt ~/.cache/clm/CLM_v0.1-8B.pt --rerank-depth 100
-# ... --rerank-depth 20; --rerank-clm-ckpt data/heads/clm_60k_lr1e-2.pt; BM25 base with --rerank-depth 30
-PYTHONUNBUFFERED=1 nohup bash scripts/clm_rerank.sh > data/logs/clm_rerank.log 2>&1 &
-# the same with exactly Jev's text (results/clmj_*.json): name_desc cut to 1000, the top 20 with documentation cut to 3000
-CLM_FORMAT=name_desc CLM_MAX_CHARS=1000 ROWS="heads_clm100 heads_clm20doc bm25_clm30" TAG=clmj bash scripts/clm_rerank.sh
-# Mac
-scp 'gb10:toolrank/results/jev*_*.json' 'gb10:toolrank/results/clm_*.json' results/
-toolrank compare results/jev_*.json results/clm_*.json docs/results/readme_*.json --metrics NDCG@10,Recall@5,Recall@10,Precision@1
-```
-
-## Ortam
-
-GB10 (NVIDIA GB10, Ubuntu 24.04 aarch64), vLLM NGC `nvcr.io/nvidia/vllm:26.01-py3`, Qwen3-Embedding-8B
-bf16 `--max-model-len 8192` (8091), paketlenmiş head'ler v0.1 (`.npz`, numpy). toolrank 0.2.0.dev0,
-commit `c40419e`. Jev: `api.typesafe.ai`, `jev-1.13.0`, 8 eşzamanlı istek, çağrılar GB10'dan
-(İstanbul; TypeSafe'in sunucuları Batı Kıyısı'nda, Mac'ten tek küçük istek 0.30 s, GB10'dan p50
-285–360 ms, p95 415–540 ms). Gömme önbelleği sıcak; Jev önbelleği duman testinin 50 sorgusu dışında
-soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ (ilk 10 satır 4.66 $, zero-shot → Jev
-satırları 3.8 $, MCP-Zero tek başına 9.51 $), duman testi 0.35 $. İlk koşuda hesabın kredisi tek
-başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
-CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
-`data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
-(encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun
-dokümantasyonlar 8090'da yeniden kodlandı).
-
-## Sapmalar ve açıklamalar
-
-- ToolRet'te mikro ortalama cat-macro kadar artmıyor (heads → Jev 100: +1.0 / +4.3): 35 görevden 24
-  yukarı, 11 aşağı; düşenler büyük görevler, toolbench (n 1100) −5.7 ve gorilla-huggingface (n 500)
-  −7.5, çıkanlar küçük görevler, t-eval-dialog +32.0, toolemu +29.7, taskbench-multimedia +17.1.
-  Büyük görevlerde aynı aileden çok sayıda benzer araç var; ad + açıklama 1000 karaktere kesilince
-  ayırt edici parça düşüyor olabilir: tam dokümantasyonla ilk 20 (57.69) bunun bir kısmını geri
-  alıyor. Derinlik ve metin taraması (30 / 50 araç, 2000 karakter) yapılmadı.
-- MCP-Zero'nun istekleri her aracın açıklamasından Qwen3-8B tarafından yazıldı; açıklamayı okuyan
-  bir modelin burada güçlü olması beklenir (BM25 → Jev 30 bile top-1 90.29). ToolRet'teki artış
-  daha gerçekçi bir ölçü.
-- Jev'in çağrı başına p50'si 285–360 ms; heads'in sorgu başına 0.86 ms'i (sıcak) yanında serve'deki
-  `search_tools` p50'sini 5 ms'den 300 ms'in üstüne çıkarır. Sorgu metni dış bir servise gider;
-  kullanım günlüğündeki HMAC gizliliği bu yolda geçerli değil.
-- Jev tek başına MCP-Zero'da (14 parça + son tur, sorgu başına 15 çağrı) heads → Jev'in 1.5 puan
-  altında: parçalı sıralama, kazananları tek listede karşılaştıran ikinci tura rağmen, iyi bir kısa
-  listeden daha kötü. Gömme modeli ucuz ve iyi bir ilk aşama olarak kalıyor.
-- Duman testinin ToolRet satırları (ilk 50 sorgu, tek görev) tavana yakındı ve yanıltıcıydı; tam
-  koşu şart.
-- CLM satırlarında ikinci encoder'ın önbellek ıskaları rapora yazılmıyor (`encoder_tokens` taban
-  scorer'ın); hepsi önbellekten geldiği için burada fark etmedi.
-
-## Sözleşme notu
-
-Master Customer Agreement 2.3(b): Servis veya çıktıları model damıtma, çıktıyı taklit eden model
-eğitimi ya da benzer/rakip ürün geliştirmeyi kolaylaştırmak için kullanılamaz. Burada yapılan, içeride
-ölçüm ve isteğe bağlı bir adapter; Jev'in sıralamaları hiçbir eğitim sinyaline girmiyor ve girmemeli.
-Sonuçları Jev adıyla yayımlamadan önce TypeSafe'e sorulmalı (madde 16: karşı tarafın adını kullanma
-hakkı yok). README tablosuna Jev satırı konmadı.
-
-## Cross-encoder Jev'in yerine
+### Cross-encoder Jev'in yerine
 
 Jev'in kazancı isteği ve adayı birlikte okumaktan geliyorsa, yerel bir cross-encoder aynı koltukta
 aynı işi yapmalı. vLLM'in skor API'si (`/score`) üstünden iki model, aynı sarmalayıcı (`--rerank
@@ -309,6 +244,108 @@ FlagEmbedding'in `A:/B:/prompt` biçimi). Puanlar `.cache/toolrank/scores.sqlite
   hedefi de bu: daha iyi kısa liste.
 - Kalan cross-encoder satırları (ilk 100, BM25 ilk 30, LiveMCPBench'te tek başına) LoRA koşusundan
   sonra; ikisi aynı anda belleğe sığmıyor (reranker'lar 48 GB, LoRA eğitimi 20–30 GB).
+
+### Duman testi: ilk 50 sorgu
+
+Tam koşu öncesi, aynı 50 sorguda taban satırlarıyla (`results/jevsmoke_*.json`; ToolRet'te tek
+görev, craft-math-algebra): heads → Jev 100 LiveMCPBench'te 52.06 → 67.24 NDCG@10, MCP-Zero'da
+top-1 92 → 94, Jev tek başına MCP-Zero'da top-1 98. 11 satır, 8.4 M token, 0.35 $.
+
+## Komutlar
+
+```bash
+# Mac: anahtar .env'de (TYPESAFE_API_KEY=...), GB10'a tek satır olarak geçirildi (mod 600, eşlenmez)
+grep '^TYPESAFE_API_KEY=' ~/toolrank/.env | ssh gb10 'umask 077; cat > ~/toolrank/.env.typesafe; chmod 600 ~/toolrank/.env.typesafe'
+# GB10, ~/toolrank, 8091 ayakta, gömme önbelleği sıcak (her satırda encoder tokens 0)
+set -a; . ./.env.typesafe; set +a
+LIMIT=50 TAG=jevsmoke bash scripts/jev_compare.sh          # duman testi
+PYTHONUNBUFFERED=1 nohup bash scripts/jev_compare.sh > data/logs/jev_compare.log 2>&1 &   # tam koşu, 25 dk (402'ye kadar)
+# satırlar (scripts/jev_compare.sh): EMB = --emb-url http://127.0.0.1:8091/v1 --emb-model qwen3-emb --truncate 8192
+#   --emb-batch 128 --tool-format documentation --query-format instruct_query --with-inst; JEV = --jev-model jev-1.13.0 --jev-workers 8
+toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank jev --rerank-depth 100 $JEV
+toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank jev --rerank-depth 20 --jev-tool-format documentation --jev-max-chars 3000 $JEV
+toolrank eval --data data/$d --scorer bm25 --no-stem --tool-format documentation --with-inst --rerank jev --rerank-depth 30 $JEV
+toolrank eval --data data/$d --scorer jev --with-inst --tool-format name_desc --jev-chunk 200 --jev-per-chunk 20 $JEV   # MCP setleri
+# mcp_zero_server için --ks 1,5,10,20; taban satırları (ilk 50): aynı bayraklar, --rerank yok, --out results/jevsmoke_<set>_base_<row>.json
+# CLM in Jev's role (GB10, 8090 + 8091 up, free): scripts/clm_rerank.sh, i.e. per set
+toolrank eval --data data/$d --scorer clm --clm-ckpt dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz $EMB --rerank clm \
+  --rerank-emb-url http://127.0.0.1:8090/v1 --rerank-emb-model qwen3-8b --rerank-truncate 2048 \
+  --rerank-tool-format example_call --rerank-query-format clm --rerank-clm-ckpt ~/.cache/clm/CLM_v0.1-8B.pt --rerank-depth 100
+# ... --rerank-depth 20; --rerank-clm-ckpt data/heads/clm_60k_lr1e-2.pt; BM25 base with --rerank-depth 30
+PYTHONUNBUFFERED=1 nohup bash scripts/clm_rerank.sh > data/logs/clm_rerank.log 2>&1 &
+# the same with exactly Jev's text (results/clmj_*.json): name_desc cut to 1000, the top 20 with documentation cut to 3000
+CLM_FORMAT=name_desc CLM_MAX_CHARS=1000 ROWS="heads_clm100 heads_clm20doc bm25_clm30" TAG=clmj bash scripts/clm_rerank.sh
+# cross-encoders (GB10): the rerankers as vLLM sequence classifiers, then the same texts as the Jev rows
+docker compose -f deploy/spark/compose.yaml --profile rerank up -d qwen3-reranker bge-reranker   # 8095 / 8096
+ROWS=heads_x20doc PYTHONUNBUFFERED=1 nohup bash scripts/cross_rerank.sh > data/logs/cross_rerank.log 2>&1 &   # phase A
+#   i.e. toolrank eval ... --rerank cross --rerank-emb-url http://127.0.0.1:8095 --rerank-emb-model qwen3-reranker \
+#     --rerank-template qwen3 --rerank-depth 20 --rerank-tool-format documentation --rerank-max-chars 3000 --rerank-workers 8
+ROWS="heads_x100 bm25_x30 alone" bash scripts/cross_rerank.sh                                     # phase B, after LoRA
+# LoRA (GB10, [lora] extra; the smoke run first: --n-train 64 --micro-batch 4 --eval-every 8 --limit-dev 200 --no-merge)
+uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pairs.jsonl --dev data/mcp_zero_server \
+  --eval data/toolret --eval data/livemcpbench_server --n-train 20000 --micro-batch 16 --accumulate 2 \
+  --eval-every 300 --check-parity --out data/lora/qwen3-emb-lora-20k
+TOOLRANK_LORA=$HOME/toolrank/data/lora/qwen3-emb-lora-20k/merged docker compose -f deploy/spark/compose.yaml --profile lora up -d qwen3-emb-lora  # 8097
+toolrank eval --data data/$d --scorer dense --emb-url http://127.0.0.1:8097/v1 --emb-model qwen3-emb-lora --truncate 8192 \
+  --tool-format documentation --query-format instruct_query --with-inst --out results/lora_${d}_lora.json
+toolrank finetune --data data/toolret_train/pairs.jsonl --n-train 60000 --n-val 2000 --dev data/mcp_zero_server \
+  --eval data/toolret --eval data/livemcpbench_server --emb-url http://127.0.0.1:8097/v1 --emb-model qwen3-emb-lora \
+  --out data/heads/lora_60k.pt --npz dist/heads/lora_60k.npz        # then --scorer clm --clm-ckpt dist/heads/lora_60k.npz rows
+# Mac
+scp 'gb10:toolrank/results/jev*_*.json' 'gb10:toolrank/results/clm*_*.json' 'gb10:toolrank/results/cross_*.json' results/
+toolrank compare results/jev_*.json results/clm_*.json results/cross_*.json docs/results/readme_*.json --metrics NDCG@10,Recall@5,Recall@10,Precision@1
+```
+
+## Ortam
+
+GB10 (NVIDIA GB10, Ubuntu 24.04 aarch64), vLLM NGC `nvcr.io/nvidia/vllm:26.01-py3`, Qwen3-Embedding-8B
+bf16 `--max-model-len 8192` (8091), paketlenmiş head'ler v0.1 (`.npz`, numpy). toolrank 0.2.0.dev0,
+commit `c40419e`. Jev: `api.typesafe.ai`, `jev-1.13.0`, 8 eşzamanlı istek, çağrılar GB10'dan
+(İstanbul; TypeSafe'in sunucuları Batı Kıyısı'nda, Mac'ten tek küçük istek 0.30 s, GB10'dan p50
+285–360 ms, p95 415–540 ms). Gömme önbelleği sıcak; Jev önbelleği duman testinin 50 sorgusu dışında
+soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ (ilk 10 satır 4.66 $, zero-shot → Jev
+satırları 3.8 $, MCP-Zero tek başına 9.51 $), duman testi 0.35 $. İlk koşuda hesabın kredisi tek
+başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
+CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
+`data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
+(encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun
+dokümantasyonlar 8090'da yeniden kodlandı).
+Cross-encoder satırları: aynı NGC imajı, Qwen3-Reranker-8B (8095, bellek payı 0.25) ve
+bge-reranker-v2-gemma (8096, 0.15), ikisi de 8192 token pencere, vLLM'in sıralama sınıflandırıcısı
+yüklemesi (`hf_overrides`), 8 eşzamanlı istek, puanlar `scores.sqlite`'ta; GPU'yu LoRA koşusu ve 8091
+ile paylaşırken; commit'ler `645b026` … `4569341`. LoRA: `scripts/lora_train.py`, 10:01'de başladı,
+20.000 çift, 16'lık mikro-parti × 2 birikim, lr 1e-4 kosinüs, 625 adım, adım başına 0.71 dk, dev
+(MCP-Zero `_server`, 2.792 sorgu) her 300 adımda 11 dk; parite 0.9999; sonrası `data/lora/chain2.sh`.
+
+## Sapmalar ve açıklamalar
+
+- ToolRet'te mikro ortalama cat-macro kadar artmıyor (heads → Jev 100: +1.0 / +4.3): 35 görevden 24
+  yukarı, 11 aşağı; düşenler büyük görevler, toolbench (n 1100) −5.7 ve gorilla-huggingface (n 500)
+  −7.5, çıkanlar küçük görevler, t-eval-dialog +32.0, toolemu +29.7, taskbench-multimedia +17.1.
+  Büyük görevlerde aynı aileden çok sayıda benzer araç var; ad + açıklama 1000 karaktere kesilince
+  ayırt edici parça düşüyor olabilir: tam dokümantasyonla ilk 20 (57.69) bunun bir kısmını geri
+  alıyor. Derinlik ve metin taraması (30 / 50 araç, 2000 karakter) yapılmadı.
+- MCP-Zero'nun istekleri her aracın açıklamasından Qwen3-8B tarafından yazıldı; açıklamayı okuyan
+  bir modelin burada güçlü olması beklenir (BM25 → Jev 30 bile top-1 90.29). ToolRet'teki artış
+  daha gerçekçi bir ölçü.
+- Jev'in çağrı başına p50'si 285–360 ms; heads'in sorgu başına 0.86 ms'i (sıcak) yanında serve'deki
+  `search_tools` p50'sini 5 ms'den 300 ms'in üstüne çıkarır. Sorgu metni dış bir servise gider;
+  kullanım günlüğündeki HMAC gizliliği bu yolda geçerli değil.
+- Jev tek başına MCP-Zero'da (14 parça + son tur, sorgu başına 15 çağrı) heads → Jev'in 1.5 puan
+  altında: parçalı sıralama, kazananları tek listede karşılaştıran ikinci tura rağmen, iyi bir kısa
+  listeden daha kötü. Gömme modeli ucuz ve iyi bir ilk aşama olarak kalıyor.
+- Duman testinin ToolRet satırları (ilk 50 sorgu, tek görev) tavana yakındı ve yanıltıcıydı; tam
+  koşu şart.
+- CLM satırlarında ikinci encoder'ın önbellek ıskaları rapora yazılmıyor (`encoder_tokens` taban
+  scorer'ın); hepsi önbellekten geldiği için burada fark etmedi.
+
+## Sözleşme notu
+
+Master Customer Agreement 2.3(b): Servis veya çıktıları model damıtma, çıktıyı taklit eden model
+eğitimi ya da benzer/rakip ürün geliştirmeyi kolaylaştırmak için kullanılamaz. Burada yapılan, içeride
+ölçüm ve isteğe bağlı bir adapter; Jev'in sıralamaları hiçbir eğitim sinyaline girmiyor ve girmemeli.
+Sonuçları Jev adıyla yayımlamadan önce TypeSafe'e sorulmalı (madde 16: karşı tarafın adını kullanma
+hakkı yok). README tablosuna Jev satırı konmadı.
 
 ## Sonraki
 
