@@ -500,11 +500,6 @@ def cmd_learn(a: argparse.Namespace) -> int:
     data = Path(a.data).resolve()
     if not (data / "tools.jsonl").exists():
         sys.exit(f"{data / 'tools.jsonl'} not found: an ingest dir that toolrank serve has served")
-    if not a.dry_run:
-        try:
-            import torch  # noqa: F401
-        except ImportError:
-            sys.exit("toolrank learn trains with torch: pip install 'toolrank[clm]' (--dry-run needs none)")
     _data_cache(a, data)
     # by default the result is the candidate a running server gives a share of the requests to
     out = Path(a.out).resolve() if a.out else heads_home(data, a.tenant) / CANDIDATE
@@ -513,6 +508,11 @@ def cmd_learn(a: argparse.Namespace) -> int:
             f"{out} is still being judged (toolrank ab decides); --replace-candidate trains a new one over it"
         )
         return 0
+    if not a.dry_run:  # after the guard above: saying "not yet" needs no torch
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            sys.exit("toolrank learn trains with torch: pip install 'toolrank[clm]' (--dry-run needs none)")
     name = a.name or out.stem
     job = Job(
         data=data,
