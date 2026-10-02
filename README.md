@@ -10,7 +10,7 @@ into the prompt, toolrank picks the few a request needs, with an embedding model
 (Qwen3-Embedding-8B) and small learned heads on top of it, and serves them to your agent over MCP or
 REST. Every retriever it ships is measured on the same public benchmarks.
 
-Status: **alpha (0.1)**; interfaces may still change. Documentation: <https://yasinyaman.github.io/toolrank/>
+Status: **alpha (0.1)**; interfaces may still change. Documentation: <https://yaman.dev/toolrank/>
 
 ## Quick start
 
@@ -33,7 +33,7 @@ docker compose run --rm toolrank ingest mcp --config /config/toolrank.json --out
 docker compose up -d
 ```
 
-The [quick start](https://yasinyaman.github.io/toolrank/quickstart/) connects Claude Code, Claude Desktop and REST clients.
+The [quick start](https://yaman.dev/toolrank/quickstart/) connects Claude Code, Claude Desktop and REST clients.
 
 ## Results
 
@@ -64,20 +64,20 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 ## What's inside
 
 - **Ingestion** of MCP servers (stdio and streamable HTTP) and OpenAPI 3.x specs; a re-run syncs only
-  what changed. [Guide](https://yasinyaman.github.io/toolrank/guides/ingest/)
+  what changed. [Guide](https://yaman.dev/toolrank/guides/ingest/)
 - **Search and serve**: adaptive K, a persistent vector index (numpy, FAISS HNSW or pgvector), an MCP
-  proxy with two tools, a REST API, API keys and a usage log. [Guide](https://yasinyaman.github.io/toolrank/guides/serve/)
+  proxy with two tools, a REST API, API keys and a usage log. [Guide](https://yaman.dev/toolrank/guides/serve/)
 - **Agent platforms**: toolrank as Claude's (`tool_reference`) and OpenAI's (client-side
-  `tool_search`) tool search. [Guide](https://yasinyaman.github.io/toolrank/guides/platforms/)
+  `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/)
 - **Frameworks**: LangGraph (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
-  [Guide](https://yasinyaman.github.io/toolrank/guides/frameworks/)
+  [Guide](https://yaman.dev/toolrank/guides/frameworks/)
 - **Fine-tuning**: heads trained on your own request-to-tool pairs, the epoch picked on a dev set.
-  [Guide](https://yasinyaman.github.io/toolrank/guides/finetune/)
+  [Guide](https://yaman.dev/toolrank/guides/finetune/)
 - **Benchmarks**: ToolRet, LiveMCPBench and MCP-Zero with BM25, dense and head scorers (and CLM, for
-  comparison). [Benchmarks](https://yasinyaman.github.io/toolrank/benchmarks/)
+  comparison). [Benchmarks](https://yaman.dev/toolrank/benchmarks/)
 - **Docker**: the `toolrank` image for amd64 and arm64, compose files with vLLM, and a Dockerfile
   that puts vLLM and toolrank in one container.
-  [Guide](https://yasinyaman.github.io/toolrank/guides/docker/)
+  [Guide](https://yaman.dev/toolrank/guides/docker/)
 
 ## Why
 

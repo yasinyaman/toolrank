@@ -72,7 +72,7 @@ toolrank = "toolrank.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/yasinyaman/toolrank"
-Documentation = "https://yasinyaman.github.io/toolrank/"
+Documentation = "https://yaman.dev/toolrank/"
 Repository = "https://github.com/yasinyaman/toolrank"
 Issues = "https://github.com/yasinyaman/toolrank/issues"
 Changelog = "https://github.com/yasinyaman/toolrank/blob/main/CHANGELOG.md"

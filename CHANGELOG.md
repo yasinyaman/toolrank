@@ -57,8 +57,14 @@ change behaviour.
   gold tools it is shown, `toolrank learn` trains on that log and the queries never served are the
   test; the learn guide's "What to expect" carries the numbers.
 
+### Changed
+
+- The documentation lives at <https://yaman.dev/toolrank/> (the old address redirects there).
+
 ### Fixed
 
+- Heads given vectors of another width (an embedding endpoint serving another model) now say so,
+  naming both widths, instead of failing inside the index build with a bare shape error.
 - OpenAPI calls no longer keep cookies: one API response's `Set-Cookie` was sent with every later
   call to that host, whoever made it.
 

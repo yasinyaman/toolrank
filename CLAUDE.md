@@ -673,6 +673,7 @@ examples/                         anthropic_tool_reference.py, openai_client_too
 
 ## Where we are
 
-`docs/plan/README.md` → "Durum" (maintainers' checkout). Next items are the unticked boxes at the top of
-`docs/plan/faz-1.md`; the session-by-session plan with paste-ready prompts is in
-`docs/plan/claude-code-handoff.md`.
+`docs/plan/README.md` → "Durum" (maintainers' checkout). Faz 2's code boxes are ticked (weeks 1–6, reports
+`faz2-week1.md` … `faz2-week6.md`, `faz2-jev.md`); what is left is the pilots (weeks 7–8, not code), the gate
+report, Faz 1's launch posts and leaderboard submission, and `docs/plan/backlog.md`. The session-by-session
+plan with paste-ready prompts is in `docs/plan/claude-code-handoff.md`.

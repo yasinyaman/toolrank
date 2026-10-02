@@ -132,3 +132,18 @@ def test_eval_records_the_heads_file_it_ran_with(tmp_path, monkeypatch):
         )
         runs[name] = json.loads(out.read_text())["config"]["heads_sha256"]
     assert runs == {"heads": sha256_file(npz), "bm25": None}
+
+
+def test_vectors_of_another_width_are_refused_with_both_widths_named(tmp_path):
+    heads = NumpyHeads(_case_npz(tmp_path, "silu_shallow", serving={"backbone": "Qwen/Qwen3-Embedding-8B"}))
+    with np.load(GOLDEN, allow_pickle=False) as z:
+        x = z["x"]
+    wrong = np.zeros((2, x.shape[1] + 3), np.float32)
+    with pytest.raises(
+        ValueError,
+        match=rf"expects {x.shape[1]}-dimensional vectors from Qwen/Qwen3-Embedding-8B.*returns {x.shape[1] + 3}",
+    ):
+        heads.project_actions(wrong)
+    with pytest.raises(ValueError, match="--emb-url"):
+        heads.project_states(wrong)
+    assert heads.project_states(x).shape[0] == len(x)  # the right width still works

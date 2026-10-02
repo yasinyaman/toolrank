@@ -117,13 +117,17 @@ class CLMHeads:
         self.action_head.load_state_dict(ck["action_head"])
         self.state_head.eval().to(self.device)
         self.action_head.eval().to(self.device)
-        self.cfg, self.proj_dim = cfg, int(kw["proj"])
+        self.cfg, self.proj_dim, self.hidden = cfg, int(kw["proj"]), int(kw["hidden"])
         self.scale = float(torch.as_tensor(ck["logit_scale"]).float().exp().clamp(max=100.0))
         self.n_params = sum(p.numel() for h in (self.state_head, self.action_head) for p in h.parameters())
 
     def _project(self, head, x: np.ndarray) -> np.ndarray:
         import torch
 
+        from toolrank.adapters.heads_np import check_width
+
+        if len(x):
+            check_width(self.path, self.cfg, self.hidden, np.asarray(x))
         outs = []
         with torch.no_grad():
             for s in range(0, len(x), self.batch):

@@ -7,7 +7,7 @@ L2-normalises, and a tool's score is the cosine of the two. The heads start as t
 training only adds a correction on top of the base model.
 
 Code, documentation and benchmarks: [github.com/yasinyaman/toolrank](https://github.com/yasinyaman/toolrank),
-[yasinyaman.github.io/toolrank](https://yasinyaman.github.io/toolrank/); the package:
+[yaman.dev/toolrank](https://yaman.dev/toolrank/); the package:
 [`pip install toolrank`](https://pypi.org/project/toolrank/).
 
 | | |
@@ -54,7 +54,7 @@ lower) or train your own heads on your data.
 ## Results
 
 All numbers are w/ inst, and each set is scored under its own protocol
-([benchmarks](https://yasinyaman.github.io/toolrank/benchmarks/)):
+([benchmarks](https://yaman.dev/toolrank/benchmarks/)):
 
 | | ToolRet NDCG@10 (micro / cat-macro) | LiveMCPBench Recall@5 | MCP-Zero top-1 |
 | --- | ---: | ---: | ---: |

@@ -1,6 +1,6 @@
 site_name: toolrank
 site_description: Tool retrieval for LLM agents with hundreds of tools
-site_url: https://yasinyaman.github.io/toolrank/
+site_url: https://yaman.dev/toolrank/
 repo_url: https://github.com/yasinyaman/toolrank
 repo_name: yasinyaman/toolrank
 edit_uri: edit/main/docs/

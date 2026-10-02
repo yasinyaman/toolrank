@@ -81,6 +81,7 @@ class NumpyHeads:
                 raise ValueError(f"{self.path}: {head} inp.weight is {params['inp.weight'].shape}")
             self.heads[head] = params
         self.proj_dim = int(self.heads["state_head"]["out.weight"].shape[0])
+        self.hidden = int(self.cfg.get("hidden_size", 4096))
         if self.cfg.get("skip") and self.proj_dim != int(self.cfg.get("hidden_size", 4096)):
             raise ValueError(f"{self.path}: a skip head must keep the input width")
         self.scale = float(min(math.exp(float(arrays.get("logit_scale", np.zeros(1)).reshape(-1)[0])), 100.0))
@@ -104,6 +105,7 @@ class NumpyHeads:
         x = np.asarray(x, dtype=np.float32)
         if len(x) == 0:
             return np.zeros((0, self.proj_dim), dtype=np.float32)
+        check_width(self.path, self.cfg, self.hidden, x)
         outs = []
         for s in range(0, len(x), self.batch):
             y = self._forward(self.heads[head], x[s : s + self.batch]).astype(np.float32)
@@ -115,6 +117,18 @@ class NumpyHeads:
 
     def project_actions(self, x: np.ndarray) -> np.ndarray:
         return self._project("action_head", x)
+
+
+def check_width(path: Path, cfg: dict[str, Any], hidden: int, x: np.ndarray) -> None:
+    """Refuse vectors of another width than the heads were trained on, naming both: otherwise the
+    first matrix product fails deep inside the index build with shapes only."""
+    if x.ndim != 2 or x.shape[1] != hidden:
+        width = x.shape[1] if x.ndim == 2 else x.shape
+        backbone = cfg.get("backbone") or "its backbone"
+        raise ValueError(
+            f"{path.name} expects {hidden}-dimensional vectors from {backbone}, the embedding endpoint "
+            f"returns {width}: point --emb-url / --emb-model at that model, or use heads trained on this one"
+        )
 
 
 def read_checkpoint(path: str | Path) -> dict[str, Any]:
