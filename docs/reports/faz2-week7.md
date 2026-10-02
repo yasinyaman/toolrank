@@ -52,6 +52,74 @@ FP8 ile bf16 arasında (LoRA, ToolRet'in 1.000 sorgusu): omurga kosinüsü ortal
   sıra ikinci aşamadan. İki reranker'a paylaşılan duruma yazmayan `rank_pairs` eklendi (sunucuda
   eşzamanlı aramalar `last_base` üzerinde yarışıyordu).
 
+## Ek (2 Ekim, öğleden sonra) — kendi dev setimiz ve LoRA için ne söylediği
+
+**Sonuç:** `toolrank data gen-queries` ile hiçbir benchmark'la sorgu paylaşmayan bir seçim seti
+üretildi (GitHub + Stripe + üç küçük kaynak, 1.862 tool; Qwen3-8B'nin yazdığı 1.000 + 598 istek) ve
+gösterdiği şu: LoRA'lı backbone, eğitildiği dağılımın (ToolRet) ve seçildiği setin (MCP-Zero)
+dışında temel modelden iyi değil — bu katalogda başa baş, işlemi söylemeyen "durum" isteklerinde
+ilk 5'te 2,5 puan geride (eşli işaret testi p = 0,003); tek gerçek bağımsız benchmark olan
+LiveMCPBench'te de fark gürültü içinde. Varsayılan backbone kararı bu bilgiyle yeniden kullanıcıda.
+
+Tablo 3 — dev setleri (w/ inst; `P@1 ↑ %`, `Recall@5 ↑ %`, `NDCG@10 ↑ %`):
+
+| Model | `dev_w3` (1.000 istek: görev / adım / hedef) | `dev_w3_sit` (598 istek: "durum") |
+| --- | --- | --- |
+| BM25 (talimatsız) | 54,90 / 81,00 / 71,22 | 40,13 / 67,89 / 58,20 |
+| Qwen3-Embedding-8B | 84,20 / 99,00 / 92,99 | 76,92 / 97,99 / 89,67 |
+| + v0.1 head'leri | 84,20 / 98,80 / 92,98 | 77,26 / 98,16 / 89,86 |
+| LoRA'lı backbone | 83,50 / 98,80 / 92,49 | 76,25 / 95,48 / 87,71 |
+| LoRA + v0.1 head'leri | 81,30 / 98,10 / 91,18 | 69,90 / 93,65 / 84,37 |
+
+Tablo 4 — temel model ile LoRA, eşli karşılaştırma (yalnız birinin bulduğu istek sayısı; iki
+yönlü işaret testi):
+
+| Set | İlk 1: yalnız temel / yalnız LoRA | p | İlk 5: yalnız temel / yalnız LoRA | p |
+| --- | ---: | ---: | ---: | ---: |
+| `dev_w3` (1.000) | 76 / 69 | 0,62 | 6 / 4 | 0,75 |
+| `dev_w3_sit` (598) | 56 / 52 | 0,77 | 19 / 4 | 0,003 |
+| LiveMCPBench (94) | 10 / 14 | 0,54 | 5 / 5 | 1,00 |
+
+Tablo 5 — LoRA'nın temel modele göre kazancı, sete göre (NDCG@10 puanı; MCP-Zero'da top-1):
+
+| Set | Niteliği | Temel → LoRA |
+| --- | --- | --- |
+| ToolRet | eğitim dağılımı (aynı görevlerin eğitim çiftleri) | 51,11 → 58,90 (+7,8) |
+| MCP-Zero top-1 | seçim seti; istekler iki satırlık `server: … tool: …` kalıbında | 78,19 → 88,57 (+10,4) |
+| LiveMCPBench | bağımsız; doğal dilde çok adımlı görevler | 53,74 → 55,74 (+2,0; anlamlı değil) |
+| `dev_w3` | bağımsız; OpenAPI kataloğu, doğal dilde tek tool'luk istekler | 92,99 → 92,49 (−0,5) |
+| `dev_w3_sit` | bağımsız; aynı katalog, işlemi söylemeyen istekler | 89,67 → 87,71 (−2,0) |
+
+Notlar:
+
+- **Dev seti kolay.** Tek tool'luk, LLM'in tool metninden yazdığı istekleri gömme modelleri ilk 5'te
+  %95–99 buluyor; ilk sıradaki hataların çoğu neredeyse aynı işi yapan komşu operasyonlar (iki
+  modelin top-1 hataları simetrik: 76'ya 69). Bu yüzden set bir puanlık farkları sıralayamıyor;
+  belirgin kötüleşmeyi yakalıyor (LoRA + head'ler: −1,3 / −3,3 NDCG@10; "durum" isteklerinde LoRA).
+- **Uzunluk etkisi yok.** LoRA 768 token'lık tool metniyle eğitildi; açık, altın tool'un metin
+  uzunluğuna göre değişmiyor (0–1.000, 1.000–2.500, 2.500+ karakter kovalarında aynı yön).
+- **MCP-Zero'daki büyük kazanç istek kalıbına bağlı görünüyor:** o setin istekleri `server:` / `tool:`
+  satırlarından oluşuyor; aynı tür katalogda doğal dilde yazılmış isteklerde (LiveMCPBench, dev
+  setleri) kazanç yok. Üç kontrol noktası arasından seçim bu kadar farkı açıklamaz; fark gerçek ama
+  o kalıba özgü.
+- `scripts/lora_train.py` yalnız en iyi adaptörü saklıyordu, bu yüzden mevcut LoRA yeni sette yeniden
+  seçilemedi; `--keep-all` eklendi (her değerlendirilen adımın adaptörü kalır).
+- İkinci aşamalı iki satır (LoRA / head'ler + Qwen3-Reranker, `dev_w3`) rapor yazılırken koşuyordu;
+  sonuç dosyaları `results/dev_w3_*_rerank.json`.
+
+Komutlar (GB10; sohbet modeli `--profile gen`, 8093, iş bitince durduruldu):
+
+```bash
+toolrank data gen-queries --data data/devcat --out data/dev_w3 --n 1000 --seed 0 \
+  --exclude data/toolret --exclude data/livemcpbench_server --exclude data/mcp_zero_server
+toolrank data gen-queries --data data/devcat --out data/dev_w3_sit --n 600 --seed 1 --styles situation \
+  --exclude data/toolret --exclude data/livemcpbench_server --exclude data/mcp_zero_server
+# data/devcat = Mac'teki data/w3'ün tools.jsonl'ı (sha256 f93cb95c…); her model için:
+toolrank eval --data data/dev_w3_sit --scorer dense --emb-url http://127.0.0.1:8097/v1 --emb-model qwen3-emb-lora \
+  --truncate 8192 --tool-format documentation --query-format instruct_query --with-inst --ks 1,5,10 \
+  --out results/dev_w3_sit_lora.json
+```
+
 ## Komutlar
 
 ```bash
@@ -100,6 +168,7 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
 
 ## Sonraki
 
-- 19:00'dan sonra, kullanıcının onayıyla: GB10'dan `scripts/publish_backbone.py --upload`, sonra
-  `BACKBONE_PUBLISHED = True` commit'i, sonra push.
-- Ayrı bir dev setiyle (`toolrank data gen-queries`, backlog) LoRA'yı büyütme turu.
+- Kullanıcı kararı: Ek'teki bulguyla LoRA varsayılan mı kalsın, seçenek mi olsun. Karara göre
+  19:00'dan sonra yükleme (`scripts/publish_backbone.py --upload`), bayrak commit'i ve push.
+- LoRA'yı doğal dilde isteklerle büyütmek: eğitim verisine üretilmiş MCP / OpenAPI istekleri katmak,
+  `--keep-all` ile, seçim `dev_w3` + `dev_w3_sit` üzerinde, LiveMCPBench dokunulmadan.
