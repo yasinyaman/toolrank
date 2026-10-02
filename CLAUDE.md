@@ -121,6 +121,8 @@ toolrank data pull livemcpbench                                # -> data/livemcp
 docker compose -f deploy/spark/compose.yaml --profile gen up -d qwen3-8b-chat   # port 8093; stop it afterwards
 toolrank data pull mcp-zero --gen-workers 64                   # 333 MB from Google Drive + one request per tool
 toolrank eval --data data/mcp_zero --ks 1,5,10,20 <scorer flags>   # Precision@1 = the paper's top-1 accuracy
+# a selection set of one's own (Faz 2 week 7): a chat model writes one request per sampled tool of a catalogue
+toolrank data gen-queries --data data/devcat --out data/dev_w3 --n 1000 --exclude data/toolret [--styles situation]
 
 toolrank compare results/toolret_*.json                        # on the Mac: markdown table for the report
 PYTHONUNBUFFERED=1 nohup bash scripts/readme_results.sh > data/logs/readme_results.log 2>&1 &   # GB10: the README's runs
@@ -522,7 +524,8 @@ src/toolrank/integrations/        anthropic.py, openai.py (Toolbox, run), _commo
                                   langgraph.py (Toolbox), llamaindex.py (ToolrankToolRetriever), litellm.py (tool_filter)
 src/toolrank/ingest/              text.py (the indexed text), mcp.py (server configs, MCP tool → Tool), openapi.py, sync.py
 src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py (pull + task→category map); toolret_train.py;
-                                  livemcpbench.py; mcp_zero.py (download + LLM-written queries); synthetic.py
+                                  livemcpbench.py; mcp_zero.py (download + LLM-written queries); synthetic.py;
+                                  genqueries.py (data gen-queries: sample tools over sources, LLM-written requests in styles)
 src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_eval, summarize, format_table, save_report);
                                   table.py (the README's results table: render, splice, the protocol checks)
 src/toolrank/finetune.py          toolrank finetune: Job/run, EvalSet (dev curves), train_heads(select=), load_checkpoint

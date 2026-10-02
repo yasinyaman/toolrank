@@ -89,6 +89,24 @@ download a benchmark and convert it to JSONL
 | `--gen-max-tokens GEN_MAX_TOKENS` | `256` |  |
 | `--gen-extra GEN_EXTRA` | `{"chat_template_kwargs": {"enable_thinking": false}}` | JSON merged into every chat request (default turns off Qwen3 thinking on vLLM; '{}' for none) |
 
+## `toolrank data gen-queries`
+
+Make a selection set that shares no query with a benchmark: sample tools evenly over the sources of an ingest (or benchmark) dir and let a chat model write one request per tool, in three styles. The result is a benchmark-format dir for eval, finetune --dev and learn --dev.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--data DATA` | required | the catalogue: a dir with tools.jsonl |
+| `--out OUT` | required | the set's directory (tools.jsonl, queries.jsonl) |
+| `--n N` | `600` | tools sampled, one request each |
+| `--seed SEED` |  |  |
+| `--styles STYLES` | `task,step,goal` | request styles, used in turn: task, step, goal, situation (a problem stated without the operation: harder to match) |
+| `--exclude DIR` |  | a benchmark dir whose queries the set must not repeat (repeatable) (repeatable) |
+| `--gen-url GEN_URL` | `http://127.0.0.1:8093/v1` | OpenAI-compatible chat endpoint |
+| `--gen-model GEN_MODEL` | `qwen3-8b-chat` | the model that writes the requests |
+| `--gen-workers GEN_WORKERS` | `32` | concurrent requests |
+| `--gen-max-tokens GEN_MAX_TOKENS` | `256` |  |
+| `--gen-extra GEN_EXTRA` | `{"chat_template_kwargs": {"enable_thinking": false}}` | JSON merged into every chat request (default turns off Qwen3 thinking on vLLM; '{}' for none) |
+
 ## `toolrank data server-names`
 
 copy a benchmark set with each tool's server name in its text (the _server sets)

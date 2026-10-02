@@ -224,6 +224,28 @@ def cmd_data_pull(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_gen_queries(a: argparse.Namespace) -> int:
+    from toolrank.adapters.chat_api import OpenAIChat
+    from toolrank.datasets.genqueries import gen_queries
+
+    if not (Path(a.data) / "tools.jsonl").exists():
+        sys.exit(f"{Path(a.data) / 'tools.jsonl'} not found: --data is an ingest or benchmark dir")
+    chat = OpenAIChat(a.gen_model, a.gen_url, max_tokens=a.gen_max_tokens, extra_body=json.loads(a.gen_extra))
+    try:
+        styles = [x.strip() for x in a.styles.split(",") if x.strip()]
+        n = gen_queries(
+            a.data, a.out, chat, n=a.n, seed=a.seed, exclude=a.exclude, styles=styles, workers=a.gen_workers
+        )
+    except ValueError as e:
+        sys.exit(str(e))
+    dropped = {k: v for k, v in n.items() if k not in ("tools", "sources", "sampled", "queries") and v}
+    print(
+        f"wrote {n['queries']} queries over {n['tools']} tools ({n['sources']} sources) to {a.out}: one per "
+        f"sampled tool ({n['sampled']})" + (f"; dropped {dropped}" if dropped else "")
+    )
+    return 0
+
+
 def cmd_data_server_names(a: argparse.Namespace) -> int:
     from toolrank.datasets.jsonl import with_server_names
 
@@ -1061,6 +1083,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON merged into every chat request (default turns off Qwen3 thinking on vLLM; '{}' for none)",
     )
     pull.set_defaults(fn=cmd_data_pull)
+    gq = ds.add_parser(
+        "gen-queries",
+        help="a dev set of your own: a chat model writes one request per sampled tool of a catalogue",
+        description="Make a selection set that shares no query with a benchmark: sample tools evenly over "
+        "the sources of an ingest (or benchmark) dir and let a chat model write one request per tool, in "
+        "three styles. The result is a benchmark-format dir for eval, finetune --dev and learn --dev.",
+    )
+    gq.add_argument("--data", required=True, help="the catalogue: a dir with tools.jsonl")
+    gq.add_argument("--out", required=True, help="the set's directory (tools.jsonl, queries.jsonl)")
+    gq.add_argument("--n", type=int, default=600, help="tools sampled, one request each")
+    gq.add_argument("--seed", type=int, default=0)
+    gq.add_argument(
+        "--styles",
+        default="task,step,goal",
+        help="request styles, used in turn: task, step, goal, situation (a problem stated without the "
+        "operation: harder to match)",
+    )
+    gq.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="a benchmark dir whose queries the set must not repeat (repeatable)",
+    )
+    gq.add_argument("--gen-url", default="http://127.0.0.1:8093/v1", help="OpenAI-compatible chat endpoint")
+    gq.add_argument("--gen-model", default="qwen3-8b-chat", help="the model that writes the requests")
+    gq.add_argument("--gen-workers", type=int, default=32, help="concurrent requests")
+    gq.add_argument("--gen-max-tokens", type=int, default=256)
+    gq.add_argument(
+        "--gen-extra",
+        default='{"chat_template_kwargs": {"enable_thinking": false}}',
+        help="JSON merged into every chat request (default turns off Qwen3 thinking on vLLM; '{}' for none)",
+    )
+    gq.set_defaults(fn=cmd_data_gen_queries)
     srv = ds.add_parser(
         "server-names",
         help="copy a benchmark set with each tool's server name in its text (the _server sets)",

@@ -39,3 +39,30 @@ toolrank finetune --data pairs.jsonl --dev dev/ --eval test/ --out heads.pt --np
 `--neg 15` adds the dataset's mined negatives per pair. On ToolRet's pairs they raised recall on
 held-out pairs from 89.5 to 96.9 while the dev set fell from 87.2 to 78.7 NDCG@10; the command kept
 the starting heads. Try them only with a dev set you trust.
+
+## A dev set of your own
+
+A model picked on a benchmark cannot be reported on it. `toolrank data gen-queries` makes a
+selection set from any catalogue instead: it samples tools evenly over the catalogue's sources and
+has a chat model write one request per tool, in three styles (a person's task, an agent's note for
+its next step, a goal in everyday words; `--styles situation` writes a problem without the
+operation, the hardest to match). The model is told not to use the tool's name, and a request that
+names it anyway is dropped.
+
+```bash
+toolrank data gen-queries --data tools/ --out dev/ --n 1000 \
+  --exclude data/toolret --exclude data/livemcpbench_server     # queries it must not repeat
+toolrank eval --data dev/ --scorer dense --with-inst ...       # rows per source and per style
+```
+
+`--gen-url` and `--gen-model` name an OpenAI-compatible chat endpoint (by default a local
+`qwen3-8b-chat` on port 8093); answers are cached in `dev/generations.jsonl`, so a rerun writes only
+what is new. The result is a benchmark-format directory for `finetune --dev`, `learn --dev` and
+`toolrank eval`.
+
+It is a selection set, not a benchmark: one tool is the answer to each request, so catalogues with
+near-identical tools make some requests ambiguous, and the requests come from one model. Requests
+written this way are also easy: on a catalogue of GitHub's and Stripe's APIs every backbone we have
+finds the tool in its top five 95–99% of the time. So the set catches a model that got worse on
+your catalogue (it showed the v0.1 heads costing the LoRA backbone 1–6 points there) and will not
+rank models a point apart. Report on sets it shares nothing with.

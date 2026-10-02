@@ -45,6 +45,11 @@ change behaviour.
 - `toolrank search` / `serve --rerank cross | jev`: a second stage reorders the top 20 tools with the
   request (a local cross-encoder behind vLLM's score API, or TypeSafe AI's hosted Jev); the number of
   tools returned still comes from the first stage's cosines.
+- `toolrank data gen-queries`: a selection set of your own. A chat model writes one request per
+  sampled tool of any catalogue (four styles; tools sampled evenly over the sources), giving a
+  benchmark-format directory for `eval`, `finetune --dev` and `learn --dev` that shares no query
+  with a benchmark. `scripts/lora_train.py --keep-all` keeps every evaluated adapter, so another
+  dev set can pick again.
 - Tenants: an `--api-keys` entry can be `{key, sources, headers, env}`. `sources` limits the key to
   those sources' tools (search, catalogue and calls); `headers` and `env` are its own credentials
   for a source, sent only with its calls over a connection of its own. Co-use tables are per key.

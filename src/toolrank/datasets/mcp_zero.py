@@ -172,12 +172,14 @@ def generate(
     *,
     workers: int = 32,
     log: Callable[[str], None] = print,
+    system: str = SYSTEM_PROMPT,
 ) -> dict[str, str]:
-    """Ask ``chat`` every prompt under MCP-Zero's system prompt -> {id: response}.
+    """Ask ``chat`` every prompt under ``system`` (MCP-Zero's system prompt) -> {id: response}.
 
     Responses are appended to ``cache`` (JSONL) as they arrive and reused when model name and
     prompt match, so an interrupted pull resumes and a parser change needs no new generation.
-    Delete the file to regenerate with other sampling settings.
+    Delete the file to regenerate with other sampling settings or another system prompt (the key
+    is the user prompt).
     """
     path = Path(cache)
     done: dict[str, str] = {}
@@ -194,7 +196,7 @@ def generate(
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
         with path.open("a", encoding="utf-8") as f:
-            futures = {pool.submit(chat.complete, SYSTEM_PROMPT, prompts[i]): i for i in todo}
+            futures = {pool.submit(chat.complete, system, prompts[i]): i for i in todo}
             for n, fut in enumerate(as_completed(futures), 1):
                 i = futures[fut]
                 done[i] = fut.result()

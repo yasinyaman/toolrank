@@ -63,6 +63,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--query-tokens", type=int, default=256)
     p.add_argument("--doc-tokens", type=int, default=768)
     p.add_argument("--eval-every", type=int, default=300)
+    p.add_argument(
+        "--keep-all",
+        action="store_true",
+        help="keep the adapter of every evaluated step (checkpoints/step-N, 170 MB each), so another "
+        "dev set can pick again without training again",
+    )
     p.add_argument("--eval-batch", type=int, default=32)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--instruction", default=DEFAULT_SERVING["instruction"])
@@ -295,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
                 history.append({"step": step, **cur})
                 better = cur["NDCG@10"] > best["NDCG@10"]
                 log(f"dev at step {step}: {cur}{' (best, kept)' if better else ''}")
+                if a.keep_all:
+                    enc.model.save_pretrained(out / "checkpoints" / f"step-{step}")
                 if better:
                     best = cur
                     enc.model.save_pretrained(out / "adapter")
