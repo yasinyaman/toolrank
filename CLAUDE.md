@@ -201,6 +201,10 @@ toolrank serve --data data/mytools --server-weight 0.2 --co-use 2 [--cut-margin 
 uv run python scripts/routing_sweep.py [--gate] -- <eval flags>         # rank once: server rules (and the gate table)
 uv run python scripts/couse_sweep.py --log RUN/usage -- <eval flags> --cut-margin 0.2   # co-use partners vs a longer list
 
+# Faz 2 week 6: the Helm chart (deploy/helm/toolrank): render tests run where helm is installed (not CI);
+# a real install without a GPU on kind (Docker on the Mac), the published image or one built here
+kind create cluster --name toolrank && uv run python scripts/helm_smoke.py [--image toolrank:dev --tenants]
+
 # Faz 1 week 7: launch (every public step after 19:00 and approved one by one)
 uv run --with huggingface_hub python scripts/publish_heads.py --repo USER/NAME [--upload]   # dry run without --upload
 uv run python scripts/leaderboard_table.py --row NAME W_INST.json WO_INST.json PARAMS TYPE ... [--latex]
@@ -519,6 +523,7 @@ docs/results.toml, docs/results/  the README's results table: its rows and the c
 docs/heads/MODEL_CARD.md          the packaged heads' card (sha256, serving, data license, numbers)
 deploy/spark/                     vLLM servers: systemd units, compose.yaml (NGC image, GB10; fp8 (8092 CLM, 8094 embedding), gen and pg profiles;
                                   rerank: Qwen3-Reranker-8B 8095 + bge-reranker-v2-gemma 8096 as vLLM score models; lora: the merged LoRA backbone 8097)
+deploy/helm/toolrank/             the Helm chart (embedding.mode vllm | external | bundled, profile fp8 | bf16; one replica, Recreate)
 deploy/docker/                    Dockerfile (toolrank), Dockerfile.vllm + entrypoint-vllm.sh + as-toolrank.sh (toolrank-vllm), compose.yaml,
                                   compose.bundle.yaml, toolrank.json, .env.example
 mkdocs.yml, docs/*.md             the docs site (guides/, reference/ with the generated cli.md); plan/ and reports/ stay off it
@@ -534,7 +539,8 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
                                   lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write);
                                   learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size);
-                                  routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log)
+                                  routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log);
+                                  helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
 ```
 

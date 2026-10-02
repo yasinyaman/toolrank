@@ -1,0 +1,76 @@
+{{- if eq .Values.embedding.mode "vllm" }}
+{{- $full := include "toolrank.fullname" . }}
+{{- $v := .Values.embedding.vllm }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-embedding
+  labels: {{- include "toolrank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: embedding
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "toolrank.selector" . | nindent 6 }}
+      app.kubernetes.io/component: embedding
+  template:
+    metadata:
+      labels: {{- include "toolrank.selector" . | nindent 8 }}
+        app.kubernetes.io/component: embedding
+    spec:
+      containers:
+        - name: vllm
+          image: {{ $v.image }}
+          args:
+            - Qwen/Qwen3-Embedding-8B
+            - --served-model-name={{ include "toolrank.model" . }}
+            {{- if eq .Values.embedding.profile "fp8" }}
+            - --quantization=fp8
+            {{- end }}
+            - --runner=pooling
+            - --max-model-len={{ $v.maxModelLen }}
+            - --no-enable-chunked-prefill  # chunked prefill can hang a pooling engine
+            - --max-num-batched-tokens=8192
+            - --gpu-memory-utilization={{ $v.gpuMemoryUtilization }}
+          ports:
+            - {name: http, containerPort: 8000}
+          env:
+            - {name: HF_HOME, value: /models}
+            {{- if $v.hfTokenSecret.name }}
+            - name: HF_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ $v.hfTokenSecret.name }}, key: {{ $v.hfTokenSecret.key }}}}
+            {{- end }}
+          startupProbe:  # the first start downloads 16 GB of weights
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 180
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          resources: {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            - {name: models, mountPath: /models}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - name: models
+          persistentVolumeClaim: {claimName: {{ $full }}-models}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 8Gi}
+      {{- with $v.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $v.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-embedding
+  labels: {{- include "toolrank.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "toolrank.selector" . | nindent 4 }}
+    app.kubernetes.io/component: embedding
+  ports:
+    - {name: http, port: 8000, targetPort: http}
+{{- end }}

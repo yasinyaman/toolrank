@@ -1,0 +1,99 @@
+# toolrank serves your tools to agents (MCP at /mcp, REST at /v1, port 8765) in front of an
+# embedding backbone. Three ways to run the backbone (embedding.mode):
+#   vllm      a vLLM pod next to toolrank on a GPU node (the default)
+#   external  an OpenAI-compatible /v1/embeddings endpoint you already run
+#   bundled   one pod with the toolrank-vllm image (deploy/docker/Dockerfile.vllm; not published,
+#             build and push it to your registry first)
+# Resource profiles (embedding.profile): fp8 = Qwen3-Embedding-8B quantized at load, about 8 GB of
+# weights, served as qwen3-emb-fp8 (the default: the same retrieval quality in our runs); bf16 =
+# about 16 GB, served as qwen3-emb. The embedding cache is keyed by the served name, so changing
+# the profile re-embeds the catalogue once.
+
+image:
+  repository: ghcr.io/yasinyaman/toolrank
+  tag: ""  # the chart's appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+embedding:
+  mode: vllm
+  profile: fp8
+  url: ""    # external: e.g. http://my-vllm:8000/v1
+  model: ""  # external: the served model name (default: from the profile)
+  apiKeySecret: {name: "", key: ""}  # external: a Secret key sent as TOOLRANK_EMB_API_KEY
+  vllm:
+    image: vllm/vllm-openai:v0.30.0
+    gpuMemoryUtilization: 0.9
+    maxModelLen: 8192
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+    models:  # the downloaded weights (16 GB), kept across restarts
+      size: 40Gi
+      storageClass: ""
+    hfTokenSecret: {name: "", key: ""}  # Qwen3-Embedding-8B is public: only needed behind a mirror
+    nodeSelector: {}
+    tolerations: []
+  bundled:
+    image: ""  # e.g. registry.example.com/toolrank-vllm:0.1.0
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+
+# toolrank.json: how to reach your sources (an MCP client file plus an optional "openapi"
+# section with base URLs and headers). ${VAR} is read from the environment: put credentials in a
+# Secret and list it under envFrom. Helm merges your values into these, so the example server
+# stays unless you drop it: `config: {mcpServers: {time: null, ...yours}}`.
+config:
+  mcpServers:
+    time:
+      command: uvx
+      args: [mcp-server-time]
+
+ingest:
+  enabled: true  # an init container lists the config's MCP servers into /data on every start
+  args: []       # replaces the default `ingest mcp --config /config/toolrank.json --out /data`
+
+# At least one key is required: the server listens on the pod's address.
+auth:
+  apiKey: ""                                       # one bearer token for everyone (into a Secret)
+  apiKeySecret: {name: "", key: TOOLRANK_API_KEY}  # ... or taken from your Secret
+  apiKeys: {}       # tenants, as in --api-keys: {name: key} or {name: {key, sources, headers, env}}
+  apiKeysSecret: {name: "", key: keys.json}        # ... or that file from your Secret
+
+serve:
+  args: []           # extra flags, e.g. [--server-weight, "0.2", --co-use, "2"]
+  allowedHosts: []   # names the server is reached by besides its Service (an ingress host)
+
+env: {}      # extra environment variables
+envFrom: []  # e.g. [{secretRef: {name: toolrank-credentials}}] for the config's ${VAR}s
+
+persistence:  # /data: catalogue, embedding cache, index, usage log, learned heads
+  size: 10Gi
+  storageClass: ""
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8765
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+podAnnotations: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities: {drop: [ALL]}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

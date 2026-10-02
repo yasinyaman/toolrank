@@ -1,0 +1,35 @@
+{{- if not .Values.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "toolrank.fullname" . }}-data
+  labels: {{- include "toolrank.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep  # the embedding cache and the usage log outlive an uninstall
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
+{{- if has .Values.embedding.mode (list "vllm" "bundled") }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "toolrank.fullname" . }}-models
+  labels: {{- include "toolrank.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep  # 16 GB of downloaded weights
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.embedding.vllm.models.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.embedding.vllm.models.size }}
+{{- end }}

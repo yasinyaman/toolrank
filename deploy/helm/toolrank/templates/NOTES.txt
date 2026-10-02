@@ -1,0 +1,9 @@
+toolrank serves MCP at /mcp and REST at /v1 on {{ include "toolrank.fullname" . }}:{{ .Values.service.port }}
+(embedding: {{ .Values.embedding.mode }}, {{ include "toolrank.model" . }} at {{ include "toolrank.embUrl" . }}).
+
+  kubectl port-forward svc/{{ include "toolrank.fullname" . }} 8765:{{ .Values.service.port }}
+  curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" -d '{"query": "what time is it in Tokyo"}' http://127.0.0.1:8765/v1/search
+
+The pod is ready once the catalogue is indexed (GET /healthz). Prometheus: GET /v1/metrics with a
+key that reaches every source. More sources: edit `config`, run `helm upgrade`; the ingest init
+container re-lists them on the next start.

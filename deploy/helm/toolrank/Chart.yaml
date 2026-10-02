@@ -1,0 +1,11 @@
+apiVersion: v2
+name: toolrank
+description: Tool retrieval for LLM agents with hundreds of tools - an MCP proxy and REST API in front of your MCP servers and OpenAPI specs.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/yasinyaman/toolrank
+sources:
+  - https://github.com/yasinyaman/toolrank
+license: Apache-2.0
+keywords: [mcp, tool-retrieval, llm, agents]

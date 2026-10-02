@@ -44,6 +44,7 @@ nav:
       - Claude and OpenAI tool search: guides/platforms.md
       - LangGraph, LlamaIndex, LiteLLM: guides/frameworks.md
       - Docker: guides/docker.md
+      - Kubernetes: guides/kubernetes.md
       - Fine-tune the heads: guides/finetune.md
       - Learn from the usage log: guides/learn.md
   - Benchmarks: benchmarks.md

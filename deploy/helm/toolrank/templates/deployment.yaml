@@ -1,0 +1,169 @@
+{{- include "toolrank.checkAuth" . }}
+{{- $full := include "toolrank.fullname" . }}
+{{- $bundled := eq .Values.embedding.mode "bundled" }}
+{{- $ingest := and .Values.ingest.enabled (or .Values.ingest.args .Values.config.mcpServers) }}
+{{- $keysFile := or .Values.auth.apiKeys .Values.auth.apiKeysSecret.name }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}
+  labels: {{- include "toolrank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1  # one writer: the index snapshot, the usage log and the heads live on one volume
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {{- include "toolrank.selector" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels: {{- include "toolrank.selector" . | nindent 8 }}
+        app.kubernetes.io/component: server
+      annotations:
+        checksum/config: {{ toJson .Values.config | sha256sum }}
+        checksum/auth: {{ printf "%s%s" (toJson .Values.auth.apiKey) (toJson .Values.auth.apiKeys) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if not $bundled }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- end }}
+      {{- if $ingest }}
+      initContainers:
+        - name: ingest
+          image: {{ include "toolrank.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: {{- toYaml (.Values.ingest.args | default (list "ingest" "mcp" "--config" "/config/toolrank.json" "--out" "/data")) | nindent 12 }}
+          {{- if not $bundled }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- range $k, $v := .Values.env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: home, mountPath: /home/toolrank}
+      {{- end }}
+      containers:
+        - name: toolrank
+          image: {{ include "toolrank.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --data
+            - /data
+            - --config
+            - /config/toolrank.json
+            - --host
+            - 0.0.0.0
+            {{- if $keysFile }}
+            - --api-keys
+            - /keys/keys.json
+            {{- end }}
+            {{- range .Values.serve.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- if not $bundled }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- end }}
+          ports:
+            - {name: http, containerPort: 8765}
+          {{- with .Values.envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: TOOLRANK_EMB_URL
+              value: {{ include "toolrank.embUrl" . | quote }}
+            - name: TOOLRANK_EMB_MODEL
+              value: {{ include "toolrank.model" . | quote }}
+            - name: TOOLRANK_ALLOWED_HOSTS
+              value: {{ (concat (list $full (printf "%s.%s" $full .Release.Namespace) (printf "%s.%s.svc" $full .Release.Namespace) (printf "%s.%s.svc.cluster.local" $full .Release.Namespace)) .Values.serve.allowedHosts) | join "," | quote }}
+            {{- if .Values.auth.apiKey }}
+            - name: TOOLRANK_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "toolrank.authSecret" . }}, key: TOOLRANK_API_KEY}}
+            {{- else if .Values.auth.apiKeySecret.name }}
+            - name: TOOLRANK_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.auth.apiKeySecret.name }}, key: {{ .Values.auth.apiKeySecret.key }}}}
+            {{- end }}
+            {{- if and (eq .Values.embedding.mode "external") .Values.embedding.apiKeySecret.name }}
+            - name: TOOLRANK_EMB_API_KEY
+              valueFrom: {secretKeyRef: {name: {{ .Values.embedding.apiKeySecret.name }}, key: {{ .Values.embedding.apiKeySecret.key }}}}
+            {{- end }}
+            {{- if $bundled }}
+            - {name: TOOLRANK_FP8, value: {{ ternary "1" "0" (eq .Values.embedding.profile "fp8") | quote }}}
+            - {name: VLLM_GPU_MEMORY_UTILIZATION, value: {{ .Values.embedding.vllm.gpuMemoryUtilization | quote }}}
+            {{- end }}
+            {{- range $k, $v := .Values.env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          startupProbe:  # the bundled image starts vLLM first; a first start downloads 16 GB
+            tcpSocket: {port: http}
+            periodSeconds: 10
+            failureThreshold: {{ ternary 180 30 $bundled }}
+          readinessProbe:  # 503 until the semantic index is built (keyword answers meanwhile)
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            {{- if $bundled }}
+            {{- toYaml (mergeOverwrite (deepCopy .Values.resources) .Values.embedding.bundled.resources) | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.resources | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: home, mountPath: /home/toolrank}
+            {{- if $keysFile }}
+            - {name: keys, mountPath: /keys, readOnly: true}
+            {{- end }}
+            {{- if $bundled }}
+            - {name: models, mountPath: /models}
+            - {name: shm, mountPath: /dev/shm}
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" $full) }}}
+        - name: config
+          configMap: {name: {{ $full }}-config}
+        - name: home  # uvx and npx caches of stdio MCP servers
+          emptyDir: {}
+        {{- if $keysFile }}
+        - name: keys
+          secret:
+            {{- if .Values.auth.apiKeys }}
+            secretName: {{ include "toolrank.authSecret" . }}
+            items: [{key: keys.json, path: keys.json}]
+            {{- else }}
+            secretName: {{ .Values.auth.apiKeysSecret.name }}
+            items: [{key: {{ .Values.auth.apiKeysSecret.key }}, path: keys.json}]
+            {{- end }}
+        {{- end }}
+        {{- if $bundled }}
+        - name: models
+          persistentVolumeClaim: {claimName: {{ $full }}-models}
+        - name: shm
+          emptyDir: {medium: Memory, sizeLimit: 8Gi}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

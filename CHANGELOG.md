@@ -45,6 +45,10 @@ change behaviour.
 - Tenants: an `--api-keys` entry can be `{key, sources, headers, env}`. `sources` limits the key to
   those sources' tools (search, catalogue and calls); `headers` and `env` are its own credentials
   for a source, sent only with its calls over a connection of its own. Co-use tables are per key.
+- A Helm chart (`deploy/helm/toolrank`): toolrank with its backbone as a vLLM pod, an external
+  endpoint or the bundled image, FP8 or bf16 profiles, MCP sources ingested by an init container,
+  keys and tenants from values or Secrets; `scripts/helm_smoke.py` installs it on a cluster without
+  a GPU.
 - `GET /v1/metrics`: Prometheus metrics of a running server (searches and calls with latency
   histograms, where called tools stood in their search, embedding-cache hits, and an estimate of
   the tokens searching saved over loading the whole catalogue).
