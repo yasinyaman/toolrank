@@ -7,7 +7,7 @@
 
 **Tool retrieval for LLM agents with hundreds of tools.** Instead of putting every tool definition
 into the prompt, toolrank picks the few a request needs, with an embedding model
-(Qwen3-Embedding-8B) and small learned heads on top of it, and serves them to your agent over MCP or
+(Qwen3-Embedding-8B, trained further on tool retrieval), and serves them to your agent over MCP or
 REST. Every retriever it ships is measured on the same public benchmarks.
 
 Status: **alpha (0.1)**; interfaces may still change. Documentation: <https://yaman.dev/toolrank/>
@@ -19,12 +19,12 @@ and `call_tool`:
 
 ```bash
 pip install "toolrank[mcp]"
-toolrank heads pull                                   # the packaged heads (60 MB)
 toolrank ingest mcp --server time="uvx mcp-server-time" --out tools/
 toolrank serve --data tools/                          # MCP at http://127.0.0.1:8765/mcp, REST at /v1
 ```
 
-toolrank ranks with Qwen3-Embedding-8B served by vLLM (`--emb-url`, by default
+toolrank ranks with its backbone, Qwen3-Embedding-8B trained further on tool retrieval
+(`yasinyaman/toolrank-emb-8b`), served by vLLM (`--emb-url`, by default
 `http://127.0.0.1:8091/v1`). On a GPU host, Docker runs both:
 
 ```bash
@@ -44,21 +44,24 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 <!-- results:start -->
 | Retriever | ToolRet NDCG@10 | ToolRet NDCG@10 cat-macro | LiveMCPBench Recall@5 | MCP-Zero top-1 |
 | --- | ---: | ---: | ---: | ---: |
-| BM25, without instruction | 29.01 | 22.24 | 31.68 | **80.44** |
+| BM25, without instruction | 29.01 | 22.24 | 31.68 | 80.44 |
 | BM25, with instruction | 39.27 | 36.41 | 22.92 | 45.63 |
 | Qwen3-Embedding-8B | 51.11 | 46.54 | 50.82 | 78.19 |
-| Qwen3-Embedding-8B + toolrank heads v0.1 | **54.03** | 47.13 | 53.03 | 79.87 |
-| Qwen3-Embedding-8B in FP8 + toolrank heads v0.1 (the Docker default) | 53.94 | 47.27 | **53.48** | 79.51 |
+| Qwen3-Embedding-8B + toolrank heads v0.1 | 54.03 | 47.13 | 53.03 | 79.87 |
+| Qwen3-Embedding-8B in FP8 + toolrank heads v0.1 | 53.94 | 47.27 | **53.48** | 79.51 |
+| toolrank backbone v0.2 (Qwen3-Embedding-8B + LoRA) | 58.90 | 54.36 | 52.06 | **88.57** |
+| toolrank backbone v0.2 in FP8 (the default) | **59.02** | **54.53** | 52.06 | 87.71 |
 | NV-Embed-v1 ([ToolRet paper](https://arxiv.org/abs/2503.01763)) | — | 42.71 | — | — |
 | gte-Qwen2-1.5B-instruct ([ToolRet paper](https://arxiv.org/abs/2503.01763)) | — | 45.96 | — | — |
-| StackOne v2, a fine-tuned 109M BGE-base ([StackOne](https://www.stackone.com/blog/autoresearch-charged-action-search/)) | — | **54.40** | — | — |
+| StackOne v2, a fine-tuned 109M BGE-base ([StackOne](https://www.stackone.com/blog/autoresearch-charged-action-search/)) | — | 54.40 | — | — |
 
 - ToolRet: 7,961 queries over 44,453 tools, top 100 over the whole corpus. *NDCG@10* is the micro-average of the paper's released code; *cat-macro* is the paper's own aggregation (the mean of the web, code and customized categories) and the only column with published numbers. Our BM25 reproduces the paper's BM25s within 0.1 (22.24 / 36.41 against 22.32 / 36.46).
 - LiveMCPBench (94 queries, 525 tools) and MCP-Zero (2,792 tools): the tool text includes the MCP server's name (`toolrank data server-names`). One LiveMCPBench query is about one point. MCP-Zero ships no queries: ours were written by Qwen3-8B, one per tool (`toolrank data pull mcp-zero`), so its column does not compare with the MCP-Zero paper. Top-1 is Precision@1.
 - *With instruction*, each query carries its task's instruction (ToolRet) or a generic one (the MCP sets), as the embedding model is served; the generic instruction costs BM25 on the MCP sets. BM25 is bm25s without stemming, the paper's setting.
 - The heads (29.9M parameters, `docs/heads/MODEL_CARD.md`) were trained on ToolRet's training pairs, so ToolRet is in-domain for them and the MCP sets are not. On MCP-Zero, BM25 without instruction still wins at top-1: each generated query opens with a `server:` line that usually names the server, and exact matching rewards that.
-- FP8: the bf16 weights quantized as vLLM loads them (`--quantization fp8`). Every column is within a query or two of bf16, at about half the weight memory and batch-1 latency.
-- Reproduce: `bash scripts/readme_results.sh` where Qwen3-Embedding-8B is served (reports in `docs/results/`), then `uv run python scripts/readme_table.py --write`.
+- The toolrank backbone v0.2 (`docs/backbone/MODEL_CARD.md`) is Qwen3-Embedding-8B with a LoRA trained on 20,000 of ToolRet's training pairs, served without heads (the v0.1 heads cost it 1–2 points). Its checkpoint was picked on MCP-Zero, so that column is its selection set; ToolRet is in-domain, LiveMCPBench is held out.
+- FP8: the bf16 weights quantized as vLLM loads them (`--quantization fp8`). Every column is within a point of bf16, at about half the weight memory and batch-1 latency.
+- Reproduce: `bash scripts/readme_results.sh` where the backbone is served (reports in `docs/results/`; `EMB_URL`, `EMB_MODEL`, `TAG` and `ROWS` select another endpoint and rows), then `uv run python scripts/readme_table.py --write`.
 <!-- results:end -->
 
 ## What's inside

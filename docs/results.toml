@@ -9,8 +9,9 @@ notes = [
     "LiveMCPBench (94 queries, 525 tools) and MCP-Zero (2,792 tools): the tool text includes the MCP server's name (`toolrank data server-names`). One LiveMCPBench query is about one point. MCP-Zero ships no queries: ours were written by Qwen3-8B, one per tool (`toolrank data pull mcp-zero`), so its column does not compare with the MCP-Zero paper. Top-1 is Precision@1.",
     "*With instruction*, each query carries its task's instruction (ToolRet) or a generic one (the MCP sets), as the embedding model is served; the generic instruction costs BM25 on the MCP sets. BM25 is bm25s without stemming, the paper's setting.",
     "The heads (29.9M parameters, `docs/heads/MODEL_CARD.md`) were trained on ToolRet's training pairs, so ToolRet is in-domain for them and the MCP sets are not. On MCP-Zero, BM25 without instruction still wins at top-1: each generated query opens with a `server:` line that usually names the server, and exact matching rewards that.",
-    "FP8: the bf16 weights quantized as vLLM loads them (`--quantization fp8`). Every column is within a query or two of bf16, at about half the weight memory and batch-1 latency.",
-    "Reproduce: `bash scripts/readme_results.sh` where Qwen3-Embedding-8B is served (reports in `docs/results/`), then `uv run python scripts/readme_table.py --write`.",
+    "The toolrank backbone v0.2 (`docs/backbone/MODEL_CARD.md`) is Qwen3-Embedding-8B with a LoRA trained on 20,000 of ToolRet's training pairs, served without heads (the v0.1 heads cost it 1–2 points). Its checkpoint was picked on MCP-Zero, so that column is its selection set; ToolRet is in-domain, LiveMCPBench is held out.",
+    "FP8: the bf16 weights quantized as vLLM loads them (`--quantization fp8`). Every column is within a point of bf16, at about half the weight memory and batch-1 latency.",
+    "Reproduce: `bash scripts/readme_results.sh` where the backbone is served (reports in `docs/results/`; `EMB_URL`, `EMB_MODEL`, `TAG` and `ROWS` select another endpoint and rows), then `uv run python scripts/readme_table.py --write`.",
 ]
 
 [[rows]]
@@ -43,12 +44,26 @@ livemcpbench = "readme_livemcpbench_server_heads.json"
 mcp_zero = "readme_mcp_zero_server_heads.json"
 
 [[rows]]
-name = "Qwen3-Embedding-8B in FP8 + toolrank heads v0.1 (the Docker default)"
+name = "Qwen3-Embedding-8B in FP8 + toolrank heads v0.1"
 with_inst = true
 heads = "f3c101251b9c23925e2925bc02c4492e6c3dea79bcfa1b56715affb20f9f72f0"
 toolret = "readme_fp8_toolret_heads.json"
 livemcpbench = "readme_fp8_livemcpbench_server_heads.json"
 mcp_zero = "readme_fp8_mcp_zero_server_heads.json"
+
+[[rows]]
+name = "toolrank backbone v0.2 (Qwen3-Embedding-8B + LoRA)"
+with_inst = true
+toolret = "readme_lora_toolret_qwen3emb.json"
+livemcpbench = "readme_lora_livemcpbench_server_qwen3emb.json"
+mcp_zero = "readme_lora_mcp_zero_server_qwen3emb.json"
+
+[[rows]]
+name = "toolrank backbone v0.2 in FP8 (the default)"
+with_inst = true
+toolret = "readme_lora_fp8_toolret_qwen3emb.json"
+livemcpbench = "readme_lora_fp8_livemcpbench_server_qwen3emb.json"
+mcp_zero = "readme_lora_fp8_mcp_zero_server_qwen3emb.json"
 
 [[rows]]
 name = "NV-Embed-v1 ([ToolRet paper](https://arxiv.org/abs/2503.01763))"
