@@ -203,5 +203,17 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
 
 - 19:00'dan sonra, kullanıcının onayıyla: GB10'dan `scripts/publish_backbone.py --upload`, sonra
   `BACKBONE_PUBLISHED = True` commit'i, sonra push.
-- LoRA'yı büyütmek: `--keep-all` ile, seçim dört dev setinde (çok tool'luk kazanç korunurken tek
-  tool'luk "durum" isteklerindeki açık kapanmalı), LiveMCPBench dokunulmadan.
+- **60 bin çiftlik LoRA koşusu başladı (2 Ekim 16:12, GB10):** v0.2'yle aynı tarif (rank 16, lr 1e-4,
+  256 / 768 token, bir epoch), yalnız veri 3 katı (1.875 adım) ve seçim `dev_w3_multi2` üzerinde,
+  her 300 adımın adaptörü saklanıyor (`--keep-all`). Eğitim öncesi dev: NDCG@10 70,35. Bitiş tahmini
+  3 Ekim akşamı; ardından `data/lora/chain_60k.sh` modeli `qwen3-emb-lora-60k` adıyla açıp yedi seti
+  ölçüyor (`results/lora60k_*.json`) ve sunucuları eski hâline döndürüyor. Bu model için MCP-Zero
+  dışarıda tutulmuş bir set (v0.2 için seçim setiydi); `dev_w3_multi2` ise seçim seti.
+
+```bash
+# GB10, ~/toolrank; Qwen3-Reranker (8095) ve bf16 LoRA (8097) bellek için durduruldu
+uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pairs.jsonl --dev data/dev_w3_multi2 \
+  --eval data/toolret --eval data/livemcpbench_server --eval data/mcp_zero_server --eval data/dev_w3 \
+  --eval data/dev_w3_sit --eval data/dev_w3_multi3 --n-train 60000 --keep-all --check-parity \
+  --out data/lora/qwen3-emb-lora-60k
+```
