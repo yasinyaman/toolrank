@@ -12,9 +12,9 @@ toolrank ranks with an embedding model, the **backbone**, served by vLLM (or any
 embeddings endpoint). A request and a tool's text become vectors, and the tools whose vectors are
 closest to the request's come first. The default backbone is Qwen3-Embedding-8B with a LoRA trained
 on ToolRet's training pairs (`yasinyaman/toolrank-emb-8b`, served as `toolrank-emb-v0.2`;
-[model card](backbone/MODEL_CARD.md)): the best single stage we measured on the public benchmarks.
-On plain-language requests over an API catalogue of our own it ties with the base model, so
-measure on yours (`toolrank data gen-queries`) before relying on the difference.
+[model card](backbone/MODEL_CARD.md)): the best single stage we measured. Its gain is in requests
+that need several tools (on generated two- and three-tool tasks over an API catalogue of our own,
+NDCG@10 71 → 83 and 55 → 75); a request for one tool it finds about as well as the base model.
 
 The base Qwen3-Embedding-8B can be served instead (as `qwen3-emb`). On it sit two small **heads**,
 one for requests and one for tools (29.9M parameters together). Each is `x + MLP(x)`: it starts as

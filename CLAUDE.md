@@ -123,6 +123,7 @@ toolrank data pull mcp-zero --gen-workers 64                   # 333 MB from Goo
 toolrank eval --data data/mcp_zero --ks 1,5,10,20 <scorer flags>   # Precision@1 = the paper's top-1 accuracy
 # a selection set of one's own (Faz 2 week 7): a chat model writes one request per sampled tool of a catalogue
 toolrank data gen-queries --data data/devcat --out data/dev_w3 --n 1000 --exclude data/toolret [--styles situation]
+toolrank data gen-queries --data data/devcat --out data/dev_w3_multi2 --n 800 --tools-per-request 2   # tasks: all tools gold
 
 toolrank compare results/toolret_*.json                        # on the Mac: markdown table for the report
 PYTHONUNBUFFERED=1 nohup bash scripts/readme_results.sh > data/logs/readme_results.log 2>&1 &   # GB10: the README's runs
@@ -689,6 +690,14 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   Co-use on the simulated ToolRet log (count ≥ 2, share ≥ 0.5, ≤ 2 partners): 111 of 2,388 held-out lists
   change, K 8.33 → 8.38, completeness 54.15 → 54.73 (multi-tool requests 31.48 → 32.80), the same +0.6 with
   heads learned from that log; a longer ranked list (max 12) pays +2.05 for 1.32 more tools.
+- Faz 2 week 7 (`docs/reports/faz2-week7.md`): the LoRA backbone in FP8 = bf16 (ToolRet 59.02 / 54.53, LiveMCPBench
+  NDCG@10 55.34, MCP-Zero top-1 87.71; cosine 0.997, top-10 overlap 95.4%); the v0.1 heads on it cost 1–2 points.
+  Generated dev sets over the w3 catalogue (1,862 tools; `data gen-queries`, on the GB10 as `data/dev_w3*`),
+  base → LoRA NDCG@10: one tool per request 92.99 → 92.49 (a tie; Recall@5 95–99% for every backbone),
+  problem-style requests 89.67 → 87.71 (top 5: 19 to 4 for the base model, p 0.003), tasks of two tools 71.04 →
+  82.95 and of three tools 55.21 → 75.40 (every tool in the top 10: 72 → 90% and 34 → 64%). So LoRA's gain is in
+  multi-tool tasks (and ToolRet, MCP-Zero's two-line requests); LiveMCPBench is a tie within noise (94 tasks).
+  Behind Qwen3-Reranker both backbones give top-1 89.4 / 89.5 on the one-tool set (from 84).
 
 ## Where we are
 
