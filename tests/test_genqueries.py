@@ -73,7 +73,14 @@ def test_build_drops_what_is_not_a_usable_request():
         "mail/op5": "Email Ada the March invoice.",  # the same request twice
     }
     queries, dropped = build(tools, styles, responses, exclude=["list  open pull requests"])
-    assert dropped == {"empty": 1, "too_long": 1, "names_the_tool": 1, "in_a_benchmark": 1, "duplicate": 1}
+    assert dropped == {
+        "empty": 1,
+        "skipped": 0,
+        "too_long": 1,
+        "names_the_tool": 1,
+        "in_a_benchmark": 1,
+        "duplicate": 1,
+    }
     (q,) = queries
     assert (q.id, q.qrels, q.task, q.category) == ("gen-task/mail/op0", {"mail/op0": 1}, "mail", "")
     assert q.instruction == INSTRUCTION
@@ -157,3 +164,63 @@ def test_the_cli_command_and_the_set_scores(tmp_path, monkeypatch, capsys):
     assert "| big |" in out and "| tiny |" in out  # a row per source: the queries' task
     with pytest.raises(SystemExit, match="tools.jsonl not found"):
         main(["data", "gen-queries", "--data", str(tmp_path / "nope"), "--out", str(tmp_path / "x")])
+
+
+def _named(source, name, description):
+    return Tool(id=f"{source}/{name}", doc={"name": name, "description": description}, category=source)
+
+
+def test_neighbours_are_related_tools_of_the_same_source():
+    from toolrank.datasets.genqueries import neighbours
+
+    tools = [
+        _named("git", "create_issue", "Create an issue in a repository"),
+        _named("git", "close_issue", "Close an issue in a repository"),
+        _named("git", "label_issue", "Add a label to an issue in a repository"),
+        _named("git", "issue_create", "Create an issue in a repository"),  # the same words: no second step
+        _named("git", "list_runners", "List self-hosted runners of an organization"),
+        _named("pay", "create_refund", "Create a refund for a payment"),
+        _named("pay", "issue_card", "Issue a card in a repository of cards"),  # another source
+    ]
+    (group,) = neighbours(tools, [tools[0]], 2, seed=0)
+    assert group[0].id == "git/create_issue" and len(group) == 3
+    assert {t.category for t in group} == {"git"} and "git/issue_create" not in {t.id for t in group}
+    assert neighbours(tools, [tools[0]], 2, seed=0)[0] == group  # seeded
+    assert neighbours(tools, [tools[5]], 2, seed=0) == []  # pay has one other tool: no group of three
+
+
+def test_multi_tool_tasks_have_every_tool_as_gold(tmp_path):
+    from toolrank.datasets.genqueries import MULTI, multi_prompt
+
+    tools = [
+        _named("git", f"{verb}_issue", f"{verb} an issue in a repository")
+        for verb in ("create", "close", "label", "lock", "pin")
+    ]
+    tools += [_named("pay", "create_refund", "Create a refund for a payment")]
+    write_tools(tmp_path / "cat" / "tools.jsonl", tools)
+    prompt = multi_prompt(tools[:2])
+    assert prompt.startswith(MULTI) and "Tool 1:" in prompt and "Tool 2:" in prompt
+
+    class Chat:
+        name = "chat/fake"
+
+        def complete(self, system, user):
+            assert user.startswith(MULTI) and user.count("Tool ") >= 2
+            return (
+                "SKIP"
+                if "pin" in user.split("Tool 1:")[1].split("Tool 2:")[0]
+                else "File a bug for the login crash and close the old one."
+            )
+
+    n = gen_queries(
+        tmp_path / "cat", tmp_path / "dev", Chat(), n=6, per_request=2, workers=1, log=lambda _: None
+    )
+    queries = load_queries(tmp_path / "dev" / "queries.jsonl")
+    # pay has no partner; one git group was skipped; identical answers after the first are duplicates
+    assert (
+        n["sampled"] == 5 and n["skipped"] == 1 and n["queries"] == len(queries) == 1 and n["duplicate"] == 3
+    )
+    (q,) = queries
+    assert q.id.startswith("gen-multi2/git/") and len(q.qrels) == 2 and q.id.split("/", 1)[1] in q.qrels
+    with pytest.raises(ValueError, match="from 1 to 4"):
+        gen_queries(tmp_path / "cat", tmp_path / "x", Chat(), per_request=5)

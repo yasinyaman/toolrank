@@ -101,6 +101,7 @@ Make a selection set that shares no query with a benchmark: sample tools evenly 
 | `--seed SEED` |  |  |
 | `--styles STYLES` | `task,step,goal` | request styles, used in turn: task, step, goal, situation (a problem stated without the operation: harder to match) |
 | `--exclude DIR` |  | a benchmark dir whose queries the set must not repeat (repeatable) (repeatable) |
+| `--tools-per-request K` | `1` | 2-4: tasks that need K related tools of one source, all of them gold (much harder; --styles is not used) |
 | `--gen-url GEN_URL` | `http://127.0.0.1:8093/v1` | OpenAI-compatible chat endpoint |
 | `--gen-model GEN_MODEL` | `qwen3-8b-chat` | the model that writes the requests |
 | `--gen-workers GEN_WORKERS` | `32` | concurrent requests |

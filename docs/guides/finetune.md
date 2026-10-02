@@ -61,8 +61,14 @@ what is new. The result is a benchmark-format directory for `finetune --dev`, `l
 `toolrank eval`.
 
 It is a selection set, not a benchmark: one tool is the answer to each request, so catalogues with
-near-identical tools make some requests ambiguous, and the requests come from one model. Requests
-written this way are also easy: on a catalogue of GitHub's and Stripe's APIs every backbone we have
-finds the tool in its top five 95–99% of the time. So the set catches a model that got worse on
-your catalogue (it showed the v0.1 heads costing the LoRA backbone 1–6 points there) and will not
-rank models a point apart. Report on sets it shares nothing with.
+near-identical tools make some requests ambiguous, and the requests come from one model. One-tool
+requests are also easy: on a catalogue of GitHub's and Stripe's APIs every backbone we have finds
+the tool in its top five 95–99% of the time, so they catch a model that got worse (the v0.1 heads
+cost the LoRA backbone 1–6 points there) and will not rank models a point apart.
+
+`--tools-per-request 2` (or 3) writes tasks instead: each sampled tool gets related tools of its
+source as partners, the model writes one task that needs all of them (or declines when they do not
+belong together), and all of them are gold. These are much harder (the base model gets every tool
+of a three-tool task into its top ten a third of the time) and they are where models differ: on
+the same catalogue the LoRA backbone beats the base model by 12 NDCG@10 points on two-tool tasks
+and by 20 on three-tool tasks. Make both kinds, and report on sets they share nothing with.

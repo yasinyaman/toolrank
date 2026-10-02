@@ -234,7 +234,15 @@ def cmd_data_gen_queries(a: argparse.Namespace) -> int:
     try:
         styles = [x.strip() for x in a.styles.split(",") if x.strip()]
         n = gen_queries(
-            a.data, a.out, chat, n=a.n, seed=a.seed, exclude=a.exclude, styles=styles, workers=a.gen_workers
+            a.data,
+            a.out,
+            chat,
+            n=a.n,
+            seed=a.seed,
+            exclude=a.exclude,
+            styles=styles,
+            per_request=a.tools_per_request,
+            workers=a.gen_workers,
         )
     except ValueError as e:
         sys.exit(str(e))
@@ -1106,6 +1114,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="DIR",
         help="a benchmark dir whose queries the set must not repeat (repeatable)",
+    )
+    gq.add_argument(
+        "--tools-per-request",
+        type=int,
+        default=1,
+        metavar="K",
+        help="2-4: tasks that need K related tools of one source, all of them gold (much harder; --styles "
+        "is not used)",
     )
     gq.add_argument("--gen-url", default="http://127.0.0.1:8093/v1", help="OpenAI-compatible chat endpoint")
     gq.add_argument("--gen-model", default="qwen3-8b-chat", help="the model that writes the requests")

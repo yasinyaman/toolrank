@@ -19,10 +19,17 @@ with near-identical tools (two operations that list the same thing) makes some r
 which lowers every model's top-1 alike. A selection set, not a benchmark: its numbers order models,
 they are not reported next to published ones.
 
+With ``per_request`` > 1 (``--tools-per-request``) a request is a task of several steps: each
+sampled tool gets partners among the tools of its source that share the most words with it
+(``neighbours``: operations on the same thing, never a tool with the same words), and the model
+writes one task that needs all of them, or answers ``SKIP`` when they do not belong together. All
+of them are gold, so Recall and Comprehensiveness say whether the whole set was found: the shape of
+LiveMCPBench's tasks, and much harder than one tool per request.
+
 What it can and cannot tell (``docs/reports/faz2-week7.md``): on a catalogue of two large APIs,
-requests written this way are easy for an embedding model (Recall@5 98-99% for every backbone we
-have), so it separates models only where one is clearly worse; it is a guard against a model that
-got worse on your catalogue, not a ruler for small gains.
+one-tool requests are easy for an embedding model (Recall@5 95-99% for every backbone we have) and
+separate models only where one is clearly worse; tasks of two and three tools are where models
+differ (the LoRA backbone against the base model: NDCG@10 83 to 71 and 75 to 55). Use both kinds.
 
 Responses are cached in ``<out>/generations.jsonl`` (``mcp_zero.generate``: keyed by model and
 prompt), so a rerun generates only what is new.
@@ -65,7 +72,15 @@ RULES = (
     "tools. Do not use the tool's name and do not copy phrases of its description; you may name the "
     "product or service when a person naturally would."
 )
-TOOL_CHARS = 3500  # of the tool's text in the prompt: the chat model's window is small
+MULTI = (
+    "Write one request for a task that needs ALL of the tools below, each for a different step. Write it "
+    "as a person asking an assistant to get it done: two or three sentences in plain language, with "
+    "made-up but plausible specifics, without listing the steps one by one. Do not use the tools' names "
+    "and do not copy phrases of their descriptions. If these tools cannot sensibly be parts of one task, "
+    "answer exactly SKIP."
+)
+NEIGHBOURS = 8  # a tool's partners are drawn from this many of its closest tools
+TOOL_CHARS = 3500  # of the tools' text in the prompt: the chat model's window is small
 MAX_CHARS = 600  # a longer answer is an explanation, not a request
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _LABEL = re.compile(r"^(request|note|next step|goal|task)\s*:\s*", re.IGNORECASE)
@@ -92,9 +107,45 @@ def sample(tools: Sequence[Tool], n: int, seed: int) -> list[Tool]:
     return out
 
 
+def _words(tool: Tool) -> frozenset[str]:
+    return frozenset(w for w in _WORD.findall(f"{tool.name} {tool.description}".lower()) if len(w) > 2)
+
+
+def neighbours(tools: Sequence[Tool], anchors: Sequence[Tool], k: int, seed: int) -> list[list[Tool]]:
+    """Each anchor with ``k`` partners from its own source: drawn (seeded) from the ``NEIGHBOURS``
+    tools whose name and description share the most words with it (Jaccard), skipping tools with
+    the same words (a duplicate is no second step). An anchor whose source is too small for ``k``
+    partners is left out."""
+    by_source: dict[str, list[tuple[Tool, frozenset[str]]]] = defaultdict(list)
+    for t in tools:
+        by_source[t.category].append((t, _words(t)))
+    rng = random.Random(seed)
+    out: list[list[Tool]] = []
+    for a in anchors:
+        mine = _words(a)
+        scored = [
+            (len(mine & w) / len(mine | w), t.id, t)
+            for t, w in by_source[a.category]
+            if t.id != a.id and w != mine and (mine | w)
+        ]
+        near = [t for _, _, t in sorted(scored, key=lambda x: (-x[0], x[1]))[:NEIGHBOURS]]
+        if len(near) >= k:
+            out.append([a, *rng.sample(near, k)])
+    return out
+
+
+def _text(tool: Tool, chars: int) -> str:
+    return (tool_format("documentation")(tool) or tool_format("name_desc")(tool))[:chars]
+
+
 def user_prompt(tool: Tool, style: str) -> str:
-    text = tool_format("documentation")(tool) or tool_format("name_desc")(tool)
-    return f"{STYLES[style]}\n{RULES}\n\nThe tool:\n{text[:TOOL_CHARS]}"
+    return f"{STYLES[style]}\n{RULES}\n\nThe tool:\n{_text(tool, TOOL_CHARS)}"
+
+
+def multi_prompt(group: Sequence[Tool]) -> str:
+    each = TOOL_CHARS // len(group)
+    listed = "\n\n".join(f"Tool {n}:\n{_text(t, each)}" for n, t in enumerate(group, 1))
+    return f"{MULTI}\n\n{listed}"
 
 
 def clean(response: str) -> str:
@@ -111,13 +162,26 @@ def names_tool(text: str, tool: Tool) -> bool:
 
 
 def build(
-    picked: Sequence[Tool], styles: Sequence[str], responses: dict[str, str], exclude: Iterable[str] = ()
+    picked: Sequence[Tool | Sequence[Tool]],
+    styles: Sequence[str],
+    responses: dict[str, str],
+    exclude: Iterable[str] = (),
 ) -> tuple[list[Query], dict[str, int]]:
-    """Queries from the responses -> (queries, counts of what was dropped and why)."""
+    """Queries from the responses -> (queries, counts of what was dropped and why). An item of
+    ``picked`` is a tool, or a group of tools that are all gold (its first tool keys the response)."""
     taken = {" ".join(x.lower().split()) for x in exclude}
-    counts = {"empty": 0, "too_long": 0, "names_the_tool": 0, "in_a_benchmark": 0, "duplicate": 0}
+    counts = {
+        "empty": 0,
+        "skipped": 0,
+        "too_long": 0,
+        "names_the_tool": 0,
+        "in_a_benchmark": 0,
+        "duplicate": 0,
+    }
     queries: list[Query] = []
-    for tool, style in zip(picked, styles, strict=True):
+    for item, style in zip(picked, styles, strict=True):
+        group = [item] if isinstance(item, Tool) else list(item)
+        tool = group[0]
         if tool.id not in responses:
             continue
         text = clean(responses[tool.id])
@@ -125,10 +189,12 @@ def build(
         reason = (
             "empty"
             if not text
+            else "skipped"
+            if text.strip(" .").upper() == "SKIP"
             else "too_long"
-            if len(text) > MAX_CHARS
+            if len(text) > MAX_CHARS * len(group)
             else "names_the_tool"
-            if names_tool(text, tool)
+            if any(names_tool(text, t) for t in group)
             else "in_a_benchmark"
             if key in taken
             else None
@@ -142,7 +208,7 @@ def build(
             Query(
                 id=f"gen-{style}/{tool.id}",
                 text=text,
-                qrels={tool.id: 1},
+                qrels={t.id: 1 for t in group},
                 instruction=INSTRUCTION,
                 task=tool.category,
             )
@@ -159,12 +225,14 @@ def gen_queries(
     seed: int = 0,
     exclude: Sequence[str | Path] = (),
     styles: Sequence[str] = DEFAULT_STYLES,
+    per_request: int = 1,
     workers: int = 32,
     log: Callable[[str], None] = print,
 ) -> dict[str, int]:
     """Write ``out_dir`` (the catalogue of ``data_dir`` as ``tools.jsonl``, the generated
     ``queries.jsonl``, ``SOURCE.md``); -> counts. ``exclude``: benchmark dirs whose queries the
-    set must not repeat."""
+    set must not repeat. ``per_request`` > 1: tasks that need that many tools (``styles`` is not
+    used then)."""
     data, out = Path(data_dir), Path(out_dir)
     if data.resolve() == out.resolve():
         raise ValueError("--out must differ from --data: the set gets its own directory")
@@ -175,9 +243,16 @@ def gen_queries(
         )
     raw = (data / "tools.jsonl").read_bytes()
     tools = load_tools(data / "tools.jsonl")
-    picked = sample(tools, n, seed)
-    turn = [styles[i % len(styles)] for i in range(len(picked))]
-    prompts = {t.id: user_prompt(t, s) for t, s in zip(picked, turn, strict=True)}
+    if not 1 <= per_request <= 4:
+        raise ValueError("--tools-per-request: from 1 to 4")
+    picked: list[Tool] | list[list[Tool]] = sample(tools, n, seed)
+    if per_request > 1:
+        picked = neighbours(tools, picked, per_request - 1, seed)
+        turn = [f"multi{per_request}"] * len(picked)
+        prompts = {g[0].id: multi_prompt(g) for g in picked}
+    else:
+        turn = [styles[i % len(styles)] for i in range(len(picked))]
+        prompts = {t.id: user_prompt(t, s) for t, s in zip(picked, turn, strict=True)}
     responses = generate(chat, prompts, out / "generations.jsonl", workers=workers, log=log, system=SYSTEM)
     taken = [q.text for d in exclude for q in load_queries(Path(d) / "queries.jsonl")]
     queries, dropped = build(picked, turn, responses, taken)
@@ -188,8 +263,10 @@ def gen_queries(
         f"A generated dev set (toolrank data gen-queries): a selection set, not a benchmark.\n"
         f"catalogue: {data} ({len(tools)} tools of {len(sources)} sources; tools.jsonl sha256 "
         f"{hashlib.sha256(raw).hexdigest()})\n"
-        f"queries: {len(queries)} of {len(picked)} sampled tools (seed {seed}), one per tool, written by "
-        f"{chat.name} (generations.jsonl), styles {', '.join(styles)} in turn; dropped: {dropped}\n"
+        f"queries: {len(queries)} of {len(picked)} sampled (seed {seed}), written by "
+        f"{chat.name} (generations.jsonl), "
+        + (f"tasks of {per_request} tools" if per_request > 1 else f"styles {', '.join(styles)} in turn")
+        + f"; dropped: {dropped}\n"
         f"checked against the queries of: {', '.join(str(d) for d in exclude) or 'nothing'}\n"
     )
     return {
