@@ -69,7 +69,8 @@ change behaviour.
 
 - The default backbone is Qwen3-Embedding-8B with a LoRA trained on ToolRet's training pairs
   (`yasinyaman/toolrank-emb-8b` at `v0.2`, served as `toolrank-emb-v0.2`, `-fp8` in FP8): ToolRet
-  NDCG@10 58.90 against 54.03 for the base model with heads, in one stage and without heads. The
+  NDCG@10 58.90 against 54.03 for the base model with heads, in one stage and without heads; on
+  plain-language requests outside ToolRet it ties with the base model (see its model card). The
   packaged heads are applied only on the base model they were trained on (`qwen3-emb`,
   `qwen3-emb-fp8`; `TOOLRANK_HEADS` still forces them); `toolrank learn` starts from no heads on the
   new backbone. Docker, compose and the Helm chart serve it by default; `TOOLRANK_BACKBONE` /

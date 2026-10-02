@@ -70,3 +70,25 @@ w/ inst, each set under its own protocol ([benchmarks](https://yaman.dev/toolran
   LLM-written request per tool. On both MCP sets the server name is in the tool text.
 - With a second stage over its top 20 (Qwen3-Reranker-8B reading each tool's documentation):
   ToolRet 59.36 / 54.35, LiveMCPBench 61.24, MCP-Zero top-1 91.94 (`toolrank serve --rerank cross`).
+
+## Where it helps, and where it does not
+
+The gain over the base model is large where the requests look like its training data, and absent
+where they do not:
+
+| Set | What it is to this model | Base model → this model (NDCG@10) |
+| --- | --- | --- |
+| ToolRet | its training distribution (other pairs of the same tasks) | 51.11 → 58.90 |
+| MCP-Zero, top-1 | its selection set; requests are two lines, `server: …` and `tool: …` | 78.19 → 88.57 |
+| LiveMCPBench | held out; multi-step tasks in plain language | 53.74 → 55.74 (not significant: 94 tasks) |
+| GitHub + Stripe APIs, 1,000 generated requests | held out; one tool per request, plain language | 92.99 → 92.49 |
+| the same catalogue, 598 requests that state a problem, not the operation | held out | 89.67 → 87.71 |
+
+On the last set the base model finds the tool in its top five for 19 requests where this model does
+not, against 4 the other way (sign test p = 0.003); on the others the two do not differ beyond
+noise. The two generated sets come from `toolrank data gen-queries` (requests written by Qwen3-8B,
+1,862 tools) and are easy for both models (Recall@5 95–99%). So: expect the published gains on
+ToolRet-like catalogues and on short, structured requests; on plain-language requests over your own
+MCP servers and APIs expect about what the base model gives, and measure on your own catalogue
+(`toolrank data gen-queries`, then `toolrank eval` with each backbone). With a second stage over
+the top 20 the two backbones are indistinguishable there (top-1 89.4 and 89.5).

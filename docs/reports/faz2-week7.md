@@ -104,8 +104,11 @@ Notlar:
   o kalıba özgü.
 - `scripts/lora_train.py` yalnız en iyi adaptörü saklıyordu, bu yüzden mevcut LoRA yeni sette yeniden
   seçilemedi; `--keep-all` eklendi (her değerlendirilen adımın adaptörü kalır).
-- İkinci aşamalı iki satır (LoRA / head'ler + Qwen3-Reranker, `dev_w3`) rapor yazılırken koşuyordu;
-  sonuç dosyaları `results/dev_w3_*_rerank.json`.
+- İkinci aşamayla (`dev_w3`, ilk 20 + dokümantasyon, Qwen3-Reranker-8B) iki backbone ayırt edilemiyor:
+  head'ler → reranker P@1 89,50 / Recall@5 99,60 / NDCG@10 95,51; LoRA → reranker 89,40 / 99,50 / 95,44
+  (tek aşamaya göre top-1'de +5–6 puan; sorgu başına 0,5–1,3 sn).
+- **Karar (kullanıcı, 2 Ekim):** LoRA varsayılan kalıyor; model kartına ve README notuna "kazanç
+  ToolRet ve MCP-Zero'da, doğal dilde isteklerde temel modelle başa baş" bölümü eklendi.
 
 Komutlar (GB10; sohbet modeli `--profile gen`, 8093, iş bitince durduruldu):
 
@@ -168,7 +171,7 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
 
 ## Sonraki
 
-- Kullanıcı kararı: Ek'teki bulguyla LoRA varsayılan mı kalsın, seçenek mi olsun. Karara göre
-  19:00'dan sonra yükleme (`scripts/publish_backbone.py --upload`), bayrak commit'i ve push.
+- 19:00'dan sonra, kullanıcının onayıyla: GB10'dan `scripts/publish_backbone.py --upload`, sonra
+  `BACKBONE_PUBLISHED = True` commit'i, sonra push.
 - LoRA'yı doğal dilde isteklerle büyütmek: eğitim verisine üretilmiş MCP / OpenAPI istekleri katmak,
   `--keep-all` ile, seçim `dev_w3` + `dev_w3_sit` üzerinde, LiveMCPBench dokunulmadan.
