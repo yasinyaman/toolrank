@@ -636,6 +636,11 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   8.6 h on the GB10, picked on MCP-Zero `_server`): ToolRet 58.90 / cat-macro 54.36 in one stage (the
   Faz 0 gate's 50, StackOne v2's 54.4), Recall@20 75.25 (heads 72.51), LiveMCPBench 55.74 (+2, held
   out), MCP-Zero 93.67 / top-1 88.57 (the selection set); heads trained on top keep epoch 0 (identity).
+  Qwen3-Reranker-8B over the LoRA shortlist (top 20 + documentation): ToolRet 59.36 / 54.35 (the best
+  row, +0.5 over LoRA alone), LiveMCPBench 61.24, MCP-Zero top-1 91.94. For the cross-encoder, top 100
+  with name_desc is worse than top 20 with the documentation on every set (ToolRet 54.55 vs 58.05), and
+  alone (every pair, LiveMCPBench) it gives 55.25 at 32 s a query: pointwise scoring needs a good
+  shortlist, Jev's listwise Choice does not (65.05).
   The merged weights live in `~/toolrank/data/lora/qwen3-emb-lora-20k/merged` on the GB10 and must
   carry the original repo's config, tokenizer and `1_Pooling` files: transformers 5.x writes a
   list-valued `extra_special_tokens` and `rope_parameters`, which the NGC image's 4.51 crashes on or
