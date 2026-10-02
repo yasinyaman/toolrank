@@ -42,6 +42,9 @@ change behaviour.
   instead of returning an empty list without a word.
 - `scripts/routing_sweep.py` and `scripts/couse_sweep.py`: the measurements behind the two options
   and the no-tool gate.
+- Tenants: an `--api-keys` entry can be `{key, sources, headers, env}`. `sources` limits the key to
+  those sources' tools (search, catalogue and calls); `headers` and `env` are its own credentials
+  for a source, sent only with its calls over a connection of its own. Co-use tables are per key.
 - `GET /v1/metrics`: Prometheus metrics of a running server (searches and calls with latency
   histograms, where called tools stood in their search, embedding-cache hits, and an estimate of
   the tokens searching saved over loading the whole catalogue).
@@ -49,6 +52,11 @@ change behaviour.
   A benchmark is served as a catalogue, a share of its queries is logged by an agent that calls the
   gold tools it is shown, `toolrank learn` trains on that log and the queries never served are the
   test; the learn guide's "What to expect" carries the numbers.
+
+### Fixed
+
+- OpenAPI calls no longer keep cookies: one API response's `Set-Cookie` was sent with every later
+  call to that host, whoever made it.
 
 ## [0.1.0] - 2026-09-30
 

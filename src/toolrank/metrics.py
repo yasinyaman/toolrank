@@ -103,13 +103,13 @@ def _number(value: float) -> str:
 class Metrics:
     """Thread-safe counters and histograms, rendered as Prometheus text."""
 
-    def __init__(self, catalogue: Callable[[], tuple[Sequence[Any], str]] | None = None):
+    def __init__(self, catalogue: Callable[..., tuple[Sequence[Any], str]] | None = None):
         self.catalogue = catalogue  # -> (tools, catalogue hash): what a search is compared against
         self._lock = threading.Lock()
         self._counters: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
         self._histograms: dict[tuple[str, tuple[tuple[str, str], ...]], list[float]] = {}
-        self._catalog_tokens: tuple[str, int] | None = None
-        self._sizing = False
+        self._catalog_tokens: dict[str | None, tuple[str, int]] = {}  # tenant -> (catalogue hash, tokens)
+        self._sizing: set[str | None] = set()
 
     # -- recording ----------------------------------------------------------------------------
     def inc(self, name: str, value: float = 1.0, **labels: str) -> None:
@@ -128,45 +128,53 @@ class Metrics:
             h[-2] += value
             h[-1] += 1
 
-    def catalog_tokens(self, catalog: str | None = None, *, wait: bool = True) -> int | None:
-        """The estimated tokens of the whole catalogue, cached per catalogue hash. None without a
-        ``catalogue`` to ask, or when ``catalog`` names another catalogue than the current one.
-        With ``wait=False`` (a search being logged) an estimate that is not there yet is computed in
-        the background and this call returns None: sizing 40,000 tools must not hold a request up."""
+    def catalog_tokens(
+        self, catalog: str | None = None, *, tenant: str | None = None, wait: bool = True
+    ) -> int | None:
+        """The estimated tokens of the catalogue ``tenant`` may reach (all of it without one), cached
+        per catalogue hash and tenant. None without a ``catalogue`` to ask, or when ``catalog`` names
+        another catalogue than the current one. With ``wait=False`` (a search being logged) an
+        estimate that is not there yet is computed in the background and this call returns None:
+        sizing 40,000 tools must not hold a request up."""
         if self.catalogue is None:
             return None
         with self._lock:
-            cached = self._catalog_tokens
+            cached = self._catalog_tokens.get(tenant)
             if cached is not None and catalog == cached[0]:
                 return cached[1]
             if not wait:
-                if not self._sizing:
-                    self._sizing = True
-                    threading.Thread(target=self._size, name="toolrank-metrics", daemon=True).start()
+                if tenant not in self._sizing:
+                    self._sizing.add(tenant)
+                    threading.Thread(
+                        target=self._size, args=(tenant,), name="toolrank-metrics", daemon=True
+                    ).start()
                 return None
-        cached = self._size()
+        cached = self._size(tenant)
         return cached[1] if cached is not None and catalog in (None, cached[0]) else None
 
-    def _size(self) -> tuple[str, int] | None:
-        """Size the current catalogue (unless it is the cached one) -> (hash, tokens)."""
+    def _size(self, tenant: str | None = None) -> tuple[str, int] | None:
+        """Size the current catalogue as ``tenant`` sees it (unless that is cached) -> (hash, tokens)."""
         try:
             assert self.catalogue is not None
-            tools, current = self.catalogue()
+            tools, current = self.catalogue(tenant) if tenant else self.catalogue()
             with self._lock:
-                cached = self._catalog_tokens
+                cached = self._catalog_tokens.get(tenant)
             if cached is None or cached[0] != current:
                 cached = (current, sum(tool_tokens(t) for t in tools))
             with self._lock:
-                self._catalog_tokens = cached
+                if len(self._catalog_tokens) > 256:
+                    self._catalog_tokens.clear()
+                self._catalog_tokens[tenant] = cached
             return cached
         except Exception:  # the index is not there yet: no estimate, searches are still counted
             return None
         finally:
             with self._lock:
-                self._sizing = False
+                self._sizing.discard(tenant)
 
-    def search(self, result: Any, *, via: str, arm: str | None = None) -> None:
-        """One answered search (a ``retriever.SearchResult``)."""
+    def search(self, result: Any, *, via: str, arm: str | None = None, tenant: str | None = None) -> None:
+        """One answered search (a ``retriever.SearchResult``); ``tenant`` sizes the catalogue its key
+        may reach, the one it would otherwise have loaded."""
         hits = list(result.hits)
         self.inc(
             "toolrank_searches_total", via=via, mode=getattr(result, "mode", "semantic"), arm=arm_kind(arm)
@@ -180,7 +188,7 @@ class Metrics:
             self.inc("toolrank_search_co_use_added_total", added)
         returned = sum(tool_tokens(h.tool) for h in hits)
         self.inc("toolrank_search_returned_tokens_total", returned)
-        whole = self.catalog_tokens(getattr(result, "catalog", None), wait=False)
+        whole = self.catalog_tokens(getattr(result, "catalog", None), tenant=tenant, wait=False)
         if whole is not None:
             self.inc("toolrank_search_saved_tokens_total", max(0, whole - returned))
 

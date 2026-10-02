@@ -82,14 +82,19 @@ def test_the_servers_table_is_rebuilt_from_its_log_in_the_background(tmp_path):
     log.mkdir()
     old, new = _events()[:6], _events()[6:]
     (log / "usage-2026-10-01.jsonl").write_text("\n".join(json.dumps(e) for e in old) + "\nnot json\n")
-    table = CoUseTable(log, every=0.0)
-    assert table.table() == {"list": [("comment", 1.0, 2)], "comment": [("list", 1.0, 2)]}
+    table = CoUseTable(log, min_count=1, every=0.0)
+    # each key counts only its own requests: one request each here, never two together
+    assert (
+        table.table() == table.table("team") == {"list": [("comment", 1.0, 1)], "comment": [("list", 1.0, 1)]}
+    )
+    assert table.table("other") == {} and CoUseTable(log, every=1e9).table() == {}  # min_count 2: not yet
     (log / "usage-2026-10-02.jsonl").write_text("\n".join(json.dumps(e) for e in new) + "\n")
     for _ in range(200):  # every 0 s: each look starts a rebuild, the next one sees it
         if "label" in table.table():
             break
         time.sleep(0.01)
-    assert table.table()["label"] == [("list", 1.0, 2)]
+    assert table.table()["label"] == [("list", 1.0, 2)] and "label" not in table.table("team")
+    assert table.table()["list"] == [("label", 2 / 3, 2)]  # comment: 1 of the 3 requests without a key
     assert len(read_events(log, newest=1)) == len(new) and len(read_events(log)) == len(_events())
     # the newest day alone never saw list with comment
     assert CoUseTable(log, days=1).table() == {"list": [("label", 1.0, 2)], "label": [("list", 1.0, 2)]}
@@ -110,7 +115,7 @@ class _Table:
     def __init__(self, table):
         self._table = table
 
-    def table(self):
+    def table(self, tenant=None):
         return self._table
 
 

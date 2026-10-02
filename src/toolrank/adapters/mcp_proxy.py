@@ -117,7 +117,7 @@ async def dispatch_call(
     from mcp_types import TextContent
 
     session, client, tenant = who
-    tool = await in_thread(retriever.get, name)
+    tool = await in_thread(retriever.get, name, tenant)  # None as well for a tool outside the key's sources
     if tool is None:
         cid = usage.call(
             tool=name, kind=None, session=session, via=via, outcome="unknown_tool",
@@ -128,7 +128,7 @@ async def dispatch_call(
         )
         return Dispatched(None, result, "unknown_tool", None, cid)
     t0 = time.perf_counter()
-    out = await backends.call(tool, arguments)
+    out = await backends.call(tool, arguments, tenant)
     result = out.result
     cid = usage.call(
         tool=tool.id, kind="openapi" if "http" in tool.doc else "mcp", session=session, via=via,

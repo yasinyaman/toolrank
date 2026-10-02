@@ -318,6 +318,14 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   own `k`). The log keeps them apart: `shown` is what the ranking returned, `added` the partners; `learn.mine`
   counts both as shown. A "no tool fits" gate is `--cut-threshold T --cut-min 0` (an empty list plus a note in
   `search_tools`); there is no default T, the best cosine does not separate well (`docs/reports/faz2-week5.md`).
+- **Tenants** (Faz 2 week 6, `tenants.py`): `--api-keys` entries are a key string or `{key, sources, headers,
+  env}`. One shared catalogue, index and cache; `Retriever(allowed={tenant: sources})` filters searches (ranking
+  deeper, ×4 at a time, until enough of the key's tools are in the list), `get(id, tenant)` and
+  `catalogue(tenant)`, so a tool outside a key's sources is indistinguishable from a missing one (REST 404, MCP
+  `unknown_tool`, never sent). `Backends(tenants=...)`: a key's headers join the config's on its OpenAPI calls
+  (configured `base_url` only), and an MCP server it has headers or env for gets a connection of the key's own
+  (`backend_for`). The OpenAPI client keeps no cookies (a cookie jar would have carried one caller's cookie to
+  the next). Co-use tables and the token estimate are per tenant; `/v1/metrics` refuses keys with `sources`.
 - **Metrics** (Faz 2 week 6, `GET /v1/metrics`, Prometheus text 0.0.4, under `Guard` like the rest of `/v1`):
   `UsageLog` owns a `metrics.Metrics` and feeds it from `search()` and `call()`, so MCP and REST are counted
   alike and `--no-usage-log` stops the files, not the counters; a failing counter never fails a request. The
@@ -488,6 +496,7 @@ src/toolrank/adapters/rest.py     rest_routes (/v1/search, /v1/rank, /v1/call, /
 src/toolrank/retriever.py         Retriever (state swap, background first index; pick: heads variants current/candidate/tenant), bucket, Hit, SearchResult
 src/toolrank/usage.py             UsageLog (schema v3: search and call events, HMAC digests, client key, call → search links), read_events
 src/toolrank/couse.py             co_use (log -> tool partners), partners / expand, CoUseTable (a server's table, refreshed in the background)
+src/toolrank/tenants.py           Tenant, load_tenants / parse_tenants (--api-keys: sources, headers, env), check_sources
 src/toolrank/metrics.py           Metrics (Prometheus counters and histograms of searches and calls, the token estimate), tool_tokens
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
 src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)

@@ -185,7 +185,7 @@ class UsageLog:
         ranks = {h.id: n for n, h in enumerate(result.hits, 1)}
         added = int(getattr(result, "added", 0) or 0)  # trailing hits that came from co-use
         with contextlib.suppress(Exception):  # a counter must never cost a search its answer
-            self.metrics.search(result, via=via, arm=arm)
+            self.metrics.search(result, via=via, arm=arm, tenant=tenant)
         with self._lock:
             self._searches[sid] = _Seen(session, client, via, ranks)
             while len(self._searches) > _KEEP:

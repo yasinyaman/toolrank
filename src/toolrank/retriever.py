@@ -104,6 +104,11 @@ class _State:
     lexical: bool = False
 
 
+def _only(ranked: RankedList, ids: frozenset[str]) -> RankedList:
+    keep = [n for n, t in enumerate(ranked.tool_ids) if t in ids]
+    return RankedList(ranked.query_id, [ranked.tool_ids[n] for n in keep], [ranked.scores[n] for n in keep])
+
+
 @dataclass
 class _Variant:
     """A heads file next to the log and the state built from it (``None`` until built)."""
@@ -152,6 +157,7 @@ class Retriever:
         use_current: bool = True,
         co_use: Any | None = None,
         co_use_extra: int = 0,
+        allowed: dict[str, frozenset[str]] | None = None,
     ):
         self.data_dir = Path(data_dir).resolve()
         self.path = self.data_dir / "tools.jsonl"
@@ -167,6 +173,9 @@ class Retriever:
         # a ``couse.CoUseTable`` (anything with ``table()``) and how many partners a result may gain
         self.co_use, self.co_use_extra = co_use, co_use_extra
         self.encoder: Any = None  # the composition root may leave the encoder here for the metrics
+        # tenant -> the sources its key may reach (``tenants.Tenant.sources``); absent: every source
+        self.allowed: dict[str, frozenset[str]] = dict(allowed or {})
+        self._visible: dict[tuple[str, str], frozenset[str]] = {}  # (catalogue, tenant) -> tool ids
         self._state: _State | None = None
         self._fallback: _State | None = None  # only until the first semantic state exists
         self._error: BaseException | None = None
@@ -426,10 +435,21 @@ class Retriever:
         rule = None if fixed else self.rule
         top = fixed or (rule.max_k if rule else self.depth)
         t0 = time.perf_counter()
-        if hasattr(st.scorer, "rank_pairs"):
-            fused, semantic = st.scorer.rank_pairs([q], max(top, LOG_TOP))[0]
-        else:
-            fused, semantic = st.scorer.rank([q], max(top, LOG_TOP))[0], None
+        want = max(top, LOG_TOP)
+        visible = self.visible(st, tenant)
+        depth = want if visible is None else min(len(st.tools), 4 * want)
+        while True:
+            if hasattr(st.scorer, "rank_pairs"):
+                fused, semantic = st.scorer.rank_pairs([q], depth)[0]
+            else:
+                fused, semantic = st.scorer.rank([q], depth)[0], None
+            if visible is None:
+                break
+            # a key limited to some sources: rank deeper until enough of its tools are in the list
+            fused, semantic = _only(fused, visible), (_only(semantic, visible) if semantic else None)
+            if len(fused.tool_ids) >= want or depth >= len(st.tools):
+                break
+            depth = min(len(st.tools), 4 * depth)
         if st.lexical:  # BM25 pads its list with zero scores: those tools share no term with the request
             keep = [n for n, s in enumerate(fused.scores) if s > 0]
             fused = RankedList(
@@ -449,7 +469,9 @@ class Retriever:
         # not when the request names its own k: it asked for that many tools
         if self.co_use is not None and self.co_use_extra > 0 and k is None and hits and not st.lexical:
             known = dict(zip(fused.tool_ids, fused.scores, strict=True))
-            for tool, owner in partners(shown.tool_ids, self.co_use.table(), self.co_use_extra, st.by_id):
+            table = self.co_use.table(tenant)
+            reach = st.by_id if visible is None else visible
+            for tool, owner in partners(shown.tool_ids, table, self.co_use_extra, reach):
                 hits.append(Hit(st.by_id[tool], known.get(tool, 0.0), used_with=owner))
                 added += 1
         return SearchResult(
@@ -481,13 +503,32 @@ class Retriever:
         scores = st.scorer.score_tools(q, list(tools))
         return sorted(zip([t.id for t in tools], scores, strict=True), key=lambda x: -x[1])
 
-    def tools(self) -> list[Tool]:
-        return self.state(fallback=self.make_fallback is not None).tools
+    def visible(self, st: _State, tenant: str | None) -> frozenset[str] | None:
+        """The ids of ``st``'s tools that ``tenant`` may reach; None when it may reach them all."""
+        allowed = self.allowed.get(tenant) if tenant else None
+        if allowed is None:
+            return None
+        key = (st.catalog, tenant or "")
+        found = self._visible.get(key)
+        if found is None:
+            found = frozenset(t.id for t in st.tools if t.category in allowed)
+            if len(self._visible) > 64:  # catalogues come and go: keep the cache small
+                self._visible.clear()
+            self._visible[key] = found
+        return found
 
-    def catalogue(self) -> tuple[list[Tool], str]:
-        """The tools and the hash of the ``tools.jsonl`` they came from, from one state."""
+    def tools(self, tenant: str | None = None) -> list[Tool]:
+        return self.catalogue(tenant)[0]
+
+    def catalogue(self, tenant: str | None = None) -> tuple[list[Tool], str]:
+        """The tools (those ``tenant`` may reach) and the hash of the ``tools.jsonl`` they came from,
+        from one state."""
         st = self.state(fallback=self.make_fallback is not None)
-        return st.tools, st.catalog
+        visible = self.visible(st, tenant)
+        return (st.tools if visible is None else [t for t in st.tools if t.id in visible]), st.catalog
 
-    def get(self, tool_id: str) -> Tool | None:
-        return self.state(fallback=self.make_fallback is not None).by_id.get(tool_id)
+    def get(self, tool_id: str, tenant: str | None = None) -> Tool | None:
+        """The tool, or None when there is none or ``tenant`` may not reach it (alike, on purpose)."""
+        st = self.state(fallback=self.make_fallback is not None)
+        visible = self.visible(st, tenant)
+        return st.by_id.get(tool_id) if visible is None or tool_id in visible else None

@@ -8,10 +8,11 @@ least ``min_p`` of the requests where the tool itself was called, and ``partners
 append such partners of the tools shown to a result list. Only tool ids are read: no request text,
 no arguments.
 
-``CoUseTable`` is what a server holds (``serve --co-use N``): the table of its own log's latest
-``DAYS`` daily files, built when the server starts and again in the background once it is older
-than ``every`` seconds, so a search never waits for it. It counts every API key's requests
-together: a partner says "tools called together on this catalogue", not who called them.
+``CoUseTable`` is what a server holds (``serve --co-use N``): the tables of its own log's latest
+``DAYS`` daily files, built when the server starts and again in the background once they are older
+than ``every`` seconds, so a search never waits for them. Each API key gets the table of its own
+requests (``tenant``; requests without a named key share one), so one tenant's traffic never shapes
+another's results.
 
 Measured on a simulated ToolRet log (``scripts/couse_sweep.py``, ``docs/reports/faz2-week5.md``):
 count 2 / share 0.5 / 2 partners changed 5% of the lists and raised completeness by 0.6 points for
@@ -45,16 +46,20 @@ def co_use(
     min_p: float = MIN_P,
     since: str | None = None,
     tenant: str | None = None,
+    exact_tenant: bool = False,
 ) -> Partners:
     """Tool -> its partners, most likely first. A request is one ``emb_hmac`` (its searches merge;
     a search without one counts alone) and its tools are those of the linked calls that ended
-    ``ok``; ``since`` (an ISO date or timestamp) and ``tenant`` narrow the searches."""
+    ``ok``; ``since`` (an ISO date or timestamp) and ``tenant`` narrow the searches (with
+    ``exact_tenant``, ``tenant=None`` means the requests without a named key, not all of them)."""
     events = list(events)
     request_of: dict[str, str] = {}
     for e in events:
         if e.get("event") != "search":
             continue
-        if (since and str(e.get("ts", "")) < since) or (tenant and e.get("tenant") != tenant):
+        if since and str(e.get("ts", "")) < since:
+            continue
+        if (exact_tenant or tenant) and e.get("tenant") != tenant:
             continue
         request_of[e["id"]] = e.get("emb_hmac") or e["id"]
     called: dict[str, set[str]] = defaultdict(set)
@@ -124,26 +129,36 @@ class CoUseTable:
         self.every, self.days = every, days
         self._lock = threading.Lock()
         self._building = False
-        self._table: Partners = {}
+        self._tables: dict[str | None, Partners] = {}
         self._at = 0.0
         self._build()
 
     def _build(self) -> None:
+        tables: dict[str | None, Partners] = {}
         try:
             events = read_events(self.dir, newest=self.days)
-            table = co_use(events, min_count=self.min_count, min_p=self.min_p)
+            owner = {e["id"]: e.get("tenant") for e in events if e.get("event") == "search" and "id" in e}
+            by_tenant: dict[str | None, list[dict[str, Any]]] = defaultdict(list)
+            for e in events:  # a call goes with the search it is linked to, whoever's key it names
+                if e.get("event") == "search":
+                    by_tenant[e.get("tenant")].append(e)
+                elif e.get("event") == "call" and e.get("search_id") in owner:
+                    by_tenant[owner[e["search_id"]]].append(e)
+            for tenant, own in by_tenant.items():
+                tables[tenant] = co_use(own, min_count=self.min_count, min_p=self.min_p)
         except OSError:  # the log directory is not readable: no partners
-            table = {}
+            tables = {}
         with self._lock:
-            self._table, self._at, self._building = table, time.monotonic(), False
+            self._tables, self._at, self._building = tables, time.monotonic(), False
 
-    def table(self) -> Partners:
-        """The current table; one older than ``every`` seconds is rebuilt in the background."""
+    def table(self, tenant: str | None = None) -> Partners:
+        """``tenant``'s table (None: requests without a named key); tables older than ``every``
+        seconds are rebuilt in the background."""
         with self._lock:
             stale = time.monotonic() - self._at >= self.every and not self._building
             if stale:
                 self._building = True
-            table = self._table
+            table = self._tables.get(tenant, {})
         if stale:
             threading.Thread(target=self._build, name="toolrank-co-use", daemon=True).start()
         return table

@@ -213,7 +213,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         if ids is not None:
             if not all(isinstance(i, str) for i in ids):
                 raise _Reject(400, "tool_ids must be strings")
-            found = await in_thread(lambda: [retriever.get(i) for i in ids])
+            tenant = identity(request)[2]
+            found = await in_thread(lambda: [retriever.get(i, tenant) for i in ids])
             missing = [i for i, t in zip(ids, found, strict=True) if t is None]
             if missing:
                 raise _Reject(404, f"unknown tool ids: {', '.join(missing[:5])}")
@@ -241,7 +242,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     async def list_tools(request: Any) -> Any:
         server = request.query_params.get("server")
         full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
-        tools, catalog = await in_thread(retriever.catalogue)
+        tools, catalog = await in_thread(retriever.catalogue, identity(request)[2])
         chosen = [t for t in tools if not server or t.category == server]
         if full:
             items = [platform_record(t) for t in chosen]
@@ -260,7 +261,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
 
     @endpoint
     async def get_tool(request: Any) -> Any:
-        tool = await in_thread(retriever.get, request.path_params["tool_id"])
+        tool = await in_thread(retriever.get, request.path_params["tool_id"], identity(request)[2])
         if tool is None:
             raise _Reject(404, "no such tool")
         keep = ("title", "description", "inputSchema", "outputSchema", "annotations", "http")
@@ -309,6 +310,10 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     async def metrics(request: Any) -> Any:
         from starlette.responses import PlainTextResponse
 
+        if (
+            identity(request)[2] in retriever.allowed
+        ):  # server-wide counts: not for a key limited to some sources
+            return _error(403, "this key is limited to some sources; metrics are server-wide")
         st = retriever.status()
         gauge = "gauge"
         extra: list[tuple[str, str, str, dict[str, str], float]] = [
@@ -630,6 +635,7 @@ OPENAPI: dict[str, Any] = {
                         "content": {"text/plain": {"schema": {"type": "string"}}},
                     },
                     "401": {"description": "Missing or wrong bearer token"},
+                    "403": {"description": "A key limited to some sources"},
                 },
             }
         },

@@ -154,3 +154,13 @@ def test_co_use_needs_the_usage_log(ingest_dir, tmp_path, fake_endpoint):
                 "--no-usage-log",
             ]
         )
+
+
+def test_serve_refuses_credentials_for_a_source_it_cannot_send_them_to(ingest_dir, tmp_path, fake_endpoint):
+    pytest.importorskip("mcp")
+    keys = tmp_path / "keys.json"
+    keys.write_text(json.dumps({"team": {"key": "k", "headers": {"mail": {"Authorization": "Bearer x"}}}}))
+    with pytest.raises(SystemExit, match="neither an OpenAPI source"):
+        main(
+            ["serve", "--data", str(ingest_dir), "--cache-dir", str(tmp_path / "c"), "--api-keys", str(keys)]
+        )

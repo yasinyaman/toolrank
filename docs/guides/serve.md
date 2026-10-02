@@ -37,6 +37,36 @@ On `127.0.0.1` (the default) no key is needed. Any other address needs one:
 - `--api-keys keys.json`: one named token per client or team (`{"ci-agent": "${CI_AGENT_KEY}"}`);
   the name goes into the usage log as the tenant.
 
+### Tenants
+
+A named key can also be limited to some sources and carry its own credentials:
+
+```json
+{
+  "ops": "${OPS_KEY}",
+  "team-a": {
+    "key": "${TEAM_A_KEY}",
+    "sources": ["github", "time"],
+    "headers": {"github": {"Authorization": "Bearer ${TEAM_A_GITHUB_TOKEN}"}},
+    "env": {"time": {"TZ": "Europe/Istanbul"}}
+  }
+}
+```
+
+- `sources`: the key sees and calls only these sources' tools. Searches, `/v1/tools`, `/v1/rank` by
+  id and calls leave the others out, and a tool outside them is answered like a tool that does not
+  exist. Without `sources` the key reaches everything.
+- `headers`: sent with this key's calls to that source on top of the config's: an OpenAPI source
+  (to its configured `base_url` only) or a streamable HTTP MCP server.
+- `env`: added to a stdio MCP server's environment.
+
+A source for which a key has `headers` or `env` gets a connection (for a stdio server, a process)
+of that key's own, so one team's token never carries another team's call. The server refuses to
+start when a key has credentials for a source it cannot send them to. Each key also has its own
+co-use table and its own heads (`DATA/heads/tenants/<name>/`); the catalogue, the index and the
+embedding cache are shared. `/v1/metrics` is server-wide, so a key limited by `sources` cannot read
+it.
+
 The server checks the `Host` header, so a web page cannot reach it through a rebound domain. It
 answers to its bind address and, when bound to `0.0.0.0`, to `localhost`. Add the names it is
 reached by, such as a compose service or a proxy's host, with `--allowed-host NAME` or

@@ -356,6 +356,7 @@ def build_retriever(
         use_current=not explicit_heads,
         co_use=co_use,
         co_use_extra=extra,
+        allowed=getattr(a, "allowed", None),
     )
     retriever.encoder = enc
     return retriever

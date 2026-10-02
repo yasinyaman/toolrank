@@ -16,15 +16,21 @@ Safety: only GET and HEAD unless ``allow_write``; configured headers (credential
 configured base URL (a path that does not start with ``/`` is refused: appended to the base URL it
 could name another host; and the composed URL must have the base URL's origin); redirects are not followed; responses are cut at ``max_chars``. Multipart,
 header and cookie parameters are refused for now.
+
+Tenants (``tenants.Tenant``, ``serve --api-keys``): a call made with a named key gets that key's
+headers for the source on top of the config's (OpenAPI: only towards the configured ``base_url``),
+and an MCP server for which the key has headers or env is reached over a connection of the key's
+own, opened lazily like the shared one: one tenant's credentials never carry another's call.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import re
 import tempfile
 import urllib.parse
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -259,9 +265,12 @@ class OpenAPIExecutor:
         self.transport, self.max_chars = transport, max_chars
         self._client: Any = None
 
-    def build(self, tool: Tool, arguments: dict[str, Any] | None) -> dict[str, Any]:
+    def build(
+        self, tool: Tool, arguments: dict[str, Any] | None, extra_headers: Mapping[str, str] | None = None
+    ) -> dict[str, Any]:
         """The request (``httpx2.AsyncClient.request`` keyword arguments) for one call; raises
-        ``Refused`` for policy and unsupported shapes, ``ValueError`` for bad arguments."""
+        ``Refused`` for policy and unsupported shapes, ``ValueError`` for bad arguments.
+        ``extra_headers`` (a tenant's) join the config's, under the same rule: configured base URL only."""
         http = tool.doc.get("http") or {}
         method = str(http.get("method") or "GET").upper()
         source = tool.category
@@ -276,7 +285,7 @@ class OpenAPIExecutor:
             raise Refused(
                 f"{source}: no absolute base URL ({base!r}); set openapi.{source}.base_url in the config"
             )
-        headers = dict(cfg.headers) if cfg is not None and cfg.base_url else {}
+        headers = {**cfg.headers, **(extra_headers or {})} if cfg is not None and cfg.base_url else {}
         spec = http.get("args") or {}
         path = str(http.get("path") or "")
         if not path.startswith("/"):  # "@host/x" or ".host/x" after the base URL names another host
@@ -331,8 +340,16 @@ class OpenAPIExecutor:
         import httpx2
 
         if self._client is None:
+            from http.cookiejar import CookieJar, DefaultCookiePolicy
+
+            # one client serves every caller: a cookie one response sets must not ride along on the
+            # next caller's request, so no cookie is ever kept
+            jar = CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
             self._client = httpx2.AsyncClient(
-                timeout=httpx2.Timeout(self.timeout), follow_redirects=False, transport=self.transport
+                timeout=httpx2.Timeout(self.timeout),
+                follow_redirects=False,
+                transport=self.transport,
+                cookies=jar,
             )
         return self._client
 
@@ -341,12 +358,14 @@ class OpenAPIExecutor:
             await self._client.aclose()
             self._client = None
 
-    async def call(self, tool: Tool, arguments: dict[str, Any] | None) -> CallOutcome:
+    async def call(
+        self, tool: Tool, arguments: dict[str, Any] | None, extra_headers: Mapping[str, str] | None = None
+    ) -> CallOutcome:
         import httpx2
         from mcp_types import CallToolResult, TextContent
 
         try:
-            req = self.build(tool, arguments)
+            req = self.build(tool, arguments, extra_headers)
         except Refused as e:
             return CallOutcome(error_result(str(e)), "refused")
         except ValueError as e:
@@ -385,8 +404,12 @@ class Backends:
         call_timeout: float = 60.0,
         connect_timeout: float = 60.0,
         transport: Any = None,
+        tenants: Mapping[str, Any] | None = None,
     ):
         self.mcp = {c.name: MCPBackend(c, connect_timeout=connect_timeout) for c in servers}
+        self.tenants = dict(tenants or {})  # name -> tenants.Tenant
+        self.connect_timeout = connect_timeout
+        self._own: dict[tuple[str, str], MCPBackend] = {}  # (server, tenant) -> its own connection
         self.http = OpenAPIExecutor(
             openapi or {}, allow_write=allow_write, timeout=call_timeout, transport=transport
         )
@@ -409,10 +432,31 @@ class Backends:
             self._tg = None
             await self.http.aclose()
 
-    async def call(self, tool: Tool, arguments: dict[str, Any] | None) -> CallOutcome:
+    def backend_for(self, server: str, tenant: str | None) -> MCPBackend | None:
+        """The shared connection to ``server``, or the tenant's own when it has credentials for it."""
+        shared = self.mcp.get(server)
+        t = self.tenants.get(tenant) if tenant else None
+        if shared is None or t is None:
+            return shared
+        headers, env = t.credentials(server)
+        if not headers and not env:
+            return shared
+        own = self._own.get((server, t.name))
+        if own is None:
+            cfg = dataclasses.replace(
+                shared.cfg, headers={**shared.cfg.headers, **headers}, env={**shared.cfg.env, **env}
+            )
+            own = self._own[(server, t.name)] = MCPBackend(cfg, connect_timeout=self.connect_timeout)
+        return own
+
+    async def call(
+        self, tool: Tool, arguments: dict[str, Any] | None, tenant: str | None = None
+    ) -> CallOutcome:
         if "http" in tool.doc:
-            return await self.http.call(tool, arguments)
-        backend = self.mcp.get(tool.category)
+            t = self.tenants.get(tenant) if tenant else None
+            extra = t.credentials(tool.category)[0] if t is not None else None
+            return await self.http.call(tool, arguments, extra)
+        backend = self.backend_for(tool.category, tenant)
         if backend is None:
             return CallOutcome(
                 error_result(

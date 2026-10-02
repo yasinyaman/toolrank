@@ -47,6 +47,11 @@ def build(mode: str = "ok") -> MCPServer:
             """The server's process id."""
             return os.getpid()
 
+        @server.tool()
+        def env(name: str) -> str:
+            """One environment variable of the server process (empty when unset)."""
+            return os.environ.get(name, "")
+
     return server
 
 

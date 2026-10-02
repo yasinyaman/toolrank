@@ -456,3 +456,25 @@ def test_metrics_route_counts_searches_and_sits_behind_the_token(tmp_path):
     assert "toolrank_heads" not in text  # this server follows no heads directory
     assert 'toolrank_heads{arm="base"} 1' in followed and 'toolrank_heads{arm="candidate"} 1' in followed
     assert 'toolrank_heads{arm="tenant-candidate"} 0' in followed and "acme" not in followed
+
+
+def test_a_key_limited_to_some_sources_sees_only_those_over_rest(tmp_path):
+    write_tools(tmp_path / "tools.jsonl", _tools())
+    retriever = Retriever(
+        tmp_path, lambda: DenseScorer(_HashEncoder(), "name_desc"), allowed={"team": frozenset({"api"})}
+    )
+    app, _ = _app(tmp_path, retriever, named_keys={"team": "team-key", "ops": "ops-key"})
+    team, ops = {"Authorization": "Bearer team-key"}, {"Authorization": "Bearer ops-key"}
+    with TestClient(app, base_url=BASE) as c:
+        found = c.post("/v1/search", json={"query": "add two integers"}, headers=team).json()
+        assert [t["name"] for t in found["tools"]] == ["api/getThing"]
+        assert len(c.post("/v1/search", json={"query": "add two integers"}, headers=ops).json()["tools"]) == 3
+        assert [t["name"] for t in c.get("/v1/tools", headers=team).json()["tools"]] == ["api/getThing"]
+        assert c.get("/v1/tools", headers=ops).json()["count"] == 3
+        hidden = c.get("/v1/tools/fx/add", headers=team)
+        assert hidden.status_code == 404 and hidden.json() == c.get("/v1/tools/fx/nope", headers=team).json()
+        assert c.get("/v1/tools/fx/add", headers=ops).status_code == 200
+        ranked = c.post("/v1/rank", json={"query": "add", "tool_ids": ["fx/add"]}, headers=team)
+        assert ranked.status_code == 404
+        assert c.get("/v1/metrics", headers=team).status_code == 403
+        assert c.get("/v1/metrics", headers=ops).status_code == 200

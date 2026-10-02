@@ -285,24 +285,10 @@ def cmd_search(a: argparse.Namespace) -> int:
 
 
 def _load_api_keys(path: str) -> dict[str, str]:
-    """``--api-keys``: a JSON object {name: key}, ``${VAR}`` read from the environment."""
-    from toolrank.ingest.mcp import expand_env
+    """``--api-keys`` as {name: key} (``tenants.load_tenants`` has the sources and credentials too)."""
+    from toolrank.tenants import load_tenants
 
-    try:
-        raw = json.loads(Path(path).read_text())
-    except (OSError, ValueError) as e:
-        raise ValueError(f"--api-keys {path}: {e}") from e
-    if not isinstance(raw, dict) or not raw:
-        raise ValueError(f"--api-keys {path}: expected a JSON object {{name: key}}")
-    keys: dict[str, str] = {}
-    for name, key in raw.items():
-        key = expand_env(key, f"--api-keys {name}") if isinstance(key, str) else key
-        if not name.strip() or not isinstance(key, str) or not key.strip():
-            raise ValueError(f"--api-keys {path}: {name!r} needs a name and a non-empty string key")
-        keys[name] = key
-    if len(set(keys.values())) != len(keys):
-        raise ValueError(f"--api-keys {path}: two names share a key")
-    return keys
+    return {name: t.key for name, t in load_tenants(path).items()}
 
 
 def _env_list(name: str) -> list[str]:
@@ -336,11 +322,14 @@ def cmd_serve(a: argparse.Namespace) -> int:
     a.data = str(data)
     a.index_dir = str(Path(a.index_dir).resolve()) if a.index_dir else str(data / "index")
     _data_cache(a, data)
+    from toolrank.tenants import check_sources, load_tenants
+
     api_key = a.api_key or os.environ.get("TOOLRANK_API_KEY")
     try:
-        named = _load_api_keys(a.api_keys) if a.api_keys else {}
+        tenants = load_tenants(a.api_keys) if a.api_keys else {}
     except ValueError as e:
         sys.exit(str(e))
+    named = {name: t.key for name, t in tenants.items()}
     if api_key and api_key in named.values():
         sys.exit("the anonymous API key is also in --api-keys: keep it under its name only")
     if not a.stdio and a.host not in ("127.0.0.1", "localhost", "::1") and not (api_key or named):
@@ -355,11 +344,25 @@ def cmd_serve(a: argparse.Namespace) -> int:
     names = [c.name for c in servers]
     if len(set(names)) != len(names):
         sys.exit(f"duplicate server names: {sorted({n for n in names if names.count(n) > 1})}")
+    try:
+        catalogue = (
+            json.loads((data / "sources.json").read_text()) if (data / "sources.json").exists() else {}
+        )
+        for warning in check_sources(tenants, catalogue, {c.name: c.transport for c in servers}, openapi):
+            log(warning)
+    except ValueError as e:
+        sys.exit(str(e))
+    a.allowed = {name: t.sources for name, t in tenants.items() if t.sources is not None}
     usage = UsageLog(
         None if a.no_usage_log else (a.usage_log or data / "usage"), log_text=a.log_text, mask_pii=a.mask_pii
     )
     backends = Backends(
-        servers, openapi, allow_write=a.allow_write, call_timeout=a.timeout, connect_timeout=a.timeout
+        servers,
+        openapi,
+        allow_write=a.allow_write,
+        call_timeout=a.timeout,
+        connect_timeout=a.timeout,
+        tenants=tenants,
     )
     log(
         f"toolrank serve: {data} ({len(servers)} MCP servers, {len(openapi)} OpenAPI configs"
