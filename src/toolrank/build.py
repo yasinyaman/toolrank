@@ -22,7 +22,7 @@ INDEX_KINDS = ("numpy", "faiss", "pgvector")
 # Qwen3-Embedding-8B LoRA-trained on ToolRet's training pairs (docs/backbone/MODEL_CARD.md): one
 # stage, no heads (the v0.1 heads cost it 1-2 points; heads trained on it stay at identity).
 BACKBONE_REPO, BACKBONE_REVISION = "yasinyaman/toolrank-emb-8b", "v0.2"
-BACKBONE_PUBLISHED = False  # True once the weights are on the Hub at that revision (release_check)
+BACKBONE_PUBLISHED = True  # True once the weights are on the Hub at that revision (release_check)
 BACKBONES: dict[str, dict[str, Any]] = {
     "toolrank-emb-v0.2": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},
     "toolrank-emb-v0.2-fp8": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},

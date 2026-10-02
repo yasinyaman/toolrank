@@ -329,10 +329,10 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   heads belong on them; `DEFAULT_EMB_MODEL = "toolrank-emb-v0.2"` (the LoRA-merged Qwen3-Embedding-8B,
   `BACKBONE_REPO` @ `BACKBONE_REVISION`; the version is in the name because the embedding cache is keyed by it).
   `search_defaults` loads cached heads only when `packaged_heads_fit(emb_model)` (unknown names: yes, as before;
-  `TOOLRANK_HEADS` always), `learn.resolve_init("default", emb_model)` follows the same rule. Until the weights
-  are on the Hub `BACKBONE_PUBLISHED = False` and `release_check` refuses a release; `scripts/publish_backbone.py`
-  (run on the GB10, dry run without `--upload`) uploads the merged directory, tags the revision and flips the
-  flag. `entrypoint-vllm.sh`, `deploy/docker/compose.yaml` and the chart's `embedding.backbone` carry the same
+  `TOOLRANK_HEADS` always), `learn.resolve_init("default", emb_model)` follows the same rule. The weights are on the
+  Hub since 2 Oct 2026 (0.2.0; `BACKBONE_PUBLISHED = True`, else `release_check` refuses a release);
+  `scripts/publish_backbone.py` (run on the GB10, dry run without `--upload`) uploads a merged directory, tags the
+  revision and flips the flag. New weights get a new tag and served name (the cache is keyed by the name). `entrypoint-vllm.sh`, `deploy/docker/compose.yaml` and the chart's `embedding.backbone` carry the same
   names (a test ties the entrypoint to `build`). finetune keeps `qwen3-emb` as its default.
 - **Second stage while serving** (Faz 2 week 7): `search` / `serve --rerank cross|jev` (`cli._add_serve_rerank_args`:
   depth 20, documentation cut to 3,000 characters, Qwen3-Reranker as `qwen3-reranker`; Jev reads the same text)
