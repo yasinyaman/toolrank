@@ -201,8 +201,10 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
 
 ## Sonraki
 
-- 19:00'dan sonra, kullanıcının onayıyla: GB10'dan `scripts/publish_backbone.py --upload`, sonra
-  `BACKBONE_PUBLISHED = True` commit'i, sonra push.
+- ~~Ağırlıkları yükle, `BACKBONE_PUBLISHED = True`, push~~: yapıldı, 0.2.0 olarak yayımlandı (aşağıda).
+- ~~Docs sitesinin yeniden yayımı~~: yapıldı (`docs.yml`, bakımcı elle başlattı).
+- 60k koşusu 20k'yı geçerse yeni ağırlıklar yeni bir etiket ve servis adıyla çıkar (ör. `v0.3`,
+  `toolrank-emb-v0.3`); `v0.2` etiketi değişmez.
 - **60 bin çiftlik LoRA koşusu başladı (2 Ekim 16:12, GB10):** v0.2'yle aynı tarif (rank 16, lr 1e-4,
   256 / 768 token, bir epoch), yalnız veri 3 katı (1.875 adım) ve seçim `dev_w3_multi2` üzerinde,
   her 300 adımın adaptörü saklanıyor (`--keep-all`). Eğitim öncesi dev: NDCG@10 70,35. Bitiş tahmini
@@ -216,4 +218,38 @@ uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pair
   --eval data/toolret --eval data/livemcpbench_server --eval data/mcp_zero_server --eval data/dev_w3 \
   --eval data/dev_w3_sit --eval data/dev_w3_multi3 --n-train 60000 --keep-all --check-parity \
   --out data/lora/qwen3-emb-lora-60k
+```
+
+## Yayın: toolrank 0.2.0 (2 Ekim 2026, 22:04)
+
+**Sonuç:** 0.2.0 yayında. Backbone Hugging Face'te `v0.2` etiketiyle, paket PyPI'da, imaj GHCR'da,
+kaynak ve release GitHub'da, docs `yaman.dev/toolrank/`'ta; hepsi yalnız herkese açık kaynaklardan kurulup
+denendi.
+
+| | Adres | Doğrulama |
+| --- | --- | --- |
+| Backbone | `huggingface.co/yasinyaman/toolrank-emb-8b`, `v0.2` etiketi (commit `c89f13b4`) | herkese açık API'den: 10 dosya + kart, `model.safetensors` 16,4 GB, sha256 `53789cff…` (birleştirilmiş dizinle aynı) |
+| Paket | `pypi.org/project/toolrank/` 0.2.0 (wheel 208 KB `99e758ce…`, sdist 288 KB `85308041…`) | temiz 3.12 venv'ine `pip install "toolrank[mcp]==0.2.0"`: sürüm 0.2.0, varsayılan `toolrank-emb-v0.2`, `heads pull` sha256'yla; `uvx mcp-server-time` ingest, GB10'daki temel modelle (8091, `qwen3-emb`, head'lerle) arama: `time/get_current_time` 0,59 ilk sırada; `serve`: `/v1/call` Tokyo saatini döndürdü, token'sız istek 401, `/v1/metrics` 42 satır, kapanışta çocuk süreç yok |
+| İmaj | `ghcr.io/yasinyaman/toolrank:0.2.0` (`0.2`, `latest`), amd64 + arm64 | GB10'da `docker pull` (arm64, 507 MB) + `container_smoke.py`: 8/8 |
+| Kaynak | `github.com/yasinyaman/toolrank`, `main` `82fe665`, release `v0.2.0` | CI 6 iş yeşil (3.11, 3.12, 3.13, paket, docs, imaj); release iş akışı yeşil, `ghcr` ve `pypi` adımları bakımcı onayıyla |
+| Docs | `yaman.dev/toolrank/` | `docs.yml` (elle) build + deploy yeşil; `/changelog/` 0.2.0 girdisini gösteriyor, `yasinyaman.github.io/toolrank/` 301 ile oraya |
+
+Notlar:
+
+- **Ağırlıklar Hub'dan vLLM'e yüklenerek denenmedi:** GB10'un GPU'su 60k koşusunda. Hub'daki dosyalar
+  ve sha256, bu raporda ölçülen birleştirilmiş dizinle aynı; servis edilerek doğrulama 60k koşusundan
+  sonra.
+- PyPI dosyaları release iş akışının build'i; Mac'teki yerel build'in hash'leri farklı (beklenen).
+- GitHub release'in notları CHANGELOG'un 0.2.0 girdisinden; ek dosya yok.
+
+```bash
+# Mac
+uv run python scripts/release_check.py --tag v0.2.0                 # "ready to release 0.2.0"
+git push origin main                                                 # dc54bce..82fe665, CI yeşil
+git tag -a v0.2.0 -m "toolrank 0.2.0" 82fe665 && git push origin v0.2.0   # ghcr ve pypi onayları Actions'ta
+gh workflow run docs.yml -R yasinyaman/toolrank --ref main
+uv venv pub && uv pip install --python pub/bin/python "toolrank[mcp]==0.2.0" && pub/bin/toolrank heads pull
+# GB10 (bakımcının `hf auth login`'iyle)
+uv run --with huggingface_hub python scripts/publish_backbone.py --model data/lora/qwen3-emb-lora-20k/merged --upload
+docker pull ghcr.io/yasinyaman/toolrank:0.2.0 && uv run python scripts/container_smoke.py ghcr.io/yasinyaman/toolrank:0.2.0 --version 0.2.0
 ```
