@@ -234,6 +234,16 @@ class JevReranker:
     def rank(self, queries: Sequence[Query], k: int) -> list[RankedList]:
         base = self.base.rank(queries, max(k, self.depth))
         self.last_base = {r.query_id: r for r in base}
+        return self._rerank(queries, base, k)
+
+    def rank_pairs(self, queries: Sequence[Query], k: int) -> list[tuple[RankedList, RankedList]]:
+        """(reranked, the first stage's cosine list) per query: see ``ScorerReranker.rank_pairs``."""
+        from toolrank.adapters.rerank import first_stage
+
+        base, semantic = first_stage(self.base, queries, max(k, self.depth))
+        return list(zip(self._rerank(queries, base, k), semantic, strict=True))
+
+    def _rerank(self, queries: Sequence[Query], base: list[RankedList], k: int) -> list[RankedList]:
         heads = [r.tool_ids[: self.depth] for r in base]
         asked = [i for i, h in enumerate(heads) if len(h) >= 2]  # one option needs no question
         items = [

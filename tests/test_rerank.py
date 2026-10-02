@@ -129,3 +129,128 @@ def test_eval_cli_reranks_bm25_with_a_dense_scorer_and_records_it(tmp_path, monk
     assert json.loads(out.read_text())["scorer"].startswith("rerank[dense/emb/m/name_desc[:40]/plain,d10]/")
     with pytest.raises(SystemExit, match="at least 2"):
         main(args[:-2] + ["--rerank-depth", "1"])
+
+
+def test_rank_pairs_leaves_no_shared_state_and_returns_the_first_stages_cosines():
+    base = _Fixed(["w", "f", "m", "r"], [0.9, 0.8, 0.7, 0.6])
+    rr = ScorerReranker(base, DenseScorer(_ToyEncoder(), "name_desc", "plain"), depth=3)
+    rr.index(_tools())
+    q = Query(id="q", text="send an email message to Ayşe", qrels={})
+    ((reranked, first),) = rr.rank_pairs([q], k=4)
+    assert reranked.tool_ids == rr.rank([q], k=4)[0].tool_ids and reranked.tool_ids[0] == "m"
+    assert first.tool_ids == ["w", "f", "m", "r"] and first.scores == [0.9, 0.8, 0.7, 0.6]
+    rr.last_base = {}
+    rr.rank_pairs([q], k=4)
+    assert rr.last_base == {}  # concurrent server searches share the scorer
+
+
+def test_a_served_search_cuts_on_first_stage_cosines_and_shows_the_reranked_order(tmp_path):
+    from toolrank.cut import AdaptiveK
+    from toolrank.datasets.jsonl import write_tools
+    from toolrank.retriever import Retriever
+
+    write_tools(tmp_path / "tools.jsonl", _tools())
+    # first stage: weather first; within 0.15 of it are three tools; the second stage prefers e-mail
+    scores = [0.9, 0.8, 0.76, 0.2]
+    r = Retriever(
+        tmp_path,
+        lambda: ScorerReranker(
+            _Fixed(["w", "f", "m", "r"], scores), DenseScorer(_ToyEncoder(), "name_desc", "plain"), depth=3
+        ),
+        rule=AdaptiveK(margin=0.15, max_k=10),
+    )
+    res = r.search("send an email message to Ayşe")
+    assert len(res.hits) == 3 and res.hits[0].id == "m" and {h.id for h in res.hits} == {"w", "f", "m"}
+    assert res.scorer.startswith("rerank[")
+
+
+def test_search_and_serve_check_the_second_stage_flags(tmp_path, monkeypatch):
+    from toolrank.datasets.jsonl import write_tools
+
+    write_tools(tmp_path / "d" / "tools.jsonl", _tools())
+    base = ["search", "email", "--data", str(tmp_path / "d"), "--cache-dir", str(tmp_path / "c")]
+    with pytest.raises(SystemExit, match="--rerank-emb-url"):
+        main([*base, "--rerank", "cross"])
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="TYPESAFE_API_KEY"):
+        main([*base, "--rerank", "jev"])
+    with pytest.raises(SystemExit, match="from 2 to 255"):
+        main([*base, "--rerank", "cross", "--rerank-emb-url", "http://r/v1", "--rerank-depth", "1"])
+
+
+def test_search_reranks_with_a_cross_encoder_end_to_end(tmp_path, monkeypatch, capsys):
+    import hashlib
+
+    from test_cross_encoder import _overlap_post
+    from toolrank.adapters.cross_encoder import ScoreClient
+    from toolrank.adapters.embeddings_api import OpenAIEmbeddings
+    from toolrank.datasets.jsonl import write_tools
+
+    def fake_post(self, texts, **kw):
+        rows = [
+            np.random.default_rng(int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)).standard_normal(16)
+            for t in texts
+        ]
+        return [r.astype(np.float32) for r in rows], len(texts)
+
+    monkeypatch.setattr(OpenAIEmbeddings, "_post", fake_post)
+    monkeypatch.setattr(ScoreClient, "_post", _overlap_post)
+    monkeypatch.setattr(ScoreClient, "posted", [], raising=False)
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    monkeypatch.setenv("TOOLRANK_CACHE", str(tmp_path / "no-heads"))
+    write_tools(tmp_path / "d" / "tools.jsonl", _tools())
+    args = [
+        "search",
+        "send an email message",
+        "--data",
+        str(tmp_path / "d"),
+        "--cache-dir",
+        str(tmp_path / "c"),
+        "--k",
+        "4",
+    ]
+    assert main([*args, "--json"]) == 0
+    plain = [t["id"] for t in json.loads(capsys.readouterr().out)["tools"]]
+    assert main([*args, "--json", "--rerank", "cross", "--rerank-emb-url", "http://reranker/v1"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["tools"][0]["id"] == "m" and sorted(t["id"] for t in out["tools"]) == sorted(plain)
+    assert out["scorer"].startswith("rerank[cross") and ScoreClient.posted
+    assert ScoreClient.posted[0]["model"] == "qwen3-reranker"
+    assert all(len(d) < 3000 + 2000 for d in ScoreClient.posted[0]["text_2"])  # the cut text, in its prompt
+
+
+def test_search_reranks_with_jev_end_to_end(tmp_path, monkeypatch, capsys):
+    import hashlib
+
+    from test_jev import _overlap_post as jev_post
+    from toolrank.adapters.embeddings_api import OpenAIEmbeddings
+    from toolrank.adapters.jev import JevClient
+    from toolrank.datasets.jsonl import write_tools
+
+    def fake_post(self, texts, **kw):
+        rows = [
+            np.random.default_rng(int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)).standard_normal(16)
+            for t in texts
+        ]
+        return [r.astype(np.float32) for r in rows], len(texts)
+
+    monkeypatch.setattr(OpenAIEmbeddings, "_post", fake_post)
+    monkeypatch.setattr(JevClient, "_post", jev_post)
+    monkeypatch.setattr(JevClient, "posted", [], raising=False)
+    monkeypatch.setattr(JevClient, "answered", [], raising=False)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    monkeypatch.setenv("TOOLRANK_CACHE", str(tmp_path / "no-heads"))
+    write_tools(tmp_path / "d" / "tools.jsonl", _tools())
+    args = [
+        "search",
+        "send an email message",
+        "--data",
+        str(tmp_path / "d"),
+        "--cache-dir",
+        str(tmp_path / "c"),
+    ]
+    assert main([*args, "--k", "4", "--json", "--rerank", "jev"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["tools"][0]["id"] == "m" and out["scorer"].startswith("jev[jev-1.13.0,d20,documentation")
+    assert JevClient.posted  # the request went to the (faked) hosted model

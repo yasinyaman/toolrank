@@ -42,6 +42,9 @@ change behaviour.
   instead of returning an empty list without a word.
 - `scripts/routing_sweep.py` and `scripts/couse_sweep.py`: the measurements behind the two options
   and the no-tool gate.
+- `toolrank search` / `serve --rerank cross | jev`: a second stage reorders the top 20 tools with the
+  request (a local cross-encoder behind vLLM's score API, or TypeSafe AI's hosted Jev); the number of
+  tools returned still comes from the first stage's cosines.
 - Tenants: an `--api-keys` entry can be `{key, sources, headers, env}`. `sources` limits the key to
   those sources' tools (search, catalogue and calls); `headers` and `env` are its own credentials
   for a source, sent only with its calls over a connection of its own. Co-use tables are per key.

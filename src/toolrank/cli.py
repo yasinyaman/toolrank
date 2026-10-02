@@ -251,6 +251,7 @@ def cmd_search(a: argparse.Namespace) -> int:
     if a.index_dir is None:
         a.index_dir = str(data / "index")
     _data_cache(a, data)
+    _check_rerank(a)
     try:
         retriever = build_retriever(a)
     except ValueError as e:
@@ -369,6 +370,12 @@ def cmd_serve(a: argparse.Namespace) -> int:
         f"{', writes allowed' if a.allow_write else ''}); usage log "
         + ("off" if usage.dir is None else str(usage.dir))
     )
+    _check_rerank(a)
+    if a.rerank == "jev":
+        log(
+            "second stage: Jev (TypeSafe AI) - each request's text and its top tools' text are sent to "
+            + a.jev_url
+        )
     try:
         retriever = build_retriever(a, background=True, serving_limits=True, notify=log)
     except ValueError as e:
@@ -718,6 +725,64 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_serve_rerank_args(p: argparse.ArgumentParser) -> None:
+    """``search`` / ``serve``: an optional second stage over the first stage's top tools, with the
+    setting that measured best (``docs/reports/faz2-jev.md``): the top 20, each tool's full
+    documentation cut to 3,000 characters. Off unless ``--rerank`` is given."""
+    g = p.add_argument_group("second stage (off by default): rerank the top tools with the request")
+    g.add_argument(
+        "--rerank",
+        choices=["cross", "jev"],
+        default=None,
+        help="cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); "
+        "jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine)",
+    )
+    g.add_argument("--rerank-depth", type=int, default=20, help="tools reranked per request")
+    g.add_argument("--rerank-emb-url", default=None, help="cross: the reranker's /v1 endpoint")
+    g.add_argument("--rerank-emb-model", default="qwen3-reranker", help="cross: its served name")
+    g.add_argument(
+        "--rerank-template", choices=["qwen3", "bge"], default="qwen3", help="cross: prompt format"
+    )
+    g.add_argument(
+        "--rerank-tool-format", choices=list(TOOL_FORMATS), default="documentation", help="text per tool"
+    )
+    g.add_argument("--rerank-max-chars", type=int, default=3000, help="characters kept per tool")
+    g.add_argument(
+        "--rerank-query-chars", type=int, default=None, help="cross: characters of the request (6000)"
+    )
+    g.add_argument("--rerank-workers", type=int, default=1, help="cross: concurrent scoring requests")
+    g.add_argument("--jev-model", default="jev-1.13.0", help="jev: a versioned id (aliases move)")
+    g.add_argument("--jev-url", default="https://api.typesafe.ai/v1")
+    g.add_argument("--jev-workers", type=int, default=8)
+    # the eval-only knobs the shared factory reads, at their "same as the first stage" values
+    p.set_defaults(
+        rerank_truncate=None,
+        rerank_clm_ckpt=None,
+        rerank_query_format=None,
+        jev_tool_format=None,
+        jev_max_chars=None,
+        cross_template=None,
+        cross_query_chars=None,
+    )
+
+
+def _check_rerank(a: argparse.Namespace) -> None:
+    """The second stage's flags, checked before anything is built; Jev reads the tool format and
+    the cut of the cross-encoder's flags, so both rerankers see the same text."""
+    if a.rerank is None:
+        return
+    if a.rerank == "cross" and not a.rerank_emb_url:
+        sys.exit(
+            "--rerank cross needs --rerank-emb-url: the reranker's /v1 endpoint (vLLM serving Qwen3-Reranker-8B)"
+        )
+    if a.rerank == "jev":
+        if not os.environ.get("TYPESAFE_API_KEY"):
+            sys.exit("--rerank jev needs TYPESAFE_API_KEY")
+        a.jev_tool_format, a.jev_max_chars = a.rerank_tool_format, a.rerank_max_chars
+    if not 2 <= a.rerank_depth <= 255:
+        sys.exit("--rerank-depth: from 2 to 255")
+
+
 def _cut_rule(a: argparse.Namespace):
     from toolrank.cut import rule_from_flags
 
@@ -794,6 +859,7 @@ def _add_retrieval_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-stem", action="store_true")
     p.add_argument("--device", default=None)
     _add_cut_args(p)
+    _add_serve_rerank_args(p)
     _add_encoder_args(p, url=None, model=None, cache_dir=None)
 
 

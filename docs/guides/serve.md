@@ -94,7 +94,7 @@ See the [REST reference](../reference/rest.md).
 
 ## Many servers, several tools, nothing that fits
 
-Three options for catalogues where plain ranking leaves something on the table. All are off by
+Four options for catalogues where plain ranking leaves something on the table. All are off by
 default; the numbers are from the benchmarks ([Benchmarks](../benchmarks.md) explains the sets).
 
 **`--server-weight 0.2`: a vote for the right server.** Each server is embedded once as a summary
@@ -114,6 +114,24 @@ of requests that got *every* tool they needed by 0.6 points for 0.05 more tools 
 the ranked list longer buys a seventh of that per tool. The table is rebuilt from the last 30 daily
 log files every five minutes, counts all API keys together, and is not applied to a request that
 names its own `k`.
+
+**`--rerank cross` or `--rerank jev`: a second stage.** The first stage scores the request and each
+tool apart; a second stage reads the request together with each of the top 20 tools' full
+documentation (cut to 3,000 characters) and reorders them. How many tools a search returns still
+comes from the first stage's cosines (adaptive K); the order comes from the second stage. Measured
+over the released heads, it is the largest single gain on catalogues the models never saw:
+LiveMCPBench NDCG@10 54.0 → 62.7 with the local reranker, 64.0 with Jev; MCP-Zero top-1 79.9 →
+91.3 / 92.3; ToolRet 54.0 → 58.1 / 57.7 ([the comparison](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz2-jev.md)).
+
+- `--rerank cross --rerank-emb-url http://HOST:PORT/v1`: Qwen3-Reranker-8B behind vLLM's score API
+  (about 16 GB more GPU memory, 0.3–0.6 s more per search). `deploy/spark/compose.yaml`'s `rerank`
+  profile shows the vLLM flags.
+- `--rerank jev`: TypeSafe AI's hosted Jev, with `TYPESAFE_API_KEY` set (about 0.3 s per search).
+  **The request text and the top tools' text are sent to TypeSafe**; the server says so when it
+  starts. Answers are cached in `DATA/cache`.
+
+`--rerank-depth`, `--rerank-tool-format` and `--rerank-max-chars` change the setting; the defaults are
+the one that measured best. Requests that name their own `k` are reranked too.
 
 **`--cut-threshold T --cut-min 0`: say so when nothing fits.** By default a search returns at least
 one tool. With a threshold and a minimum of zero, a request whose best score is below T gets an

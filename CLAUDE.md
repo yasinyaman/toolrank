@@ -322,6 +322,11 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   own `k`). The log keeps them apart: `shown` is what the ranking returned, `added` the partners; `learn.mine`
   counts both as shown. A "no tool fits" gate is `--cut-threshold T --cut-min 0` (an empty list plus a note in
   `search_tools`); there is no default T, the best cosine does not separate well (`docs/reports/faz2-week5.md`).
+- **Second stage while serving** (Faz 2 week 7): `search` / `serve --rerank cross|jev` (`cli._add_serve_rerank_args`:
+  depth 20, documentation cut to 3,000 characters, Qwen3-Reranker as `qwen3-reranker`; Jev reads the same text)
+  goes through the same `scorer_factory` wrapping as eval. Both rerankers have `rank_pairs` (reranked, first
+  stage's cosine list) that writes no shared state (`last_base` is eval's), so the retriever's adaptive cut
+  counts on the cosines and shows the reranked order. Jev in serve sends request text out: logged at start.
 - **Tenants** (Faz 2 week 6, `tenants.py`): `--api-keys` entries are a key string or `{key, sources, headers,
   env}`. One shared catalogue, index and cache; `Retriever(allowed={tenant: sources})` filters searches (ranking
   deeper, ×4 at a time, until enough of the key's tools are in the list), `get(id, tenant)` and

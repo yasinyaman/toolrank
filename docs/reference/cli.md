@@ -190,6 +190,18 @@ Rank the tools of an ingest dir for one request. Defaults: Qwen3-Embedding-8B on
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
+| `--rerank {cross,jev}` |  | cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine) |
+| `--rerank-depth RERANK_DEPTH` | `20` | tools reranked per request |
+| `--rerank-emb-url RERANK_EMB_URL` |  | cross: the reranker's /v1 endpoint |
+| `--rerank-emb-model RERANK_EMB_MODEL` | `qwen3-reranker` | cross: its served name |
+| `--rerank-template {qwen3,bge}` | `qwen3` | cross: prompt format |
+| `--rerank-tool-format {documentation,name_desc,schema,example_call}` | `documentation` | text per tool |
+| `--rerank-max-chars RERANK_MAX_CHARS` | `3000` | characters kept per tool |
+| `--rerank-query-chars RERANK_QUERY_CHARS` |  | cross: characters of the request (6000) |
+| `--rerank-workers RERANK_WORKERS` | `1` | cross: concurrent scoring requests |
+| `--jev-model JEV_MODEL` | `jev-1.13.0` | jev: a versioned id (aliases move) |
+| `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
+| `--jev-workers JEV_WORKERS` | `8` |  |
 | `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
 | `--emb-model EMB_MODEL` |  |  |
 | `--emb-batch EMB_BATCH` | `32` |  |
@@ -225,6 +237,18 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
+| `--rerank {cross,jev}` |  | cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine) |
+| `--rerank-depth RERANK_DEPTH` | `20` | tools reranked per request |
+| `--rerank-emb-url RERANK_EMB_URL` |  | cross: the reranker's /v1 endpoint |
+| `--rerank-emb-model RERANK_EMB_MODEL` | `qwen3-reranker` | cross: its served name |
+| `--rerank-template {qwen3,bge}` | `qwen3` | cross: prompt format |
+| `--rerank-tool-format {documentation,name_desc,schema,example_call}` | `documentation` | text per tool |
+| `--rerank-max-chars RERANK_MAX_CHARS` | `3000` | characters kept per tool |
+| `--rerank-query-chars RERANK_QUERY_CHARS` |  | cross: characters of the request (6000) |
+| `--rerank-workers RERANK_WORKERS` | `1` | cross: concurrent scoring requests |
+| `--jev-model JEV_MODEL` | `jev-1.13.0` | jev: a versioned id (aliases move) |
+| `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
+| `--jev-workers JEV_WORKERS` | `8` |  |
 | `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
 | `--emb-model EMB_MODEL` |  |  |
 | `--emb-batch EMB_BATCH` | `32` |  |

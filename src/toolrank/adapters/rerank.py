@@ -27,6 +27,16 @@ def cut_formatter(f: NamedFormatter, max_chars: int) -> NamedFormatter:
     return NamedFormatter(f"{f.name}[:{max_chars}]", lambda t: f(t)[:max_chars])
 
 
+def first_stage(base: Any, queries: Sequence[Query], k: int) -> tuple[list[RankedList], list[RankedList]]:
+    """``base``'s lists and the cosine lists an adaptive cut counts on (a hybrid's semantic arm,
+    else the lists themselves), without touching any scorer's shared state."""
+    if hasattr(base, "rank_pairs"):
+        pairs = base.rank_pairs(queries, k)
+        return [f for f, _ in pairs], [s for _, s in pairs]
+    lists = base.rank(queries, k)
+    return lists, lists
+
+
 class ScorerReranker:
     def __init__(
         self, base: Any, second: Any, *, depth: int = 100, max_chars: int | None = None, workers: int = 1
@@ -58,6 +68,15 @@ class ScorerReranker:
     def rank(self, queries: Sequence[Query], k: int) -> list[RankedList]:
         base = self.base.rank(queries, max(k, self.depth))
         self.last_base = {r.query_id: r for r in base}
+        return self._rerank(queries, base, k)
+
+    def rank_pairs(self, queries: Sequence[Query], k: int) -> list[tuple[RankedList, RankedList]]:
+        """(reranked, the first stage's cosine list) per query, for a server: no shared state is
+        written, and an adaptive K counts on the cosines (a second stage's scores have no margin)."""
+        base, semantic = first_stage(self.base, queries, max(k, self.depth))
+        return list(zip(self._rerank(queries, base, k), semantic, strict=True))
+
+    def _rerank(self, queries: Sequence[Query], base: list[RankedList], k: int) -> list[RankedList]:
         heads = [r.tool_ids[: self.depth] for r in base]
 
         def score(i: int) -> list[float]:
