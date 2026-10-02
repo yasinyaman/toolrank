@@ -17,4 +17,4 @@ The package is organised as ports and adapters:
 from toolrank.domain import EvalReport, Query, RankedList, Tool
 
 __all__ = ["EvalReport", "Query", "RankedList", "Tool", "__version__"]
-__version__ = "0.2.0.dev0"
+__version__ = "0.2.0"

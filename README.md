@@ -10,7 +10,7 @@ into the prompt, toolrank picks the few a request needs, with an embedding model
 (Qwen3-Embedding-8B, trained further on tool retrieval), and serves them to your agent over MCP or
 REST. Every retriever it ships is measured on the same public benchmarks.
 
-Status: **alpha (0.1)**; interfaces may still change. Documentation: <https://yaman.dev/toolrank/>
+Status: **alpha (0.2)**; interfaces may still change. Documentation: <https://yaman.dev/toolrank/>
 
 ## Quick start
 

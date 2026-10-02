@@ -6,6 +6,11 @@ change behaviour.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-02
+
+Learning from the usage log, a second stage, tenants, metrics, a Helm chart, and a LoRA-trained
+default backbone.
+
 ### Added
 
 - `toolrank eval --rerank jev`: TypeSafe AI's Jev reorders the top `--rerank-depth` tools of any

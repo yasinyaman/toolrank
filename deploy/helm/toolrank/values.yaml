@@ -43,7 +43,7 @@ embedding:
     nodeSelector: {}
     tolerations: []
   bundled:
-    image: ""  # e.g. registry.example.com/toolrank-vllm:0.1.0
+    image: ""  # e.g. registry.example.com/toolrank-vllm:0.2.0
     resources:
       limits:
         nvidia.com/gpu: 1

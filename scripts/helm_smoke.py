@@ -11,7 +11,7 @@ catalogue; and ``helm uninstall``, after which the data volume must still be the
 Needs kubectl and helm pointed at a cluster (``kind create cluster --name toolrank`` gives one on a
 laptop: Docker only, removed with ``kind delete cluster --name toolrank``). Nothing is published.
 
-uv run python scripts/helm_smoke.py [--image ghcr.io/yasinyaman/toolrank:0.1.0] [--namespace toolrank-smoke] [--keep]
+uv run python scripts/helm_smoke.py [--image ghcr.io/yasinyaman/toolrank:0.2.0] [--namespace toolrank-smoke] [--keep]
 """
 
 from __future__ import annotations
@@ -166,7 +166,7 @@ def port_forward(ns: str) -> tuple[subprocess.Popen, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    ap.add_argument("--image", default="ghcr.io/yasinyaman/toolrank:0.1.0")
+    ap.add_argument("--image", default="ghcr.io/yasinyaman/toolrank:0.2.0")
     ap.add_argument("--namespace", default="toolrank-smoke")
     ap.add_argument("--keep", action="store_true", help="leave the namespace and release in place")
     ap.add_argument(
