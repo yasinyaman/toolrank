@@ -22,6 +22,7 @@ embedding:
   url: ""    # external: e.g. http://my-vllm:8000/v1
   model: ""  # external: the served model name (default: from the profile)
   apiKeySecret: {name: "", key: ""}  # external: a Secret key sent as TOOLRANK_EMB_API_KEY
+  runtimeClassName: ""  # the GPU pod's runtime class: "nvidia" on k3s and other clusters without a GPU default
   vllm:
     image: vllm/vllm-openai:v0.30.0
     gpuMemoryUtilization: 0.9

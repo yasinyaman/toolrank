@@ -31,6 +31,8 @@ spec:
       {{- end }}
       {{- if not $bundled }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- else if .Values.embedding.runtimeClassName }}
+      runtimeClassName: {{ .Values.embedding.runtimeClassName }}
       {{- end }}
       {{- if $ingest }}
       initContainers:

@@ -18,6 +18,9 @@ spec:
       labels: {{- include "toolrank.selector" . | nindent 8 }}
         app.kubernetes.io/component: embedding
     spec:
+      {{- with .Values.embedding.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
       containers:
         - name: vllm
           image: {{ $v.image }}

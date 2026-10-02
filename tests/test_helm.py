@@ -116,6 +116,21 @@ def test_bf16_external_and_bundled():
     assert env(c)["TOOLRANK_FP8"] == "1" and env(c)["TOOLRANK_EMB_URL"] == "http://127.0.0.1:8091/v1"
     assert c["resources"]["limits"]["nvidia.com/gpu"] == 1 and "securityContext" not in c  # vLLM keeps root
     assert {m["mountPath"] for m in c["volumeMounts"]} >= {"/data", "/models", "/dev/shm"}
+    k3s = render("auth.apiKey=x", "embedding.runtimeClassName=nvidia")
+    assert (
+        k3s[("Deployment", "t-toolrank-embedding")]["spec"]["template"]["spec"]["runtimeClassName"]
+        == "nvidia"
+    )
+    assert (
+        "runtimeClassName" not in k3s[("Deployment", "t-toolrank")]["spec"]["template"]["spec"]
+    )  # no GPU there
+    k3s = render(
+        "auth.apiKey=x",
+        "embedding.mode=bundled",
+        "embedding.bundled.image=r/i:1",
+        "embedding.runtimeClassName=nvidia",
+    )
+    assert k3s[("Deployment", "t-toolrank")]["spec"]["template"]["spec"]["runtimeClassName"] == "nvidia"
 
 
 def test_tenants_and_mistakes():

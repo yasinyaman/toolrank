@@ -23,7 +23,9 @@ kubectl -n toolrank port-forward svc/toolrank 8765:8765
 `qwen3-emb-fp8`) or `bf16` (about 16 GB, `qwen3-emb`). In our runs FP8 ranks like bf16 within a
 query or two per benchmark. The embedding cache is keyed by the served name, so switching profiles
 re-embeds the catalogue once. The first start of a vLLM pod downloads 16 GB; the probes allow 30
-minutes for it.
+minutes for it. On k3s, and on other clusters where the NVIDIA runtime is not the default, set
+`embedding.runtimeClassName=nvidia` (and install the NVIDIA device plugin, which advertises
+`nvidia.com/gpu`).
 
 ## Your tools
 
