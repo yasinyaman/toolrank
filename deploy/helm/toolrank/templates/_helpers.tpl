@@ -27,8 +27,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* the served model name: the external one, or the profile's */}}
 {{- define "toolrank.model" -}}
 {{- if and (eq .Values.embedding.mode "external") .Values.embedding.model -}}{{ .Values.embedding.model }}
-{{- else if eq .Values.embedding.profile "fp8" -}}qwen3-emb-fp8
-{{- else if eq .Values.embedding.profile "bf16" -}}qwen3-emb
+{{- else if eq .Values.embedding.profile "fp8" -}}{{ .Values.embedding.backbone.name }}-fp8
+{{- else if eq .Values.embedding.profile "bf16" -}}{{ .Values.embedding.backbone.name }}
 {{- else -}}{{ fail (printf "embedding.profile: fp8 or bf16, not %q" .Values.embedding.profile) }}
 {{- end -}}
 {{- end -}}

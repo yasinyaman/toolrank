@@ -411,7 +411,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
 
 
 def cmd_finetune(a: argparse.Namespace) -> int:
-    from toolrank.build import DEFAULT_EMB_MODEL, DEFAULT_EMB_URL, DEFAULT_SERVING
+    from toolrank.build import DEFAULT_EMB_URL, DEFAULT_SERVING
     from toolrank.finetune import Job, TrainConfig, run
 
     if a.init_ckpt and (a.width is not None or a.depth is not None or a.no_skip):
@@ -434,7 +434,7 @@ def cmd_finetune(a: argparse.Namespace) -> int:
         init=a.init_ckpt,
         npz=Path(a.npz) if a.npz else None,
         emb_url=a.emb_url or DEFAULT_EMB_URL,
-        emb_model=a.emb_model or DEFAULT_EMB_MODEL,
+        emb_model=a.emb_model or "qwen3-emb",  # the base model its cached vectors and recipes use
         emb_batch=a.emb_batch,
         truncate=a.truncate or None,
         cache_dir=a.cache_dir or None,
@@ -506,7 +506,7 @@ def cmd_finetune(a: argparse.Namespace) -> int:
 
 
 def cmd_learn(a: argparse.Namespace) -> int:
-    from toolrank.build import DEFAULT_EMB_MODEL, DEFAULT_EMB_URL, DEFAULT_SERVING
+    from toolrank.build import DEFAULT_EMB_MODEL, DEFAULT_EMB_URL, DEFAULT_SERVING, backbone_repo
     from toolrank.finetune import TrainConfig
     from toolrank.learn import CANDIDATE, Job, heads_home, run
 
@@ -527,19 +527,20 @@ def cmd_learn(a: argparse.Namespace) -> int:
         except ImportError:
             sys.exit("toolrank learn trains with torch: pip install 'toolrank[clm]' (--dry-run needs none)")
     name = a.name or out.stem
+    emb_model = a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL
     job = Job(
         data=data,
         out=out,
         dev=Path(a.dev) if a.dev else None,
         init=None if a.init == "none" else a.init,
         emb_url=a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL,
-        emb_model=a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL,
+        emb_model=emb_model,
         emb_batch=a.emb_batch,
         truncate=a.truncate or int(DEFAULT_SERVING["truncate"]),
         cache_dir=a.cache_dir or None,
         tool_format=a.tool_format,
         query_format=a.query_format,
-        backbone=a.backbone,
+        backbone=a.backbone or backbone_repo(emb_model),
         since=a.since,
         tenant=a.tenant,
         strict=a.strict,
@@ -1267,7 +1268,9 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument(
         "--query-format", choices=list(QUERY_FORMATS), default="instruct_query", help="for --dev's queries"
     )
-    ln.add_argument("--backbone", default="Qwen/Qwen3-Embedding-8B", help="recorded in the heads' cfg")
+    ln.add_argument(
+        "--backbone", default=None, help="recorded in the heads' cfg (default: what --emb-model names)"
+    )
     ln.add_argument("--epochs", type=int, default=3)
     ln.add_argument("--batch", type=int, default=256)
     ln.add_argument("--lr", type=float, default=1e-5)

@@ -55,7 +55,7 @@ def test_the_default_runs_vllm_next_to_toolrank_with_the_fp8_profile():
     e = env(c)
     assert (
         e["TOOLRANK_EMB_URL"] == "http://t-toolrank-embedding:8000/v1"
-        and e["TOOLRANK_EMB_MODEL"] == "qwen3-emb-fp8"
+        and e["TOOLRANK_EMB_MODEL"] == "toolrank-emb-v0.2-fp8"
     )
     assert e["TOOLRANK_API_KEY"] == {"secretKeyRef": {"name": "t-toolrank-auth", "key": "TOOLRANK_API_KEY"}}
     assert e["TOOLRANK_ALLOWED_HOSTS"].split(",")[:4] == [
@@ -81,7 +81,10 @@ def test_the_default_runs_vllm_next_to_toolrank_with_the_fp8_profile():
     ]
     assert objs[("Deployment", "t-toolrank")]["spec"]["replicas"] == 1
     vllm = container(objs, "t-toolrank-embedding")
-    assert "--quantization=fp8" in vllm["args"] and "--served-model-name=qwen3-emb-fp8" in vllm["args"]
+    assert (
+        "--quantization=fp8" in vllm["args"] and "--served-model-name=toolrank-emb-v0.2-fp8" in vllm["args"]
+    )
+    assert vllm["args"][:2] == ["yasinyaman/toolrank-emb-8b", "--revision=v0.2"]
     assert vllm["resources"]["limits"]["nvidia.com/gpu"] == 1
     assert json.loads(objs[("ConfigMap", "t-toolrank-config")]["data"]["toolrank.json"])["mcpServers"]["time"]
     assert objs[("Secret", "t-toolrank-auth")]["stringData"] == {"TOOLRANK_API_KEY": "secret"}
@@ -96,7 +99,17 @@ def test_the_default_runs_vllm_next_to_toolrank_with_the_fp8_profile():
 def test_bf16_external_and_bundled():
     bf16 = render("auth.apiKey=x", "embedding.profile=bf16")
     assert "--quantization=fp8" not in container(bf16, "t-toolrank-embedding")["args"]
-    assert env(container(bf16))["TOOLRANK_EMB_MODEL"] == "qwen3-emb"
+    assert env(container(bf16))["TOOLRANK_EMB_MODEL"] == "toolrank-emb-v0.2"
+    base = render(
+        "auth.apiKey=x",
+        "embedding.backbone.repo=Qwen/Qwen3-Embedding-8B",
+        "embedding.backbone.revision=",
+        "embedding.backbone.name=qwen3-emb",
+    )
+    assert container(base, "t-toolrank-embedding")["args"][:2] == [
+        "Qwen/Qwen3-Embedding-8B",
+        "--served-model-name=qwen3-emb-fp8",
+    ]
 
     ext = render(
         "auth.apiKey=x", "embedding.mode=external", "embedding.url=http://emb:8000/v1", "embedding.model=m"
@@ -114,6 +127,10 @@ def test_bf16_external_and_bundled():
     c = container(one)
     assert c["image"] == "reg/toolrank-vllm:1" and ("Deployment", "t-toolrank-embedding") not in one
     assert env(c)["TOOLRANK_FP8"] == "1" and env(c)["TOOLRANK_EMB_URL"] == "http://127.0.0.1:8091/v1"
+    assert (
+        env(c)["TOOLRANK_BACKBONE"] == "yasinyaman/toolrank-emb-8b"
+        and env(c)["TOOLRANK_BACKBONE_REVISION"] == "v0.2"
+    )
     assert c["resources"]["limits"]["nvidia.com/gpu"] == 1 and "securityContext" not in c  # vLLM keeps root
     assert {m["mountPath"] for m in c["volumeMounts"]} >= {"/data", "/models", "/dev/shm"}
     k3s = render("auth.apiKey=x", "embedding.runtimeClassName=nvidia")

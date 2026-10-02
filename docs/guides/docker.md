@@ -4,8 +4,8 @@ Two images, both for `linux/amd64` and `linux/arm64`:
 
 | Image | What it runs | Needs |
 | --- | --- | --- |
-| `ghcr.io/yasinyaman/toolrank` | `toolrank` (serve, ingest, search) with the packaged heads, Node.js and uv for stdio MCP servers | an embedding endpoint serving Qwen3-Embedding-8B |
-| `toolrank-vllm`, built from `deploy/docker/Dockerfile.vllm` | the same, plus vLLM serving Qwen3-Embedding-8B inside the container | an NVIDIA GPU (16 GB; NVIDIA driver 580 or newer) |
+| `ghcr.io/yasinyaman/toolrank` | `toolrank` (serve, ingest, search) with the packaged heads, Node.js and uv for stdio MCP servers | an embedding endpoint serving the backbone |
+| `toolrank-vllm`, built from `deploy/docker/Dockerfile.vllm` | the same, plus vLLM serving the backbone inside the container | an NVIDIA GPU (16 GB; NVIDIA driver 580 or newer) |
 
 `deploy/docker/` has a compose file for each: `compose.yaml` runs the official vLLM image and the
 published `toolrank` image as two services, and `compose.bundle.yaml` builds `toolrank-vllm` and runs
@@ -63,15 +63,16 @@ writable to it. Under a rootless engine, a directory of yours is used as it is.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `TOOLRANK_FP8` | `1` | FP8 weights, served as `qwen3-emb-fp8`; `0` for bf16, served as `qwen3-emb` |
+| `TOOLRANK_BACKBONE`, `TOOLRANK_BACKBONE_REVISION` | `yasinyaman/toolrank-emb-8b`, `v0.2` | the weights; `Qwen/Qwen3-Embedding-8B` for the base model (served as `qwen3-emb`, with the packaged heads) |
+| `TOOLRANK_FP8` | `1` | FP8 weights, served as `toolrank-emb-v0.2-fp8`; `0` for bf16, served as `toolrank-emb-v0.2` |
 | `VLLM_GPU_MEMORY_UTILIZATION` | vLLM's | the share of GPU memory vLLM may take |
 | `VLLM_EXTRA_ARGS` | | more `vllm serve` flags |
 
 ## FP8 or bf16
 
 Both setups serve the backbone in FP8 (the bf16 weights quantized as vLLM loads them): half the
-weight memory, and the same retrieval quality as bf16 in our runs (see [Benchmarks](../benchmarks.md)).
-FP8 and bf16 are served under different names (`qwen3-emb-fp8`, `qwen3-emb`), which keeps their
+weight memory, and within a point of bf16 in our runs (see [Benchmarks](../benchmarks.md)).
+FP8 and bf16 are served under different names (`toolrank-emb-v0.2-fp8`, `toolrank-emb-v0.2`), which keeps their
 vectors apart in the embedding cache: switching re-embeds the catalogue once.
 
 ## Settings

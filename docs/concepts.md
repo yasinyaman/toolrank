@@ -8,16 +8,19 @@ agent describes what it wants to do, and only the tools that fit are loaded.
 
 ## Backbone and heads
 
-toolrank ranks with an embedding model, the **backbone**: Qwen3-Embedding-8B, served by vLLM (or
-any OpenAI-compatible embeddings endpoint). A request and a tool's text become vectors, and the
-tools whose vectors are closest to the request's come first.
+toolrank ranks with an embedding model, the **backbone**, served by vLLM (or any OpenAI-compatible
+embeddings endpoint). A request and a tool's text become vectors, and the tools whose vectors are
+closest to the request's come first. The default backbone is Qwen3-Embedding-8B with a LoRA trained
+on ToolRet's training pairs (`yasinyaman/toolrank-emb-8b`, served as `toolrank-emb-v0.2`;
+[model card](backbone/MODEL_CARD.md)): the best single stage we measured.
 
-On top of the backbone sit two small **heads**, one for requests and one for tools (29.9M
-parameters together). Each is `x + MLP(x)`: it starts as the identity, so it can only move the
-backbone's vectors where training showed it helps, and a model trained on your own data cannot
-start below the backbone's quality. The packaged heads (v0.1) were trained on ToolRet's training
-pairs; they run in numpy, without torch, and ship as a 60 MB `.npz`
-([model card](heads/MODEL_CARD.md)). `toolrank finetune` trains your own.
+The base Qwen3-Embedding-8B can be served instead (as `qwen3-emb`). On it sit two small **heads**,
+one for requests and one for tools (29.9M parameters together). Each is `x + MLP(x)`: it starts as
+the identity, so it can only move the backbone's vectors where training showed it helps. The
+packaged heads (v0.1) were trained on ToolRet's training pairs; they run in numpy, without torch,
+and ship as a 60 MB `.npz` ([model card](heads/MODEL_CARD.md)). toolrank applies them only on the
+base model they were trained on: on the LoRA backbone they cost 1–2 points, and heads trained on
+top of it learn nothing. `toolrank finetune` and `toolrank learn` train your own.
 
 The backbone reads an **instruction** in front of each request
 (`Instruct: Given an agent's request for a tool, retrieve the MCP tool that fulfills it`), and each

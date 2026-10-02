@@ -457,3 +457,16 @@ def test_learn_writes_the_candidate_and_mixes_in_general_pairs(tmp_path):
     assert report["decision"] == "published", lines
     assert any("a running server gives it a share" in line for line in lines)
     assert NumpyHeads(out).cfg["learned_from"]["requests"] == 48 and out.with_suffix(".pt").exists()
+
+
+def test_learn_starts_from_the_heads_a_server_would_serve(tmp_path, monkeypatch):
+    from toolrank.learn import resolve_init
+
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    assert resolve_init("default", "toolrank-emb-v0.2") is None  # fresh skip heads: the backbone alone
+    assert resolve_init("x.npz", "toolrank-emb-v0.2") == "x.npz" and resolve_init(None, "qwen3-emb") is None
+    heads = tmp_path / "h.npz"
+    heads.write_bytes(b"")
+    monkeypatch.setenv("TOOLRANK_HEADS", str(heads))
+    assert resolve_init("default", "qwen3-emb") == str(heads)
+    assert resolve_init("default", "toolrank-emb-v0.2") == str(heads)  # asked for by name

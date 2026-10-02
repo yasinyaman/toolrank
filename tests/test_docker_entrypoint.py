@@ -13,7 +13,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-SETTINGS = ("TOOLRANK_FP8", "TOOLRANK_EMB_MODEL", "VLLM_EXTRA_ARGS", "VLLM_GPU_MEMORY_UTILIZATION")
+SETTINGS = (
+    "TOOLRANK_FP8",
+    "TOOLRANK_EMB_MODEL",
+    "TOOLRANK_BACKBONE",
+    "TOOLRANK_BACKBONE_REVISION",
+    "VLLM_EXTRA_ARGS",
+    "VLLM_GPU_MEMORY_UTILIZATION",
+)
 
 
 def _dry_run(env, *argv, path=None):
@@ -29,14 +36,31 @@ def _dry_run(env, *argv, path=None):
 
 
 def test_fp8_and_bf16_are_served_under_different_names():
+    from toolrank.build import BACKBONE_REPO, BACKBONE_REVISION, BACKBONES
+
+    name = f"toolrank-emb-{BACKBONE_REVISION}"
+    assert BACKBONES[name]["repo"] == BACKBONE_REPO and f"{name}-fp8" in BACKBONES  # the script says the same
     vllm, toolrank = _dry_run({"TOOLRANK_FP8": "1"}, "serve", "--data", "/data")
-    assert vllm[:3] == ["vllm", "serve", "Qwen/Qwen3-Embedding-8B"] and "--quantization" in vllm
-    assert vllm[vllm.index("--served-model-name") + 1] == "qwen3-emb-fp8"
+    assert vllm[:3] == ["vllm", "serve", BACKBONE_REPO] and "--quantization" in vllm
+    assert vllm[vllm.index("--revision") + 1] == BACKBONE_REVISION  # the weights never change under a name
+    assert vllm[vllm.index("--served-model-name") + 1] == f"{name}-fp8"
     assert vllm[vllm.index("--host") + 1] == "127.0.0.1"  # vLLM stays inside the container
-    assert "TOOLRANK_EMB_MODEL=qwen3-emb-fp8" in toolrank and toolrank.endswith("toolrank serve --data /data")
+    assert f"TOOLRANK_EMB_MODEL={name}-fp8" in toolrank and toolrank.endswith("toolrank serve --data /data")
     vllm, toolrank = _dry_run({"TOOLRANK_FP8": "0"}, "serve", "--data", "/data")
-    assert "--quantization" not in vllm and vllm[vllm.index("--served-model-name") + 1] == "qwen3-emb"
-    assert "TOOLRANK_EMB_MODEL=qwen3-emb " in toolrank  # a separate cache namespace from the FP8 vectors
+    assert "--quantization" not in vllm and vllm[vllm.index("--served-model-name") + 1] == name
+    assert f"TOOLRANK_EMB_MODEL={name} " in toolrank  # a separate cache namespace from the FP8 vectors
+
+
+def test_the_base_model_and_other_backbones_get_names_of_their_own():
+    base = {"TOOLRANK_BACKBONE": "Qwen/Qwen3-Embedding-8B"}
+    vllm, toolrank = _dry_run({**base, "TOOLRANK_FP8": "1"}, "serve", "--data", "/data")
+    assert vllm[2] == "Qwen/Qwen3-Embedding-8B" and "--revision" not in vllm
+    assert "TOOLRANK_EMB_MODEL=qwen3-emb-fp8" in toolrank  # where the packaged heads apply
+    vllm, toolrank = _dry_run({**base, "TOOLRANK_FP8": "0"}, "serve", "--data", "/data")
+    assert vllm[vllm.index("--served-model-name") + 1] == "qwen3-emb"
+    other = {"TOOLRANK_BACKBONE": "acme/emb-1", "TOOLRANK_BACKBONE_REVISION": "r3", "TOOLRANK_FP8": "0"}
+    vllm, toolrank = _dry_run(other, "serve", "--data", "/data")
+    assert vllm[vllm.index("--revision") + 1] == "r3" and "TOOLRANK_EMB_MODEL=acme-emb-1 " in toolrank
 
 
 def test_extra_vllm_flags_and_memory_share_pass_through():

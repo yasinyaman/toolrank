@@ -1,7 +1,8 @@
 # Quick start
 
-toolrank needs an embedding model to rank tools: Qwen3-Embedding-8B, served by vLLM on a GPU with
-at least 16 GB of memory (or any OpenAI-compatible `/v1/embeddings` endpoint serving it). The
+toolrank needs an embedding model to rank tools: its backbone, Qwen3-Embedding-8B trained further
+on tool retrieval, served by vLLM on a GPU with at least 16 GB of memory (or any OpenAI-compatible
+`/v1/embeddings` endpoint serving it). The
 Docker path starts both; the pip path uses an endpoint you already run.
 
 ## With Docker (one GPU host)
@@ -43,15 +44,18 @@ curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" \
 
 ```bash
 pip install "toolrank[mcp]"           # add ,openapi for YAML specs; ,stem for a stemmed BM25 fallback
-toolrank heads pull                   # the packaged heads, into ~/.cache/toolrank (60 MB)
 ```
 
-Serve the embedding model on a GPU host, as `qwen3-emb` on port 8091 (the default toolrank uses):
+Serve the backbone on a GPU host, as `toolrank-emb-v0.2` on port 8091 (the default toolrank uses;
+`--quantization fp8` halves its memory, served then as `toolrank-emb-v0.2-fp8`):
 
 ```bash
-vllm serve Qwen/Qwen3-Embedding-8B --served-model-name qwen3-emb --runner pooling \
-  --max-model-len 8192 --port 8091
+vllm serve yasinyaman/toolrank-emb-8b --revision v0.2 --served-model-name toolrank-emb-v0.2 \
+  --runner pooling --max-model-len 8192 --port 8091
 ```
+
+With the base `Qwen/Qwen3-Embedding-8B` served as `qwen3-emb` instead, `toolrank heads pull` fetches
+the heads that go with it (60 MB) and `--emb-model qwen3-emb` selects it.
 
 On another machine, point toolrank at it with `--emb-url http://HOST:8091/v1` or
 `TOOLRANK_EMB_URL`; an endpoint that wants a key gets `TOOLRANK_EMB_API_KEY` (toolrank sends

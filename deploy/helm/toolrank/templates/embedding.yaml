@@ -25,7 +25,10 @@ spec:
         - name: vllm
           image: {{ $v.image }}
           args:
-            - Qwen/Qwen3-Embedding-8B
+            - {{ .Values.embedding.backbone.repo }}
+            {{- with .Values.embedding.backbone.revision }}
+            - --revision={{ . }}
+            {{- end }}
             - --served-model-name={{ include "toolrank.model" . }}
             {{- if eq .Values.embedding.profile "fp8" }}
             - --quantization=fp8

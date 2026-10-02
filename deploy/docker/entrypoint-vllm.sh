@@ -9,8 +9,13 @@
 # is a wrapper that never runs it as root (as-toolrank.sh: the owner of /data, else the image's
 # `toolrank` user), so the stdio MCP servers toolrank starts are not root either.
 #
-#   TOOLRANK_FP8=1|0                 FP8 weights (quantized at load, served as qwen3-emb-fp8) or bf16
-#                                    (qwen3-emb): the names keep the two apart in the embedding cache
+#   TOOLRANK_BACKBONE=REPO           the weights (default: toolrank's LoRA-trained Qwen3-Embedding-8B,
+#   TOOLRANK_BACKBONE_REVISION=TAG   yasinyaman/toolrank-emb-8b at v0.2; Qwen/Qwen3-Embedding-8B for
+#                                    the base model, which the packaged heads go with)
+#   TOOLRANK_FP8=1|0                 FP8 weights (quantized at load, served as <name>-fp8) or bf16
+#                                    (<name>): the names keep the two apart in the embedding cache;
+#                                    <name> is toolrank-emb-v0.2, qwen3-emb for the base model, else
+#                                    the repo id with / as -
 #   VLLM_GPU_MEMORY_UTILIZATION=0.9  the share of GPU memory vLLM may take
 #   VLLM_EXTRA_ARGS="..."            more `vllm serve` flags
 #   TOOLRANK_API_KEY                 required by `serve` on 0.0.0.0
@@ -22,15 +27,22 @@ case "${1:-}" in
   *) exec toolrank "$@" ;;
 esac
 
-model=${TOOLRANK_BACKBONE:-Qwen/Qwen3-Embedding-8B}
+default_repo=yasinyaman/toolrank-emb-8b default_revision=v0.2 # build.BACKBONE_REPO / _REVISION
+model=${TOOLRANK_BACKBONE:-$default_repo}
+case "$model" in
+  "$default_repo") name=toolrank-emb-$default_revision revision=${TOOLRANK_BACKBONE_REVISION:-$default_revision} ;;
+  Qwen/Qwen3-Embedding-8B) name=qwen3-emb revision=${TOOLRANK_BACKBONE_REVISION:-} ;;
+  *) name=${model//\//-} revision=${TOOLRANK_BACKBONE_REVISION:-} ;;
+esac
 port=${VLLM_PORT:-8091}
 args=(serve "$model" --runner pooling --max-model-len 8192 --no-enable-chunked-prefill
   --max-num-batched-tokens 8192 --host 127.0.0.1 --port "$port")
+[[ -n "$revision" ]] && args+=(--revision "$revision")
 if [[ "${TOOLRANK_FP8:-1}" == 1 ]]; then
-  served=${TOOLRANK_EMB_MODEL:-qwen3-emb-fp8}
+  served=${TOOLRANK_EMB_MODEL:-$name-fp8}
   args+=(--quantization fp8)
 else
-  served=${TOOLRANK_EMB_MODEL:-qwen3-emb}
+  served=${TOOLRANK_EMB_MODEL:-$name}
 fi
 args+=(--served-model-name "$served")
 if [[ -n "${VLLM_GPU_MEMORY_UTILIZATION:-}" ]]; then

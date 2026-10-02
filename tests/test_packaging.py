@@ -2,6 +2,7 @@
 and the packaged heads fetched into the cache."""
 
 import hashlib
+import json
 import re
 import shutil
 import sys
@@ -164,6 +165,16 @@ def test_publish_heads_writes_the_address_into_the_code_and_the_card(tmp_path):
     (tmp_path / "docs" / "heads" / "MODEL_CARD.md").write_text(hosted)
     (tmp_path / "CHANGELOG.md").write_text("## [0.1.0] - 2026-10-06\n")
     assert check.problems(tmp_path, [], heads_url=url, version="0.1.0") == []
+    unpublished = check.problems(
+        tmp_path, [], heads_url=url, version="0.1.0", backbone=("me/emb", "v0.2", False)
+    )
+    assert unpublished == [
+        "src/toolrank/build.py: the default backbone me/emb@v0.2 is not on the Hub yet "
+        "(scripts/publish_backbone.py --upload, then BACKBONE_PUBLISHED = True)"
+    ]
+    assert (
+        check.problems(tmp_path, [], heads_url=url, version="0.1.0", backbone=("me/emb", "v0.2", True)) == []
+    )
 
 
 def test_the_readme_links_work_on_pypi_too():
@@ -194,3 +205,29 @@ def test_torch_heads_without_torch_point_at_the_npz(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", None)
     with pytest.raises(ValueError, match=r"pip install 'toolrank\[clm\]' \(the packaged .npz heads do not\)"):
         load_heads(tmp_path / "heads.pt")
+
+
+def test_publish_backbone_checks_the_merged_directory_and_flips_the_flag(tmp_path):
+    pb = _script("publish_backbone")
+    model = tmp_path / "merged"
+    (model / "1_Pooling").mkdir(parents=True)
+    for name in pb.REQUIRED:
+        (model / name).write_text("{}")
+    (model / "config.json").write_text(
+        json.dumps({"hidden_size": 4096, "rope_parameters": {"rope_theta": 1e6}})
+    )
+    assert pb.check_model(model) == []
+    (model / "config.json").write_text(
+        json.dumps({"hidden_size": 4096, "rope_parameters": [{"rope_theta": 1}]})
+    )
+    (model / "tokenizer.json").unlink()
+    assert pb.check_model(model) == [
+        "tokenizer.json is missing",
+        "config.json: rope_parameters is a list (a transformers 5 rewrite; restore the original)",
+    ]
+    card = "weights at {repo}@{revision}, sha256 {sha256}"
+    assert pb.readme(card, "me/emb", "v0.2", "abc").endswith("weights at me/emb@v0.2, sha256 abc")
+    source = (ROOT / "src" / "toolrank" / "build.py").read_text()
+    assert "BACKBONE_PUBLISHED = True" in pb.with_published(source)
+    with pytest.raises(ValueError, match="one BACKBONE_PUBLISHED"):
+        pb.with_published("nothing here")

@@ -238,11 +238,18 @@ class Job:
     )
 
 
-def resolve_init(init: str | None) -> str | None:
-    """``default`` -> the packaged (or ``TOOLRANK_HEADS``) heads; a path as is; None -> fresh skip heads."""
+def resolve_init(init: str | None, emb_model: str | None = None) -> str | None:
+    """``default`` -> the heads a server would serve on ``emb_model``: the packaged (or
+    ``TOOLRANK_HEADS``) ones, or none on a backbone they do not belong on; a path as is; None ->
+    fresh skip heads (identity at the start, so epoch 0 is the backbone alone)."""
     if init == "default":
-        from toolrank.adapters.heads_np import default_heads
+        import os
 
+        from toolrank.adapters.heads_np import default_heads
+        from toolrank.build import packaged_heads_fit
+
+        if not packaged_heads_fit(emb_model) and not os.environ.get("TOOLRANK_HEADS"):
+            return None
         return str(default_heads())
     return init or None
 
@@ -377,7 +384,7 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
         return m
 
     select = f"log.Recall@{K}"
-    init = resolve_init(job.init)
+    init = resolve_init(job.init, job.emb_model)
     ck, history = train_heads(train_b, None, job.train, init=init, on_epoch=on_epoch, log=log, select=select)
     best = int(ck["cfg"]["best_epoch"])
     start, chosen = history[0], history[best]

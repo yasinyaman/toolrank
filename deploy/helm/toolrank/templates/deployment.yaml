@@ -102,6 +102,8 @@ spec:
             {{- end }}
             {{- if $bundled }}
             - {name: TOOLRANK_FP8, value: {{ ternary "1" "0" (eq .Values.embedding.profile "fp8") | quote }}}
+            - {name: TOOLRANK_BACKBONE, value: {{ .Values.embedding.backbone.repo | quote }}}
+            - {name: TOOLRANK_BACKBONE_REVISION, value: {{ .Values.embedding.backbone.revision | quote }}}
             - {name: VLLM_GPU_MEMORY_UTILIZATION, value: {{ .Values.embedding.vllm.gpuMemoryUtilization | quote }}}
             {{- end }}
             {{- range $k, $v := .Values.env }}

@@ -322,6 +322,15 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   own `k`). The log keeps them apart: `shown` is what the ranking returned, `added` the partners; `learn.mine`
   counts both as shown. A "no tool fits" gate is `--cut-threshold T --cut-min 0` (an empty list plus a note in
   `search_tools`); there is no default T, the best cosine does not separate well (`docs/reports/faz2-week5.md`).
+- **Default backbone** (Faz 2 week 7): `build.BACKBONES` maps served names to weights and whether the packaged
+  heads belong on them; `DEFAULT_EMB_MODEL = "toolrank-emb-v0.2"` (the LoRA-merged Qwen3-Embedding-8B,
+  `BACKBONE_REPO` @ `BACKBONE_REVISION`; the version is in the name because the embedding cache is keyed by it).
+  `search_defaults` loads cached heads only when `packaged_heads_fit(emb_model)` (unknown names: yes, as before;
+  `TOOLRANK_HEADS` always), `learn.resolve_init("default", emb_model)` follows the same rule. Until the weights
+  are on the Hub `BACKBONE_PUBLISHED = False` and `release_check` refuses a release; `scripts/publish_backbone.py`
+  (run on the GB10, dry run without `--upload`) uploads the merged directory, tags the revision and flips the
+  flag. `entrypoint-vllm.sh`, `deploy/docker/compose.yaml` and the chart's `embedding.backbone` carry the same
+  names (a test ties the entrypoint to `build`). finetune keeps `qwen3-emb` as its default.
 - **Second stage while serving** (Faz 2 week 7): `search` / `serve --rerank cross|jev` (`cli._add_serve_rerank_args`:
   depth 20, documentation cut to 3,000 characters, Qwen3-Reranker as `qwen3-reranker`; Jev reads the same text)
   goes through the same `scorer_factory` wrapping as eval. Both rerankers have `rank_pairs` (reranked, first
@@ -519,13 +528,14 @@ src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_e
 src/toolrank/finetune.py          toolrank finetune: Job/run, EvalSet (dev curves), train_heads(select=), load_checkpoint
 src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids), state_vectors (emb_hmac -> cache), split, run;
                                   toolrank ab: judge, decide, apply (candidate -> current | rejected), heads_home
-src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint
+src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint; BACKBONES
 src/toolrank/cut.py               AdaptiveK (+ defaults), cutter
 src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | ab | heads (export, pull) | formats
 docs/plan/                        private repo (ignored here): faz-0..3.md, backlog.md, acik-cekirdek.md, claude-code-handoff.md, lansman-kiti.md
 docs/reports/                     weekly numbers; TEMPLATE.md
 docs/results.toml, docs/results/  the README's results table: its rows and the curated eval reports behind them
 docs/heads/MODEL_CARD.md          the packaged heads' card (sha256, serving, data license, numbers)
+docs/backbone/MODEL_CARD.md       the default backbone's card (LoRA recipe, selection set, serving, data license, numbers; publish_backbone.py stages it)
 deploy/spark/                     vLLM servers: systemd units, compose.yaml (NGC image, GB10; fp8 (8092 CLM, 8094 embedding), gen and pg profiles;
                                   rerank: Qwen3-Reranker-8B 8095 + bge-reranker-v2-gemma 8096 as vLLM score models; lora: the merged LoRA backbone 8097)
 deploy/helm/toolrank/             the Helm chart (embedding.mode vllm | external | bundled, profile fp8 | bf16; one replica, Recreate)
@@ -545,7 +555,8 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write);
                                   learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size);
                                   routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log);
-                                  helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall)
+                                  helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall);
+                                  publish_backbone.py (the LoRA-merged backbone to the Hub, tagged; dry run by default)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
 ```
 

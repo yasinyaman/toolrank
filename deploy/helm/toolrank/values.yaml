@@ -4,10 +4,12 @@
 #   external  an OpenAI-compatible /v1/embeddings endpoint you already run
 #   bundled   one pod with the toolrank-vllm image (deploy/docker/Dockerfile.vllm; not published,
 #             build and push it to your registry first)
-# Resource profiles (embedding.profile): fp8 = Qwen3-Embedding-8B quantized at load, about 8 GB of
-# weights, served as qwen3-emb-fp8 (the default: the same retrieval quality in our runs); bf16 =
-# about 16 GB, served as qwen3-emb. The embedding cache is keyed by the served name, so changing
-# the profile re-embeds the catalogue once.
+# The backbone (embedding.backbone) is toolrank's LoRA-trained Qwen3-Embedding-8B by default; set
+# {repo: Qwen/Qwen3-Embedding-8B, revision: "", name: qwen3-emb} for the base model with the
+# packaged heads. Resource profiles (embedding.profile): fp8 = quantized at load, about 8 GB of
+# weights, served as <name>-fp8 (the default: within a point of bf16 in our runs); bf16 = about
+# 16 GB, served as <name>. The embedding cache is keyed by the served name, so changing either
+# re-embeds the catalogue once.
 
 image:
   repository: ghcr.io/yasinyaman/toolrank
@@ -19,6 +21,10 @@ imagePullSecrets: []
 embedding:
   mode: vllm
   profile: fp8
+  backbone:
+    repo: yasinyaman/toolrank-emb-8b
+    revision: v0.2
+    name: toolrank-emb-v0.2
   url: ""    # external: e.g. http://my-vllm:8000/v1
   model: ""  # external: the served model name (default: from the profile)
   apiKeySecret: {name: "", key: ""}  # external: a Secret key sent as TOOLRANK_EMB_API_KEY

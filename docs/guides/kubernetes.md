@@ -11,7 +11,7 @@ kubectl -n toolrank port-forward svc/toolrank 8765:8765
 
 ## The backbone
 
-`embedding.mode` picks where Qwen3-Embedding-8B runs:
+`embedding.mode` picks where the backbone runs:
 
 | Mode | What runs | Needs |
 | --- | --- | --- |
@@ -19,9 +19,12 @@ kubectl -n toolrank port-forward svc/toolrank 8765:8765
 | `external` | nothing: `embedding.url` and `embedding.model` name your endpoint | an OpenAI-compatible `/v1/embeddings` |
 | `bundled` | one pod with the `toolrank-vllm` image | a GPU node, and the image built from `deploy/docker/Dockerfile.vllm` and pushed to your registry (`embedding.bundled.image`) |
 
-`embedding.profile` sets the weights: `fp8` (the default, quantized at load, about 8 GB, served as
-`qwen3-emb-fp8`) or `bf16` (about 16 GB, `qwen3-emb`). In our runs FP8 ranks like bf16 within a
-query or two per benchmark. The embedding cache is keyed by the served name, so switching profiles
+`embedding.backbone` names the weights: toolrank's LoRA-trained Qwen3-Embedding-8B by default
+(`yasinyaman/toolrank-emb-8b` at `v0.2`, served as `toolrank-emb-v0.2`), or
+`{repo: Qwen/Qwen3-Embedding-8B, revision: "", name: qwen3-emb}` for the base model with the packaged
+heads. `embedding.profile` sets the precision: `fp8` (the default, quantized at load, about 8 GB,
+served as `<name>-fp8`) or `bf16` (about 16 GB, `<name>`). In our runs FP8 stays within a point of
+bf16. The embedding cache is keyed by the served name, so switching profiles
 re-embeds the catalogue once. The first start of a vLLM pod downloads 16 GB; the probes allow 30
 minutes for it. On k3s, and on other clusters where the NVIDIA runtime is not the default, set
 `embedding.runtimeClassName=nvidia` (and install the NVIDIA device plugin, which advertises

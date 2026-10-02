@@ -53,6 +53,7 @@ nav:
       - CLI: reference/cli.md
       - REST API: reference/rest.md
       - Python API: reference/python.md
+      - Backbone model card: backbone/MODEL_CARD.md
       - Heads model card: heads/MODEL_CARD.md
   - Contributing: contributing.md
   - Changelog: changelog.md

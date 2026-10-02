@@ -16,10 +16,36 @@ from pathlib import Path
 from typing import Any
 
 INDEX_KINDS = ("numpy", "faiss", "pgvector")
-# toolrank search's and serve's product defaults: the served Qwen3-Embedding-8B, its texts and
-# the instruction that did best on the MCP sets; heads when a checkpoint is at hand
+# Embedding backbones by served name. The name is the embedding cache's key, so new weights get a
+# new name (a version in it). "heads": whether the packaged heads were trained on its vectors; an
+# unknown name keeps the old behaviour (heads when a checkpoint is at hand). The default is
+# Qwen3-Embedding-8B LoRA-trained on ToolRet's training pairs (docs/backbone/MODEL_CARD.md): one
+# stage, no heads (the v0.1 heads cost it 1-2 points; heads trained on it stay at identity).
+BACKBONE_REPO, BACKBONE_REVISION = "yasinyaman/toolrank-emb-8b", "v0.2"
+BACKBONE_PUBLISHED = False  # True once the weights are on the Hub at that revision (release_check)
+BACKBONES: dict[str, dict[str, Any]] = {
+    "toolrank-emb-v0.2": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},
+    "toolrank-emb-v0.2-fp8": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},
+    "qwen3-emb": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
+    "qwen3-emb-fp8": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
+    "qwen3-emb-lora": {"repo": "a local scripts/lora_train.py run", "heads": False},
+}
+# toolrank search's and serve's product defaults: the served backbone, its texts and the
+# instruction that did best on the MCP sets
 DEFAULT_EMB_URL = "http://127.0.0.1:8091/v1"
-DEFAULT_EMB_MODEL = "qwen3-emb"
+DEFAULT_EMB_MODEL = "toolrank-emb-v0.2"
+
+
+def packaged_heads_fit(emb_model: str | None) -> bool:
+    """Whether the packaged heads belong on this served backbone (unknown names: yes, as before)."""
+    return bool(BACKBONES.get(emb_model or "", {}).get("heads", True))
+
+
+def backbone_repo(emb_model: str | None) -> str:
+    """What a served name is, for the cfg of heads trained on it (the name itself when unknown)."""
+    return str(BACKBONES.get(emb_model or "", {}).get("repo") or emb_model or "")
+
+
 DEFAULT_SERVING = {
     "tool_format": "documentation",
     "query_format": "instruct_query",
@@ -296,7 +322,7 @@ def build_retriever(
 
     explicit_heads = a.clm_ckpt is not None  # --clm-ckpt wins over a learned DATA/heads/current.npz
     search_defaults(a)
-    if a.scorer == "dense" and notify is not None:  # a server without heads should say so, once
+    if a.scorer == "dense" and notify is not None and packaged_heads_fit(a.emb_model):  # say so, once
         notify("no heads found: ranking with the embedding model alone (`toolrank heads pull` fetches them)")
     make, info = scorer_factory(
         a, query_timeout=10.0 if serving_limits else None, query_attempts=2 if serving_limits else None
@@ -369,16 +395,17 @@ def serving_of(scorer: Any) -> dict[str, Any]:
 
 
 def search_defaults(a: Any) -> None:
-    """Fill ``toolrank search``'s unset flags: packaged heads if one is configured or cached (never
-    a download unless ``--clm-ckpt default``), else raw Qwen3-Embedding; product texts and truncation."""
+    """Fill ``toolrank search``'s unset flags: the backbone, then the packaged heads when they belong
+    on it and one is configured or cached (``TOOLRANK_HEADS`` always counts; never a download unless
+    ``--clm-ckpt default``), else the backbone alone; product texts and truncation."""
     from toolrank.adapters.heads_np import default_heads
 
-    if a.clm_ckpt is None:
+    a.emb_url = a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL
+    a.emb_model = a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL
+    if a.clm_ckpt is None and (packaged_heads_fit(a.emb_model) or os.environ.get("TOOLRANK_HEADS")):
         with contextlib.suppress(FileNotFoundError):
             a.clm_ckpt = str(default_heads(url=""))
     a.scorer = "clm" if a.clm_ckpt else "dense"
-    a.emb_url = a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL
-    a.emb_model = a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL
     a.with_inst = True
     if a.scorer == "dense":
         a.tool_format = a.tool_format or DEFAULT_SERVING["tool_format"]

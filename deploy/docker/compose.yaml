@@ -1,4 +1,5 @@
-# toolrank and its embedding backbone on one GPU host: vLLM serves Qwen3-Embedding-8B, toolrank serves
+# toolrank and its embedding backbone on one GPU host: vLLM serves toolrank's LoRA-trained
+# Qwen3-Embedding-8B (yasinyaman/toolrank-emb-8b at v0.2; no heads needed on it), toolrank serves
 # your tools in front of it on 127.0.0.1:8765 (MCP at /mcp, REST at /v1). From this directory:
 #
 #   cp .env.example .env                  # set TOOLRANK_API_KEY
@@ -13,11 +14,13 @@ name: toolrank-stack
 services:
   embedding:
     image: vllm/vllm-openai:v0.30.0
-    # FP8 weights, quantized at load: the same retrieval quality as bf16 in our runs, half the memory.
-    # For bf16, drop --quantization and serve as qwen3-emb (and set TOOLRANK_EMB_MODEL to match).
+    # FP8 weights, quantized at load: within a point of bf16 in our runs, half the memory. For bf16,
+    # drop --quantization and serve as toolrank-emb-v0.2 (and set TOOLRANK_EMB_MODEL to match). For
+    # the base model with the packaged heads: Qwen/Qwen3-Embedding-8B, no --revision, qwen3-emb-fp8.
     command:
-      - Qwen/Qwen3-Embedding-8B
-      - --served-model-name=qwen3-emb-fp8
+      - yasinyaman/toolrank-emb-8b
+      - --revision=v0.2
+      - --served-model-name=toolrank-emb-v0.2-fp8
       - --quantization=fp8
       - --runner=pooling
       - --max-model-len=8192
@@ -51,7 +54,7 @@ services:
     environment:
       TOOLRANK_API_KEY: ${TOOLRANK_API_KEY:?set TOOLRANK_API_KEY in .env}
       TOOLRANK_EMB_URL: http://embedding:8000/v1
-      TOOLRANK_EMB_MODEL: qwen3-emb-fp8
+      TOOLRANK_EMB_MODEL: toolrank-emb-v0.2-fp8
       TOOLRANK_ALLOWED_HOSTS: toolrank
     volumes:
       - data:/data

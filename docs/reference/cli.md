@@ -339,7 +339,7 @@ From an ingest dir toolrank serve has served: the log's searches and calls becom
 | `--report REPORT` |  | the report's path (default: RESULTS/learn_<name>.json) |
 | `--tool-format {documentation,name_desc,schema,example_call}` | `documentation` |  |
 | `--query-format {plain,concat,instruct_query,clm}` | `instruct_query` | for --dev's queries |
-| `--backbone BACKBONE` | `Qwen/Qwen3-Embedding-8B` | recorded in the heads' cfg |
+| `--backbone BACKBONE` |  | recorded in the heads' cfg (default: what --emb-model names) |
 | `--epochs EPOCHS` | `3` |  |
 | `--batch BATCH` | `256` |  |
 | `--lr LR` | `1e-05` |  |

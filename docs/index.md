@@ -2,8 +2,8 @@
 
 **Tool retrieval for LLM agents with hundreds of tools.** Instead of putting every tool definition
 into the prompt, toolrank picks the few a request needs, with an embedding model
-([Qwen3-Embedding-8B](https://huggingface.co/Qwen/Qwen3-Embedding-8B)) and small learned heads
-on top of it, and hands only those to the agent.
+([Qwen3-Embedding-8B](https://huggingface.co/Qwen/Qwen3-Embedding-8B), trained further on tool
+retrieval) and hands only those to the agent.
 
 - **Your tools, indexed.** MCP servers (stdio or streamable HTTP) and OpenAPI specs become one
   catalogue; re-running the ingest syncs only what changed.

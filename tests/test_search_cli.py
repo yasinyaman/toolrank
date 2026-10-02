@@ -60,7 +60,7 @@ def _args(ingest_dir, tmp_path, *extra):
 def test_search_uses_raw_qwen3_without_heads_and_keeps_its_index(ingest_dir, tmp_path, fake_endpoint, capsys):
     assert main(_args(ingest_dir, tmp_path, "--k", "2")) == 0
     out = capsys.readouterr().out
-    assert out.startswith("dense/emb/qwen3-emb/documentation/instruct_query")
+    assert out.startswith("dense/emb/toolrank-emb-v0.2/documentation/instruct_query")
     assert "3 tools; index" in out and "(embedded 3, kept 0)" in out and "top 2" in out
     assert len([line for line in out.splitlines() if line.strip().startswith(("1.", "2.", "3."))]) == 2
     assert (ingest_dir / "index" / "index.npz").exists()
@@ -102,9 +102,12 @@ def test_a_server_without_heads_says_so(ingest_dir, tmp_path, fake_endpoint, mon
     from toolrank.cli import build_parser
 
     events: list[str] = []
-    build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
+    base_model = _args(ingest_dir, tmp_path, "--emb-model", "qwen3-emb")
+    build_retriever(build_parser().parse_args(base_model), notify=events.append)
     assert [e for e in events if e.startswith("no heads found")] != []
-    events.clear()
+    events.clear()  # the default backbone needs no heads: nothing to say
+    build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
+    assert [e for e in events if e.startswith("no heads found")] == []
     monkeypatch.setenv("TOOLRANK_HEADS", str(_case_npz(tmp_path, "gelu_layernorm_skip")))
     build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), notify=events.append)
     assert [e for e in events if e.startswith("no heads found")] == []
@@ -164,3 +167,25 @@ def test_serve_refuses_credentials_for_a_source_it_cannot_send_them_to(ingest_di
         main(
             ["serve", "--data", str(ingest_dir), "--cache-dir", str(tmp_path / "c"), "--api-keys", str(keys)]
         )
+
+
+def test_cached_heads_go_only_on_the_backbone_they_were_trained_on(
+    ingest_dir, tmp_path, fake_endpoint, monkeypatch, capsys
+):
+    import shutil
+
+    from test_heads_np import _case_npz
+    from toolrank.adapters.heads_np import HEADS_FILE
+
+    cache = tmp_path / "no-heads" / "heads"
+    cache.mkdir(parents=True)
+    shutil.copy(_case_npz(tmp_path, "gelu_layernorm_skip"), cache / HEADS_FILE)
+    main(_args(ingest_dir, tmp_path, "--json"))
+    assert json.loads(capsys.readouterr().out)["scorer"].startswith("dense/emb/toolrank-emb-v0.2/")
+    main(_args(ingest_dir, tmp_path, "--json", "--emb-model", "qwen3-emb"))
+    assert json.loads(capsys.readouterr().out)["scorer"].startswith("clm[")
+    main(_args(ingest_dir, tmp_path, "--json", "--emb-model", "my-own-model"))  # unknown: as before
+    assert json.loads(capsys.readouterr().out)["scorer"].startswith("clm[")
+    monkeypatch.setenv("TOOLRANK_HEADS", str(cache / HEADS_FILE))  # asked for by name: always
+    main(_args(ingest_dir, tmp_path, "--json"))
+    assert json.loads(capsys.readouterr().out)["scorer"].startswith("clm[")

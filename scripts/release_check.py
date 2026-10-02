@@ -1,5 +1,6 @@
 """Refuse a release that still carries placeholders: a ``TODO(launch)`` marker in a tracked file, an
 empty ``HEADS_URL`` (pip users could not fetch the heads) or a model card that still says so, a
+default backbone whose weights are not on the Hub yet, a
 development version, no dated CHANGELOG entry for it, or a tag that is not ``v<version>``. The
 release workflow runs it before building anything; run it before tagging.
 
@@ -22,7 +23,15 @@ SKIP = ("docs/plan/", "docs/reports/", "tests/", "scripts/release_check.py")  # 
 NOT_HOSTED = "The download address is empty until the file is hosted."  # scripts/publish_heads.py replaces it
 
 
-def problems(root: Path, files: list[str], heads_url: str, version: str, tag: str | None = None) -> list[str]:
+def problems(
+    root: Path,
+    files: list[str],
+    heads_url: str,
+    version: str,
+    tag: str | None = None,
+    backbone: tuple[str, str, bool] | None = None,
+) -> list[str]:
+    """``backbone``: the default backbone's (repo, revision, published) from ``toolrank.build``."""
     out = []
     for name in files:
         if name.startswith(SKIP):
@@ -43,6 +52,11 @@ def problems(root: Path, files: list[str], heads_url: str, version: str, tag: st
         out.append(
             "docs/heads/MODEL_CARD.md: still says the heads are not hosted (publish_heads.py fixes it)"
         )
+    if backbone is not None and not backbone[2]:
+        out.append(
+            f"src/toolrank/build.py: the default backbone {backbone[0]}@{backbone[1]} is not on the Hub yet "
+            "(scripts/publish_backbone.py --upload, then BACKBONE_PUBLISHED = True)"
+        )
     if Version(version).is_devrelease:
         out.append(f"src/toolrank/__init__.py: {version} is a development version")
     changelog = root / "CHANGELOG.md"
@@ -61,9 +75,11 @@ def main() -> None:
     sys.path.insert(0, str(ROOT / "src"))
     import toolrank
     from toolrank.adapters.heads_np import HEADS_URL
+    from toolrank.build import BACKBONE_PUBLISHED, BACKBONE_REPO, BACKBONE_REVISION
 
     files = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
-    found = problems(ROOT, files.splitlines(), HEADS_URL, toolrank.__version__, a.tag)
+    backbone = (BACKBONE_REPO, BACKBONE_REVISION, BACKBONE_PUBLISHED)
+    found = problems(ROOT, files.splitlines(), HEADS_URL, toolrank.__version__, a.tag, backbone)
     if found:
         sys.exit("not ready to release:\n" + "\n".join(f"  {f}" for f in found))
     print(f"ready to release {toolrank.__version__}")
