@@ -23,12 +23,21 @@ INDEX_KINDS = ("numpy", "faiss", "pgvector")
 # stage, no heads (the v0.1 heads cost it 1-2 points; heads trained on it stay at identity).
 BACKBONE_REPO, BACKBONE_REVISION = "yasinyaman/toolrank-emb-8b", "v0.2"
 BACKBONE_PUBLISHED = True  # True once the weights are on the Hub at that revision (release_check)
+BACKBONE_GGUF_REPO = BACKBONE_REPO + "-GGUF"  # its Q8_0 and Q4_K_M builds for Ollama / llama.cpp
 BACKBONES: dict[str, dict[str, Any]] = {
     "toolrank-emb-v0.2": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},
     "toolrank-emb-v0.2-fp8": {"repo": BACKBONE_REPO, "revision": BACKBONE_REVISION, "heads": False},
     "qwen3-emb": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
     "qwen3-emb-fp8": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
     "qwen3-emb-lora": {"repo": "a local scripts/lora_train.py run", "heads": False},
+    # GGUF builds served by Ollama (docs/guides/local.md): the names the guide creates, and Ollama's own
+    # small Qwen3-Embedding models; the small ones' vectors are narrower than the heads (1024, 2560 vs 4096)
+    "toolrank-emb-v0.2-q8_0": {"repo": BACKBONE_GGUF_REPO, "revision": BACKBONE_REVISION, "heads": False},
+    "toolrank-emb-v0.2-q4_k_m": {"repo": BACKBONE_GGUF_REPO, "revision": BACKBONE_REVISION, "heads": False},
+    "qwen3-emb-0.6b-q8_0": {"repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "heads": False},
+    "qwen3-emb-4b-q4_k_m": {"repo": "Qwen/Qwen3-Embedding-4B-GGUF", "heads": False},
+    "qwen3-embedding:0.6b": {"repo": "Qwen/Qwen3-Embedding-0.6B", "heads": False},
+    "qwen3-embedding:4b": {"repo": "Qwen/Qwen3-Embedding-4B", "heads": False},
 }
 # toolrank search's and serve's product defaults: the served backbone, its texts and the
 # instruction that did best on the MCP sets

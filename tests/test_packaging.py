@@ -83,6 +83,21 @@ def test_search_and_serve_take_the_endpoint_from_the_environment_unless_flagged(
     assert _env_list("TOOLRANK_ALLOWED_HOSTS") == ["toolrank", "tools.example.com"]
 
 
+def test_the_gguf_and_small_backbones_skip_the_packaged_heads():
+    from toolrank.build import packaged_heads_fit
+
+    for name in (
+        "toolrank-emb-v0.2-q4_k_m",
+        "toolrank-emb-v0.2-q8_0",
+        "qwen3-emb-0.6b-q8_0",
+        "qwen3-emb-4b-q4_k_m",
+        "qwen3-embedding:0.6b",
+        "qwen3-embedding:4b",
+    ):
+        assert not packaged_heads_fit(name), name
+    assert packaged_heads_fit("qwen3-emb") and packaged_heads_fit("my-own-name")  # unknown: as before
+
+
 def _script(name):
     import importlib.util
 
