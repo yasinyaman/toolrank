@@ -103,7 +103,7 @@ def write_config(directory: Path, port: int) -> Path:
 def served(data: Path, emb_url: str, emb_model: str, heads: str | None, stand_in_port: int) -> Iterator[str]:
     """``toolrank serve`` on ``data`` with the week-1 servers and the stand-in; -> its URL, ready."""
     env = dict(os.environ)
-    if heads:
+    if heads and heads != "none":
         env["TOOLRANK_HEADS"] = str(Path(heads).resolve())
     with tempfile.TemporaryDirectory() as tmp:
         cfg = write_config(Path(tmp), stand_in_port)
@@ -111,6 +111,8 @@ def served(data: Path, emb_url: str, emb_model: str, heads: str | None, stand_in
         url = f"http://127.0.0.1:{port}"
         cmd = [str(Path(sys.executable).with_name("toolrank")), "serve", "--data", str(data)]
         cmd += ["--config", str(cfg), "--emb-url", emb_url, "--emb-model", emb_model, "--port", str(port)]
+        if heads == "none":  # a backbone the packaged heads do not fit (a small one, say)
+            cmd += ["--clm-ckpt", "none"]
         log = Path(tmp) / "serve.log"
         with log.open("w") as f:
             proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=f)
@@ -261,7 +263,7 @@ def main() -> None:
         default="qwen3-emb",
         help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
     )
-    p.add_argument("--heads", default=None)
+    p.add_argument("--heads", default=None, help="packaged heads (.npz), or none for the backbone alone")
     p.add_argument("--live", action="store_true")
     p.add_argument("--claude-model", default="claude-opus-5-5")
     p.add_argument("--gpt-model", default="gpt-5.5")

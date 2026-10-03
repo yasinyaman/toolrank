@@ -127,7 +127,8 @@ def check_width(path: Path, cfg: dict[str, Any], hidden: int, x: np.ndarray) -> 
         backbone = cfg.get("backbone") or "its backbone"
         raise ValueError(
             f"{path.name} expects {hidden}-dimensional vectors from {backbone}, the embedding endpoint "
-            f"returns {width}: point --emb-url / --emb-model at that model, or use heads trained on this one"
+            f"returns {width}: point --emb-url / --emb-model at that model, use heads trained on this one, "
+            "or rank with the backbone alone (search / serve: --clm-ckpt none)"
         )
 
 

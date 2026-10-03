@@ -579,7 +579,7 @@ def main() -> None:
         default="qwen3-emb",
         help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
     )
-    p.add_argument("--heads", default=None)
+    p.add_argument("--heads", default=None, help="packaged heads (.npz), or none for the backbone alone")
     p.add_argument("--out", default=None)
     p.add_argument("--only", action="append", choices=PARTS, help="run this part (repeatable); default: all")
     p.add_argument("--part", choices=["bigtool"], help=argparse.SUPPRESS)

@@ -20,6 +20,9 @@ change behaviour.
 
 ### Fixed
 
+- `toolrank search` and `serve` take `--clm-ckpt none`: the backbone alone, whatever heads are cached.
+  Before, a backbone the cached heads do not fit (Qwen3-Embedding-0.6B or 4B, say) could not be
+  served without deleting the heads; the width error now names the flag.
 - `scripts/serve_e2e.py`, `platforms_e2e.py` and `frameworks_e2e.py` pass `--emb-model` (default
   `qwen3-emb`) to the server they start; since 0.2.0 the server's own default is the LoRA backbone's
   name, which port 8091 does not serve.

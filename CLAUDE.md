@@ -373,7 +373,7 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   breaks the list (ToolRet 54 → 15); the cross-encoders are the real local candidates.
 - **Packaged heads**: `NumpyHeads` reads `.npz` checkpoints (`allow_pickle=False`) and runs
   `make_head`'s forward in numpy; the `.npz` `cfg` carries serving defaults (backbone, formats,
-  truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz` or `default`
+  truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz`, `default` or (search / serve) `none`, the backbone alone
   (`TOOLRANK_HEADS`, `~/.cache/toolrank/heads/`, else a sha256-checked download from `HEADS_URL`,
   empty until hosted). The artifact and its model card: `dist/heads/` (gitignored),
   `docs/heads/MODEL_CARD.md` (training data has no license; the maintainers accepted that).

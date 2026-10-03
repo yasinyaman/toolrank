@@ -321,8 +321,9 @@ def build_retriever(
     from toolrank.retriever import Retriever
 
     explicit_heads = a.clm_ckpt is not None  # --clm-ckpt wins over a learned DATA/heads/current.npz
+    no_heads = a.clm_ckpt == "none"
     search_defaults(a)
-    if a.scorer == "dense" and notify is not None and packaged_heads_fit(a.emb_model):  # say so, once
+    if a.scorer == "dense" and notify is not None and packaged_heads_fit(a.emb_model) and not no_heads:
         notify("no heads found: ranking with the embedding model alone (`toolrank heads pull` fetches them)")
     make, info = scorer_factory(
         a, query_timeout=10.0 if serving_limits else None, query_attempts=2 if serving_limits else None
@@ -397,12 +398,15 @@ def serving_of(scorer: Any) -> dict[str, Any]:
 def search_defaults(a: Any) -> None:
     """Fill ``toolrank search``'s unset flags: the backbone, then the packaged heads when they belong
     on it and one is configured or cached (``TOOLRANK_HEADS`` always counts; never a download unless
-    ``--clm-ckpt default``), else the backbone alone; product texts and truncation."""
+    ``--clm-ckpt default``), else the backbone alone (also ``--clm-ckpt none``, for a backbone the
+    cached heads do not fit); product texts and truncation."""
     from toolrank.adapters.heads_np import default_heads
 
     a.emb_url = a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL
     a.emb_model = a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL
-    if a.clm_ckpt is None and (packaged_heads_fit(a.emb_model) or os.environ.get("TOOLRANK_HEADS")):
+    if a.clm_ckpt == "none":
+        a.clm_ckpt = None
+    elif a.clm_ckpt is None and (packaged_heads_fit(a.emb_model) or os.environ.get("TOOLRANK_HEADS")):
         with contextlib.suppress(FileNotFoundError):
             a.clm_ckpt = str(default_heads(url=""))
     a.scorer = "clm" if a.clm_ckpt else "dense"

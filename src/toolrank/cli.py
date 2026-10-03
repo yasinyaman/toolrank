@@ -861,7 +861,11 @@ def _add_retrieval_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--instruction", default=None, help="default: the heads' instruction")
     p.add_argument("--k", type=int, default=0, help="a fixed top-k instead of adaptive K")
     p.add_argument("--no-cut", action="store_true", help="plain top --cut-max")
-    p.add_argument("--clm-ckpt", default=None, help="heads: .npz / .pt path or 'default' (downloads)")
+    p.add_argument(
+        "--clm-ckpt",
+        default=None,
+        help="heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone)",
+    )
     p.add_argument("--tool-format", choices=list(TOOL_FORMATS), default=None)
     p.add_argument("--query-format", choices=list(QUERY_FORMATS), default=None)
     p.add_argument("--index", default="numpy", help="numpy | faiss | pgvector")

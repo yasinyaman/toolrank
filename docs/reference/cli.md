@@ -190,7 +190,7 @@ Rank the tools of an ingest dir for one request. Defaults: Qwen3-Embedding-8B on
 | `--instruction INSTRUCTION` |  | default: the heads' instruction |
 | `--k K` |  | a fixed top-k instead of adaptive K |
 | `--no-cut` |  | plain top --cut-max |
-| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path or 'default' (downloads) |
+| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone) |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--index INDEX` | `numpy` | numpy \| faiss \| pgvector |
@@ -237,7 +237,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--instruction INSTRUCTION` |  | default: the heads' instruction |
 | `--k K` |  | a fixed top-k instead of adaptive K |
 | `--no-cut` |  | plain top --cut-max |
-| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path or 'default' (downloads) |
+| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone) |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--index INDEX` | `numpy` | numpy \| faiss \| pgvector |

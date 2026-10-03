@@ -73,6 +73,12 @@ def test_search_and_serve_take_the_endpoint_from_the_environment_unless_flagged(
     a = build_parser().parse_args(["search", "--data", "x", "--emb-url", "http://flag/v1", "q"])
     search_defaults(a)
     assert a.emb_url == "http://flag/v1"
+    monkeypatch.setenv("TOOLRANK_HEADS", "/heads/that/would/not/fit.npz")  # a 0.6B backbone, say
+    a = build_parser().parse_args(
+        ["search", "--data", "x", "--emb-model", "qwen3-emb-0.6b", "--clm-ckpt", "none", "q"]
+    )
+    search_defaults(a)
+    assert (a.scorer, a.clm_ckpt) == ("dense", None)
     monkeypatch.setenv("TOOLRANK_ALLOWED_HOSTS", " toolrank, tools.example.com ,,")
     assert _env_list("TOOLRANK_ALLOWED_HOSTS") == ["toolrank", "tools.example.com"]
 
