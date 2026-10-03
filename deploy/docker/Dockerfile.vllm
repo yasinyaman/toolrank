@@ -48,7 +48,7 @@ COPY src ./src
 # checked against the lock's hashes. vLLM's image sets UV_OVERRIDE (an unhashed pin for its own
 # environment, which a hash-checked install refuses) and a lax index strategy; neither is for this venv
 RUN unset UV_OVERRIDE UV_INDEX_STRATEGY \
-    && uv export --frozen --no-emit-project --extra mcp --extra openapi --extra stem -o /tmp/requirements.txt \
+    && uv export --frozen --no-emit-project --no-default-groups --extra mcp --extra openapi --extra stem -o /tmp/requirements.txt \
     && uv build --wheel -o /tmp/wheels \
     && uv venv --python "$(command -v python3)" /opt/toolrank/venv \
     && uv pip install --python /opt/toolrank/venv/bin/python --compile-bytecode --require-hashes -r /tmp/requirements.txt \

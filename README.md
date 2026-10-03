@@ -79,7 +79,9 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 - **Fine-tuning**: heads trained on your own request-to-tool pairs, the epoch picked on a dev set.
   [Guide](https://yaman.dev/toolrank/guides/finetune/)
 - **Benchmarks**: ToolRet, LiveMCPBench and MCP-Zero with BM25, dense and head scorers (and CLM, for
-  comparison). [Benchmarks](https://yaman.dev/toolrank/benchmarks/)
+  comparison). [Benchmarks](https://yaman.dev/toolrank/benchmarks/) CLM here is
+  [Contrastive-LM](https://huggingface.co/Contrastive-LM/CLM-v0.1-8B), whose head architecture
+  toolrank's heads follow, not Context Language Models.
 - **Docker**: the `toolrank` image for amd64 and arm64, compose files with vLLM, and a Dockerfile
   that puts vLLM and toolrank in one container.
   [Guide](https://yaman.dev/toolrank/guides/docker/)

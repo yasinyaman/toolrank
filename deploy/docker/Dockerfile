@@ -41,7 +41,7 @@ COPY src ./src
 # the versions locked in uv.lock (the ones THIRD_PARTY_NOTICES.md lists), each checked against the
 # lock's hashes, then toolrank itself;
 # compiled here, since the non-root user cannot write __pycache__ next to them
-RUN uv export --frozen --no-emit-project --extra mcp --extra openapi --extra stem -o /requirements.txt \
+RUN uv export --frozen --no-emit-project --no-default-groups --extra mcp --extra openapi --extra stem -o /requirements.txt \
     && uv build --wheel -o /wheels \
     && uv venv --python /usr/local/bin/python3 /opt/toolrank/venv \
     && uv pip install --python /opt/toolrank/venv/bin/python --compile-bytecode --require-hashes -r /requirements.txt \

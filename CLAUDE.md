@@ -18,7 +18,7 @@ copy its content into tracked files. The product/market plan lives outside the r
   (3.11 + 3.12) runs `ruff check`, `pytest` and a 50-query synthetic BM25 eval; it never installs
   `[clm]`, so the torch tests (`test_clm_heads.py`, the training tests in `test_finetune.py`) are
   skipped there and wherever torch is missing: after touching `adapters/clm.py` or `finetune.py`,
-  install `".[dev,clm]"` and run them locally.
+  run `uv sync --extra clm` and then those tests locally.
 - Ports and adapters: `domain.py`, `ports.py`, `formats.py`, `eval/`, `ingest/`, `cut.py`,
   `retriever.py`, `usage.py` never import from `adapters/`; `build.py` is the composition root
   (flags → scorer, encoder, heads, index) that eval, search and serve share, and may import
@@ -35,7 +35,7 @@ copy its content into tracked files. The product/market plan lives outside the r
 - Heavy dependencies stay optional and are imported inside functions: `torch` → `[clm]`,
   `datasets` → `[data]`, `PyStemmer` → `[stem]`, `mcp` → `[mcp]`, `pyyaml` → `[openapi]`,
   `faiss-cpu` → `[faiss]`, `psycopg` + `pgvector` → `[pgvector]`, `langchain-core` → `[langgraph]`,
-  `langchain` → `[langchain]`, `llama-index-core` → `[llamaindex]` (all but torch and datasets also in `[dev]`; litellm is no
+  `langchain` → `[langchain]`, `llama-index-core` → `[llamaindex]` (all but torch and datasets also in the `dev` dependency group, which `uv sync` installs; litellm is no
   extra and stays out of the venv, since it pins `openai<3`). `[mcp]` also brings the serve stack (starlette, uvicorn, httpx2, anyio);
   `test_ingest_mcp.py` checks that importing `toolrank.cli` and the serve adapters loads none of them. Packaged heads run
   in numpy (`adapters/heads_np.py`): torch is only for training and `toolrank heads export`. The base install must stay numpy + bm25s. BM25 stems only when PyStemmer is importable (otherwise the run name ends in
@@ -80,8 +80,7 @@ copy its content into tracked files. The product/market plan lives outside the r
 ## Commands
 
 ```bash
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"            # add ",data" for the ToolRet pull, ",clm" for CLM heads
+uv sync                               # + the dev group; --extra data for the ToolRet pull, --extra clm for CLM heads
 uv run pytest && uv run ruff check src tests scripts examples
 uv run pytest tests/test_formats.py::test_query_formats        # one test; or -k <keyword>
 

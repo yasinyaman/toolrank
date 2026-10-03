@@ -49,6 +49,10 @@ llamaindex = ["llama-index-core>=0.14"]
 # Vector indexes besides the default numpy one: FAISS HNSW, and Postgres with pgvector.
 faiss = ["faiss-cpu>=1.15"]
 pgvector = ["psycopg[binary]>=3.2", "pgvector>=0.4"]
+
+[dependency-groups]
+# contributors' tools and every optional dependency the tests import but torch and datasets: `uv sync`
+# installs it (uv's default group). A group, not an extra, so the package on PyPI offers no `dev`.
 dev = [
     "pytest>=8",
     "ruff>=0.5",
@@ -64,8 +68,6 @@ dev = [
     "langchain>=1.0",
     "llama-index-core>=0.14",
 ]
-
-[dependency-groups]
 # the documentation site: uv run --group docs mkdocs serve
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9.7,<10", "mkdocstrings[python]>=1.0,<2"]
 

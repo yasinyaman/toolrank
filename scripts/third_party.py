@@ -5,7 +5,7 @@ own metadata states, then the models, the other extras and the images' base laye
     uv run python scripts/third_party.py --write     # after a dependency change
     uv run python scripts/third_party.py --check     # what the tests do
 
-Needs ``uv`` on PATH and the locked packages installed (``uv pip install -e ".[dev]"`` has them).
+Needs ``uv`` on PATH and the locked packages installed (``uv sync`` has them).
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ Installed only when asked for (`pip install "toolrank[<extra>]"`), never in the 
 
 def locked() -> list[tuple[str, str]]:
     """(name, version) of every package the images install, from uv.lock."""
-    cmd = ["uv", "export", "--frozen", "--no-emit-project", "--no-hashes"]
+    cmd = ["uv", "export", "--frozen", "--no-emit-project", "--no-hashes", "--no-default-groups"]
     cmd += [f"--extra={e}" for e in EXTRAS]
     text = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True).stdout
     out = []

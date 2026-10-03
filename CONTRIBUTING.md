@@ -7,8 +7,7 @@ the [code of conduct](https://github.com/yasinyaman/toolrank/blob/main/CODE_OF_C
 
 ```bash
 git clone https://github.com/yasinyaman/toolrank && cd toolrank
-uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"            # add ",clm" to run the torch tests too
+uv sync                               # the project and its dev group; --extra clm adds the torch tests
 ```
 
 ## Before you open a pull request

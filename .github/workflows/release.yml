@@ -34,7 +34,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: "3.12"
-      - run: uv sync --locked --extra dev
+      - run: uv sync --locked
       - name: Nothing left to fill in (heads URL, version, changelog, tag)
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         env:

@@ -4114,21 +4114,6 @@ data = [
     { name = "datasets" },
     { name = "huggingface-hub" },
 ]
-dev = [
-    { name = "anthropic" },
-    { name = "faiss-cpu" },
-    { name = "langchain" },
-    { name = "langchain-core" },
-    { name = "llama-index-core" },
-    { name = "mcp" },
-    { name = "openai" },
-    { name = "pgvector" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pystemmer" },
-    { name = "pytest" },
-    { name = "pyyaml" },
-    { name = "ruff" },
-]
 faiss = [
     { name = "faiss-cpu" },
 ]
@@ -4165,6 +4150,21 @@ stem = [
 ]
 
 [package.dev-dependencies]
+dev = [
+    { name = "anthropic" },
+    { name = "faiss-cpu" },
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "llama-index-core" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pystemmer" },
+    { name = "pytest" },
+    { name = "pyyaml" },
+    { name = "ruff" },
+]
 docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
@@ -4175,41 +4175,43 @@ docs = [
 requires-dist = [
     { name = "accelerate", marker = "extra == 'lora'", specifier = ">=1.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=1.9" },
-    { name = "anthropic", marker = "extra == 'dev'", specifier = ">=1.9" },
     { name = "bm25s", specifier = ">=0.2" },
     { name = "datasets", marker = "extra == 'data'", specifier = ">=2.19" },
-    { name = "faiss-cpu", marker = "extra == 'dev'", specifier = ">=1.15" },
     { name = "faiss-cpu", marker = "extra == 'faiss'", specifier = ">=1.15" },
     { name = "huggingface-hub", marker = "extra == 'data'", specifier = ">=0.23" },
-    { name = "langchain", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "langchain", marker = "extra == 'langchain'", specifier = ">=1.0" },
-    { name = "langchain-core", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "langchain-core", marker = "extra == 'langgraph'", specifier = ">=1.0" },
-    { name = "llama-index-core", marker = "extra == 'dev'", specifier = ">=0.14" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'", specifier = ">=0.14" },
-    { name = "mcp", marker = "extra == 'dev'", specifier = ">=2.2,<3" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.2,<3" },
     { name = "numpy", specifier = ">=1.26" },
-    { name = "openai", marker = "extra == 'dev'", specifier = ">=3.22" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=3.22" },
     { name = "peft", marker = "extra == 'lora'", specifier = ">=0.14" },
-    { name = "pgvector", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "pgvector", marker = "extra == 'pgvector'", specifier = ">=0.4" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'dev'", specifier = ">=3.2" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'pgvector'", specifier = ">=3.2" },
-    { name = "pystemmer", marker = "extra == 'dev'", specifier = ">=2.2" },
     { name = "pystemmer", marker = "extra == 'stem'", specifier = ">=2.2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'openapi'", specifier = ">=6" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "torch", marker = "extra == 'clm'", specifier = ">=2.2" },
     { name = "torch", marker = "extra == 'lora'", specifier = ">=2.2" },
     { name = "transformers", marker = "extra == 'lora'", specifier = ">=4.51" },
 ]
-provides-extras = ["anthropic", "clm", "data", "dev", "faiss", "langchain", "langgraph", "llamaindex", "lora", "mcp", "openai", "openapi", "pgvector", "stem"]
+provides-extras = ["anthropic", "clm", "data", "faiss", "langchain", "langgraph", "llamaindex", "lora", "mcp", "openai", "openapi", "pgvector", "stem"]
 
 [package.metadata.requires-dev]
+dev = [
+    { name = "anthropic", specifier = ">=1.9" },
+    { name = "faiss-cpu", specifier = ">=1.15" },
+    { name = "langchain", specifier = ">=1.0" },
+    { name = "langchain-core", specifier = ">=1.0" },
+    { name = "llama-index-core", specifier = ">=0.14" },
+    { name = "mcp", specifier = ">=2.2,<3" },
+    { name = "openai", specifier = ">=3.22" },
+    { name = "pgvector", specifier = ">=0.4" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pystemmer", specifier = ">=2.2" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "ruff", specifier = ">=0.5" },
+]
 docs = [
     { name = "mkdocs", specifier = ">=1.6,<2" },
     { name = "mkdocs-material", specifier = ">=9.7,<10" },

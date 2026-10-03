@@ -18,6 +18,13 @@ change behaviour.
   around `/v1/search` and `/v1/call`. They do not follow redirects and use exit codes that tell a
   tool's error from toolrank's.
 
+### Changed
+
+- The `dev` extra is now a PEP 735 dependency group, so the package on PyPI no longer offers a `dev`
+  extra. `uv sync` installs it. The images' `uv export` and the third-party notices pass
+  `--no-default-groups`, so the images keep the same 35 packages.
+- README: CLM here is Contrastive-LM, not Context Language Models.
+
 ### Fixed
 
 - `toolrank search` and `serve` take `--clm-ckpt none`: the backbone alone, whatever heads are cached.
