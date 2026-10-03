@@ -187,6 +187,9 @@ uv run python scripts/container_smoke.py toolrank-vllm:dev --bundle     # a fake
 # FP8 backbone (profile fp8, port 8094, served as qwen3-emb-fp8); readme_results.sh takes EMB_URL,
 # EMB_MODEL, TAG, ROWS, SETS; fp8_agreement.py compares two endpoints, latency.py times .npz heads
 docker compose -f deploy/spark/compose.yaml --profile fp8 up -d qwen3-embedding-8b-fp8
+# Backlog D1.2 / D1.3: GGUF builds and small Qwen3-Embedding models served by Ollama (docs/guides/local.md), scored like
+# the README's rows (restartable, results/gguf_<set>_<model>.json); run where the data is: the laptop has ToolRet + LiveMCPBench
+export LAPTOP=…; export EMB_URL=http://$LAPTOP:11434/v1 UV=~/.local/bin/uv; bash scripts/gguf_matrix.sh   # SETS=toolret MODELS="…"
 
 # Faz 2 week 1: learn from what serve logged (no request text leaves the machine; --dry-run needs no torch)
 toolrank learn --data data/mytools [--dev data/livemcpbench_server] [--since 2026-10-01] [--tenant NAME] [--dry-run]
@@ -328,7 +331,9 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   heads belong on them; `DEFAULT_EMB_MODEL = "toolrank-emb-v0.2"` (the LoRA-merged Qwen3-Embedding-8B,
   `BACKBONE_REPO` @ `BACKBONE_REVISION`; the version is in the name because the embedding cache is keyed by it).
   `search_defaults` loads cached heads only when `packaged_heads_fit(emb_model)` (unknown names: yes, as before;
-  `TOOLRANK_HEADS` always), `learn.resolve_init("default", emb_model)` follows the same rule. The weights are on the
+  `TOOLRANK_HEADS` always), `learn.resolve_init("default", emb_model)` follows the same rule. The Ollama names of the
+  GGUF builds (`toolrank-emb-v0.2-q4_k_m`, `-q8_0`; `BACKBONE_GGUF_REPO`, not on the Hub yet) and of the small
+  Qwen3-Embedding models are listed too, heads off (`docs/guides/local.md`). The weights are on the
   Hub since 2 Oct 2026 (0.2.0; `BACKBONE_PUBLISHED = True`, else `release_check` refuses a release);
   `scripts/publish_backbone.py` (run on the GB10, dry run without `--upload`) uploads a merged directory, tags the
   revision and flips the flag. New weights get a new tag and served name (the cache is keyed by the name). `entrypoint-vllm.sh`, `deploy/docker/compose.yaml` and the chart's `embedding.backbone` carry the same
@@ -569,7 +574,8 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size);
                                   routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log);
                                   helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall);
-                                  publish_backbone.py (the LoRA-merged backbone to the Hub, tagged; dry run by default)
+                                  publish_backbone.py (the LoRA-merged backbone to the Hub, tagged; dry run by default);
+                                  gguf_matrix.sh (GGUF builds and small backbones through Ollama, the README's eval flags)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml;
                                   skills/toolrank/ (SKILL.md + stdlib search.py / call.py over REST; tests/test_skill.py runs them
                                   as processes against the served app behind a real HTTP server)
@@ -709,6 +715,14 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   82.95 and of three tools 55.21 → 75.40 (every tool in the top 10: 72 → 90% and 34 → 64%). So LoRA's gain is in
   multi-tool tasks (and ToolRet, MCP-Zero's two-line requests); LiveMCPBench is a tie within noise (94 tasks).
   Behind Qwen3-Reranker both backbones give top-1 89.4 / 89.5 on the one-tool set (from 84).
+- Backlog D1.2 / D1.3 (`docs/reports/backlog-d1.md`; a 4 GB RTX 3050 Ti laptop, Ollama 0.35.1, `num_ctx` 8192, w/ inst):
+  the LoRA backbone's GGUF Q4_K_M scores as vLLM bf16 does (ToolRet 59.50 / 54.51 cat-macro vs 58.90 / 54.36,
+  LiveMCPBench NDCG@10 55.75 vs 55.74; Q8_0 55.23), and so does the base 8B's (54.42 / 53.62 vs 53.74). Qwen3-Embedding
+  0.6B and 4B are 6–7 points lower on LiveMCPBench and 9–11 on ToolRet. Search latency there, one request at a time and
+  not cached: 0.6B 46–93 ms (p95 ≤ 191), 4B Q4_K_M 275–326 ms, 8B Q4_K_M 571–668 ms (p95 ~0.7 s); cached 3–13 ms. The
+  8B embeds ~100 tools a minute there (ToolRet 7.3 h; vLLM on the GB10 0.4 h). Ollama ignores `truncate_prompt_tokens`
+  and cuts at `num_ctx`, keeping the head; llama.cpp's own `llama-server --embeddings` keeps an output row per token
+  (~5 GB for 8192 tokens) and crashed on a long input. MCP-Zero and the dev sets with GGUF wait for the GB10.
 
 ## Where we are
 
