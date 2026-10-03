@@ -6,9 +6,10 @@ Dalga 1, Faz 1 kapısından (11 Kasım) önce benimsenmeyi artırmak için öne 
 
 ## Sonuç (tek cümle)
 
-D1.4 bitti: `ToolrankToolSelector`, LangChain 1.x'in `create_agent`'ına takılan bir middleware. 1.862 tool'luk katalogda
+D1.4 ve D1.5 bitti. `ToolrankToolSelector`, LangChain 1.x'in `create_agent`'ına takılan bir middleware. 1.862 tool'luk katalogda
 iki görevin ikisinde de model yalnız 2 tool gördü, doğru tool aralarındaydı; tur başına tek arama yapıldı ve
-çağrı o aramaya bağlandı. D1.1 ertelendi: GB10'a 3 Ekim'de erişilemiyor.
+çağrı o aramaya bağlandı. toolrank skill'iyle yalnız kabuğu olan bir ajan aynı katalogda doğru tool'u bulup
+çağırdı. D1.1 ertelendi: GB10'a 3 Ekim'de erişilemiyor.
 
 ## Ölçüler, birimler ve yön
 
@@ -73,6 +74,27 @@ veriyor. Görevlerden biri senkron, öbürü asenkron koşuldu.
   8091'e (`qwen3-emb`) yanlış model adı gidiyordu ve v0.1 head'lerinin cache'i de tutmuyordu. Üç betik artık
   `--emb-model` alıyor (varsayılan `qwen3-emb`).
 
+## D1.5 — toolrank skill'i
+
+`examples/skills/toolrank`, yalnız kabuğu olan ajanlar için (Claude Code skill'leri, bash-only harness'ler).
+İçinde kısa bir `SKILL.md` (2.000 karakterin altında) ve yalnız standart kütüphaneyle yazılmış iki betik var:
+`scripts/search.py` (`/v1/search`) ve `scripts/call.py` (`/v1/call`). Klasör tek başına kopyalanabiliyor.
+
+- Betikler yönlendirmeyi izlemiyor; bearer token başka bir sunucuya gitmiyor.
+- `call.py` çıkış kodunu ayırıyor: 1 tool'un kendi hatası, 2 toolrank'ın reddi ya da erişilemezlik.
+- `--search-id` verilmezse sunucu çağrıyı aynı istemcinin son aramasına bağlıyor (User-Agent
+  `toolrank-skill/1`).
+- `tests/test_skill.py` betikleri ayrı süreç olarak, gerçek bir HTTP sunucusunun arkasındaki toolrank
+  uygulamasına karşı koşuyor: arama, çağrı, stdin'den argüman, yazma reddi, 404, 401, yönlendirme,
+  erişilemezlik.
+
+**Elle deneme** (Mac, `data/w3`, 1.862 tool; Claude Code betikleri bir ajan gibi çalıştırdı):
+
+- "What time is it in Tokyo right now?" araması `time/get_current_time`'ı ilk sıraya koydu (salt okunur).
+- `call.py` ile `{"timezone": "Asia/Tokyo"}` saati döndürdü (çıkış 0); günlükte `link: search_id`.
+- Geçersiz saat diliminde tool'un hatası ve sunucunun şema ipucu çıktıya geldi (çıkış 1); `--search-id`
+  verilmediği için günlükte `link: client`.
+
 ## Komutlar
 
 ```bash
@@ -81,13 +103,19 @@ export GB10=<GB10'un Tailscale adresi>
 uv run python scripts/frameworks_e2e.py --only langchain --data data/w3 --emb-url http://$GB10:8091/v1 \
   --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/frameworks_e2e_langchain.json
 uv run pytest tests/test_frameworks.py -k langchain
+# D1.5: serve on the w3 catalogue, then the skill's scripts as an agent runs them
+uv run toolrank serve --data data/w3 --config skill_trial.json --emb-url http://$GB10:8091/v1 --emb-model qwen3-emb --port 8766
+cd examples/skills/toolrank && export TOOLRANK_URL=http://127.0.0.1:8766
+python3 scripts/search.py "What time is it in Tokyo right now?"
+python3 scripts/call.py time/get_current_time '{"timezone": "Asia/Tokyo"}' --search-id <search_id>
+uv run pytest tests/test_skill.py
 ```
 
 ## Ortam
 
 - Mac'te `toolrank serve` (`--emb-model qwen3-emb`, v0.1 head'leri), `data/w3` indeksi ve embedding cache'i sıcak.
 - langchain 1.4.3, langchain-core 1.6.6, langgraph 1.2.12.
-- Test paketi: 275 geçti, 1 atlandı; torch'suz 261 geçti, 13 atlandı.
+- Test paketi (D1.5 sonrası): 278 geçti, 1 atlandı; torch'suz 264 geçti, 13 atlandı.
 
 ## Sapmalar ve açıklamalar
 
@@ -99,4 +127,4 @@ uv run pytest tests/test_frameworks.py -k langchain
 
 ## Sonraki adımlar
 
-D1.5 (toolrank skill'i, Mac). Ardından D1.2 ve D1.3 dizüstünde. D1.1, GB10'a erişim gelince.
+D1.2 ve D1.3 dizüstünde sürüyor. D1.1, GB10'a erişim gelince.

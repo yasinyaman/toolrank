@@ -92,6 +92,25 @@ The same port serves REST for platforms that search and call tools themselves:
 
 See the [REST reference](../reference/rest.md).
 
+## Agents with only a shell
+
+Some agents run commands but speak neither MCP nor REST. For them, the repository has a skill:
+[`examples/skills/toolrank`](https://github.com/yasinyaman/toolrank/tree/main/examples/skills/toolrank)
+holds a `SKILL.md` and two standard-library scripts that wrap `/v1/search` and `/v1/call`. Copy the
+folder to where your agent loads skills (for Claude Code, `~/.claude/skills/toolrank`):
+
+```bash
+export TOOLRANK_URL=http://127.0.0.1:8765 TOOLRANK_API_KEY=...   # the running serve
+python3 scripts/search.py "what time is it in Tokyo"              # JSON: search_id, tools
+python3 scripts/call.py time/get_current_time '{"timezone": "Asia/Tokyo"}' --search-id <id>
+```
+
+- `call.py` exits with 1 when the tool reports an error and 2 when toolrank refuses the call or is
+  down. The agent reads the output either way.
+- The `SKILL.md` stays short, since some harnesses put every skill's card into the system prompt.
+  The tools' schemas come from the search.
+- A call without `--search-id` is linked to the same client's latest search in the usage log.
+
 ## Many servers, several tools, nothing that fits
 
 Four options for catalogues where plain ranking leaves something on the table. All are off by

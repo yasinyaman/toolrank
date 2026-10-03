@@ -571,7 +571,9 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log);
                                   helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall);
                                   publish_backbone.py (the LoRA-merged backbone to the Hub, tagged; dry run by default)
-examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml
+examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml;
+                                  skills/toolrank/ (SKILL.md + stdlib search.py / call.py over REST; tests/test_skill.py runs them
+                                  as processes against the served app behind a real HTTP server)
 ```
 
 ## Reference numbers (sanity checks, not targets)

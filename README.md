@@ -71,7 +71,8 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 - **Search and serve**: adaptive K, a persistent vector index (numpy, FAISS HNSW or pgvector), an MCP
   proxy with two tools, a REST API, API keys and a usage log. [Guide](https://yaman.dev/toolrank/guides/serve/)
 - **Agent platforms**: toolrank as Claude's (`tool_reference`) and OpenAI's (client-side
-  `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/)
+  `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/) Agents with only
+  a shell get a skill. [Guide](https://yaman.dev/toolrank/guides/serve/#agents-with-only-a-shell)
 - **Frameworks**: LangChain agents (`create_agent` middleware), LangGraph (langgraph-bigtool),
   LlamaIndex agents and the LiteLLM proxy.
   [Guide](https://yaman.dev/toolrank/guides/frameworks/)

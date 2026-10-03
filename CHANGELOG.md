@@ -13,6 +13,10 @@ change behaviour.
   user message. It ranks the agent's own tools through `/v1/rank`, or, with a `Toolbox`, picks the
   catalogue's tools by a search whose calls are linked in the usage log. It keeps the tools already
   called, `tool_choice`, `always_include` and provider tools, and fails open.
+- `examples/skills/toolrank`: a skill for agents with only a shell (Claude Code skills, bash-only
+  harnesses). It has a short `SKILL.md` and two standard-library scripts, `search.py` and `call.py`,
+  around `/v1/search` and `/v1/call`. They do not follow redirects and use exit codes that tell a
+  tool's error from toolrank's.
 
 ### Fixed
 
