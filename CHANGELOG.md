@@ -17,6 +17,9 @@ change behaviour.
   harnesses). It has a short `SKILL.md` and two standard-library scripts, `search.py` and `call.py`,
   around `/v1/search` and `/v1/call`. They do not follow redirects and use exit codes that tell a
   tool's error from toolrank's.
+- A guide for running without a large GPU (`docs/guides/local.md`): the default backbone as GGUF in
+  Ollama, at the same quality as vLLM (ToolRet NDCG@10 59.50 for Q4_K_M against 58.90), and the smaller
+  Qwen3-Embedding models, measured on a 4 GB laptop GPU. `scripts/gguf_matrix.sh` runs those rows.
 
 ### Changed
 
@@ -24,6 +27,10 @@ change behaviour.
   extra. `uv sync` installs it. The images' `uv export` and the third-party notices pass
   `--no-default-groups`, so the images keep the same 35 packages.
 - README: CLM here is Contrastive-LM, not Context Language Models.
+- `search` and `serve` skip the packaged heads for the Ollama names of the GGUF builds and of the
+  smaller Qwen3-Embedding models (`build.BACKBONES`), as they already did for the LoRA backbone.
+- `scripts/fp8_agreement.py` compares any two endpoints, vLLM against Ollama or llama.cpp included;
+  `--encode` sends what one side lacks, `--heads none` compares the backbones alone.
 
 ### Fixed
 
