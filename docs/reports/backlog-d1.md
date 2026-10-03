@@ -64,11 +64,25 @@ veriyor. Görevlerden biri senkron, öbürü asenkron koşuldu.
   `swagger-petstore__findPets` + `addPet`. Turun ikinci model çağrısı cache'ten geldi. Kullanım günlüğünde iki
   çağrı da `link: search_id` ile LangGraph thread'inin oturumunda (`rest:langgraph:e2e-langchain-toolbox-N`).
   Ajanı 1.862 tool'la kurmak 0,55 sn sürdü.
-- **Kendi tool'ları yolu ölçülemedi.** 120 tool'un LangChain'in gönderdiği biçimdeki metni cache'te yoktu ve
+- **Kendi tool'ları yolu, ilk koşu.** 120 tool'un LangChain'in gönderdiği biçimdeki metni cache'te yoktu ve
   embedding sunucusu (GB10) kapalıydı. Middleware tasarlandığı gibi davrandı: `/v1/rank` 30 sn'de zaman aşımına
-  düştü, model her iki çağrıda da 120 tool'u gördü, görev yine doğru bitti. Bu yol test paketinde süreç içinde
-  çalışan bir toolrank'a karşı sınanıyor (`test_langchain_selector_ranks_through_a_served_toolrank`); gerçek
-  embedding'le uçtan uca koşu bir embedding sunucusu açılınca yapılacak.
+  düştü, model her iki çağrıda da 120 tool'u gördü, görev yine doğru bitti.
+- **İkinci koşu, dizüstündeki Ollama'yla** (Qwen3-Embedding-0.6B f16, head'siz: `--heads none` → `serve
+  --clm-ckpt none`; `w3` önce cache'e gömüldü, 1.862 tool 642 bin token, 329 sn). İki yol da gerçek embedding'le
+  çalıştı:
+
+| Yol | Görev | Ajanın tool'u | gösterilen tool ↓ | arama / tur ↓ | doğru ↑ | süre ↓ s |
+| --- | --- | ---: | ---: | ---: | :---: | ---: |
+| katalog (`toolbox=`) | Tokyo'da saat (senkron) | 1.862 | 2 | 1 | ✓ | 2,61 |
+| katalog (`toolbox=`) | `dog` etiketli evcil hayvanlar (asenkron) | 1.862 | 6 | 1 | ✓ | 0,39 |
+| kendi tool'ları (`/v1/rank`) | Tokyo'da saat (senkron) | 120 | 2 | — | ✓ | 19,99 |
+| kendi tool'ları (`/v1/rank`) | `dog` etiketli evcil hayvanlar (asenkron) | 120 | 4 | — | ✓ | 0,03 |
+
+  - İlk sıralamanın 20 sn'si 120 tool metninin ilk kez gömülmesi; o sırada aynı GPU'da ToolRet de koşuyordu.
+    Varsayılan `timeout_s` (5 sn) ile bu ilk model çağrısı bütün tool'larla gider, sonraki çağrı arka planda
+    biten seçimi kullanır.
+  - Kendi tool'ları yolunda çağrılar aramaya bağlanmıyor (`link: none`): `/v1/rank` günlüğe arama olarak
+    yazılmıyor. `toolrank learn` için katalog yolu gerekiyor.
 - **e2e betiklerinde hata.** `serve_e2e.py`, `platforms_e2e.py` ve `frameworks_e2e.py`'nin başlattığı
   `serve`'e `--emb-model` verilmiyordu. 0.2.0'dan beri sunucunun varsayılanı `toolrank-emb-v0.2` olduğundan,
   8091'e (`qwen3-emb`) yanlış model adı gidiyordu ve v0.1 head'lerinin cache'i de tutmuyordu. Üç betik artık
@@ -102,6 +116,9 @@ veriyor. Görevlerden biri senkron, öbürü asenkron koşuldu.
 export GB10=<GB10'un Tailscale adresi>
 uv run python scripts/frameworks_e2e.py --only langchain --data data/w3 --emb-url http://$GB10:8091/v1 \
   --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/frameworks_e2e_langchain.json
+# the same with the laptop's Ollama (0.6B, no heads; w3 tool texts embedded into data/w3/cache first)
+uv run python scripts/frameworks_e2e.py --only langchain --data data/w3 --emb-url http://$LAPTOP:11434/v1 \
+  --emb-model qwen3-emb-0.6b-f16 --heads none --out results/frameworks_e2e_langchain_06b.json
 uv run pytest tests/test_frameworks.py -k langchain
 # D1.5: serve on the w3 catalogue, then the skill's scripts as an agent runs them
 uv run toolrank serve --data data/w3 --config skill_trial.json --emb-url http://$GB10:8091/v1 --emb-model qwen3-emb --port 8766
