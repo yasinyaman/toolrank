@@ -80,12 +80,12 @@ def test_importing_the_cli_loads_no_optional_dependency():
     heavy = (
         "{'mcp', 'mcp_types', 'yaml', 'torch', 'httpx2', 'faiss', 'psycopg', 'pgvector', 'starlette', "
         "'uvicorn', 'anyio', 'datasets', 'anthropic', 'openai', 'langchain_core', 'langgraph', "
-        "'llama_index', 'litellm'}"
+        "'llama_index', 'litellm', 'langchain'}"
     )
     modules = (
         "toolrank.cli, toolrank.adapters.mcp_proxy, toolrank.adapters.rest, toolrank.adapters.backends, "
         "toolrank.client, toolrank.names, toolrank.integrations.anthropic, toolrank.integrations.openai, "
-        "toolrank.integrations.langgraph, toolrank.integrations.litellm"
+        "toolrank.integrations.langgraph, toolrank.integrations.litellm, toolrank.integrations.langchain"
     )
     code = f"import sys, {modules}; print(sorted({heavy} & set(sys.modules)))"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout

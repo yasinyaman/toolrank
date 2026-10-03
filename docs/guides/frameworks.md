@@ -1,4 +1,4 @@
-# LangGraph, LlamaIndex and LiteLLM
+# LangGraph, LangChain, LlamaIndex and LiteLLM
 
 With `toolrank serve` running, the adapters reach it through `toolrank.client.ToolrankClient`, and
 `serve` runs the tools.
@@ -25,6 +25,48 @@ agent = create_agent(llm, box.registry(), retrieve_tools_function=box.retrieve_t
 - A tool that fails, a call toolrank refuses and a call your `approve` callback declines become
   error results the model reads.
 - Each LangGraph thread (`configurable.thread_id`) is its own session in the usage log.
+
+## LangChain agents
+
+`pip install "toolrank[langchain]"` (LangChain 1.x). `ToolrankToolSelector` is a middleware for
+`create_agent`: before each model call, it narrows the tools the model sees to the ones toolrank finds
+for the last user message.
+
+**Your agent's own tools.** Any LangChain tools are ranked through `/v1/rank`, and the model sees what
+toolrank's adaptive K keeps. This does the job of LangChain's `LLMToolSelectorMiddleware` without the
+extra model call.
+
+```python
+from langchain.agents import create_agent
+from toolrank.integrations.langchain import ToolrankToolSelector
+
+agent = create_agent(model, tools=my_tools, middleware=[ToolrankToolSelector()])
+```
+
+**toolrank's catalogue.** Give the agent `Toolbox.registry()` and the middleware the toolbox. The
+catalogue tools are then picked by a toolrank search over the server's index. Each call is linked to
+that search in the usage log, which [`toolrank learn`](learn.md) reads. The agent's other tools are
+shown as they are.
+
+```python
+from toolrank.client import ToolrankClient
+from toolrank.integrations.langgraph import Toolbox
+
+box = Toolbox(ToolrankClient())
+agent = create_agent(model, tools=[*box.registry().values(), *my_tools],
+                     middleware=[ToolrankToolSelector(toolbox=box)])
+```
+
+- The model always keeps the tools the conversation already called, any tool `tool_choice` names,
+  `always_include` and provider tools such as web search. Shown tools keep the agent's order.
+- Every tool is shown when there are 20 or fewer to choose from (`min_tools`), when a tool is deferred
+  to the provider's own tool search, or when there is no user text.
+- If toolrank fails or takes longer than `timeout_s` (5 seconds), the model gets every tool. The
+  selection still finishes in the background, so a later call can use it.
+- An agent makes several model calls per user message. A selection is kept for `ttl_s` seconds, so
+  toolrank is asked once.
+- In our end-to-end run on 1,862 catalogue tools, each task's model call saw 2 tools, the right one
+  among them.
 
 ## LlamaIndex
 

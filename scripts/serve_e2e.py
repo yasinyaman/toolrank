@@ -307,6 +307,8 @@ async def http_phase(
         str(cfg_path),
         "--emb-url",
         a.emb_url,
+        "--emb-model",
+        a.emb_model,
         "--port",
         str(port),
         "--api-keys",
@@ -382,6 +384,7 @@ async def http_phase(
 async def stdio_phase(a: argparse.Namespace, env: dict[str, str], cfg_path: Path) -> dict:
     exe = str(Path(sys.executable).with_name("toolrank"))
     args = ("serve", "--stdio", "--data", a.data, "--config", str(cfg_path), "--emb-url", a.emb_url)
+    args += ("--emb-model", a.emb_model)
     cfg = ServerConfig("toolrank", "stdio", command=exe, args=args, env=env, cwd="/")  # like Claude Desktop
     before = backend_pids()
     out: dict[str, Any] = {}
@@ -452,6 +455,11 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--data", required=True, help="ingest dir with the week-1 sources")
     p.add_argument("--emb-url", required=True)
+    p.add_argument(
+        "--emb-model",
+        default="qwen3-emb",
+        help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
+    )
     p.add_argument("--heads", default=None, help="packaged heads (.npz); default: $TOOLRANK_HEADS")
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--skip-stdio", action="store_true")

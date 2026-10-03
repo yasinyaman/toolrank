@@ -41,9 +41,10 @@ openapi = ["pyyaml>=6"]
 anthropic = ["anthropic>=1.9"]
 openai = ["openai>=3.22"]
 # Framework adapters: LangGraph tools (langgraph-bigtool is installed apart: its release needs
-# langgraph<1) and the LlamaIndex tool retriever. The LiteLLM filter has no extra: it runs inside the
-# proxy's own environment, and litellm pins openai<3.
+# langgraph<1), the LangChain agents' tool selection middleware and the LlamaIndex tool retriever.
+# The LiteLLM filter has no extra: it runs inside the proxy's own environment, and litellm pins openai<3.
 langgraph = ["langchain-core>=1.0"]
+langchain = ["langchain>=1.0"]
 llamaindex = ["llama-index-core>=0.14"]
 # Vector indexes besides the default numpy one: FAISS HNSW, and Postgres with pgvector.
 faiss = ["faiss-cpu>=1.15"]
@@ -60,6 +61,7 @@ dev = [
     "anthropic>=1.9",
     "openai>=3.22",
     "langchain-core>=1.0",
+    "langchain>=1.0",
     "llama-index-core>=0.14",
 ]
 

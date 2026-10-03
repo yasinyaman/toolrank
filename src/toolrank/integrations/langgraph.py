@@ -145,11 +145,13 @@ class Toolbox:
             }
         return self._registry
 
-    def _session(self) -> str:
+    def current_session(self) -> str:
+        """The session a search or call made now carries: the LangGraph thread's, else the
+        toolbox's own."""
         return _thread_session() or self.session
 
     def _retrieve(self, query: str) -> list[str]:
-        session, t0 = self._session(), time.perf_counter()
+        session, t0 = self.current_session(), time.perf_counter()
         try:
             found = self.toolrank.search(query, k=self.k, instruction=self.instruction, session=session)
         except ToolrankError as e:
@@ -186,7 +188,7 @@ class Toolbox:
         if self.approve is not None and not self.approve(entry, arguments):
             self.on_event("call", {"tool": entry["name"], "outcome": "declined"})
             raise ToolException("The user declined this call.")
-        session, t0 = self._session(), time.perf_counter()
+        session, t0 = self.current_session(), time.perf_counter()
         with self._lock:
             search_id = self._found.get((session, name))
         try:

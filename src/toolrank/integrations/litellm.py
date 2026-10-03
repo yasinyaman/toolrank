@@ -41,6 +41,7 @@ from typing import Any
 
 from toolrank.client import ToolrankClient
 from toolrank.cut import DEFAULT_MARGIN, DEFAULT_MAX_K, AdaptiveK
+from toolrank.integrations._common import names_in
 
 log = logging.getLogger("toolrank.integrations.litellm")
 
@@ -107,21 +108,9 @@ def user_text(shape: str, data: Mapping[str, Any]) -> str:
     return ""
 
 
-def _names_in(value: Any) -> set[str]:
-    """Every string under a ``name`` key, however deep (tool choices, allowed-tool lists)."""
-    if isinstance(value, dict):
-        out = {value["name"]} if isinstance(value.get("name"), str) else set()
-        for v in value.values():
-            out |= _names_in(v)
-        return out
-    if isinstance(value, list):
-        return set().union(*(_names_in(v) for v in value))
-    return set()
-
-
 def used_names(shape: str, data: Mapping[str, Any]) -> set[str]:
     """The tools the conversation already called, and any tool ``tool_choice`` names."""
-    names = _names_in(data.get("tool_choice"))
+    names = names_in(data.get("tool_choice"))
     if shape == "responses":
         items = data.get("input")
         for item in items if isinstance(items, list) else []:
@@ -140,7 +129,7 @@ def used_names(shape: str, data: Mapping[str, Any]) -> set[str]:
                 if isinstance(call, dict) and isinstance((call.get("function") or {}).get("name"), str):
                     names.add(call["function"]["name"])
             if isinstance(message.get("function_call"), dict):
-                names |= _names_in(message["function_call"])
+                names |= names_in(message["function_call"])
         elif isinstance(message.get("content"), list):
             for block in message["content"]:
                 if (

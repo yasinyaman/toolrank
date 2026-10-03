@@ -6,6 +6,20 @@ change behaviour.
 
 ## [Unreleased]
 
+### Added
+
+- `toolrank.integrations.langchain.ToolrankToolSelector` (`[langchain]` extra): a LangChain 1.x
+  `create_agent` middleware that shows each model call only the tools toolrank finds for the last
+  user message. It ranks the agent's own tools through `/v1/rank`, or, with a `Toolbox`, picks the
+  catalogue's tools by a search whose calls are linked in the usage log. It keeps the tools already
+  called, `tool_choice`, `always_include` and provider tools, and fails open.
+
+### Fixed
+
+- `scripts/serve_e2e.py`, `platforms_e2e.py` and `frameworks_e2e.py` pass `--emb-model` (default
+  `qwen3-emb`) to the server they start; since 0.2.0 the server's own default is the LoRA backbone's
+  name, which port 8091 does not serve.
+
 ## [0.2.0] - 2026-10-02
 
 Learning from the usage log, a second stage, tenants, metrics, a Helm chart, and a LoRA-trained

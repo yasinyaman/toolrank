@@ -72,7 +72,8 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
   proxy with two tools, a REST API, API keys and a usage log. [Guide](https://yaman.dev/toolrank/guides/serve/)
 - **Agent platforms**: toolrank as Claude's (`tool_reference`) and OpenAI's (client-side
   `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/)
-- **Frameworks**: LangGraph (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
+- **Frameworks**: LangChain agents (`create_agent` middleware), LangGraph (langgraph-bigtool),
+  LlamaIndex agents and the LiteLLM proxy.
   [Guide](https://yaman.dev/toolrank/guides/frameworks/)
 - **Fine-tuning**: heads trained on your own request-to-tool pairs, the epoch picked on a dev set.
   [Guide](https://yaman.dev/toolrank/guides/finetune/)

@@ -1,5 +1,5 @@
-"""What the platform integrations share: reading SDK objects and dicts alike, the read-only rule
-for approvals, and a tool's output as text a model reads."""
+"""What the platform integrations share: reading SDK objects and dicts alike, the tool names in a
+tool choice, the read-only rule for approvals, and a tool's output as text a model reads."""
 
 from __future__ import annotations
 
@@ -18,6 +18,18 @@ def get(obj: Any, key: str, default: Any = None) -> Any:
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def names_in(value: Any) -> set[str]:
+    """Every string under a ``name`` key, however deep (tool choices, allowed-tool lists)."""
+    if isinstance(value, dict):
+        out = {value["name"]} if isinstance(value.get("name"), str) else set()
+        for v in value.values():
+            out |= names_in(v)
+        return out
+    if isinstance(value, list):
+        return set().union(*(names_in(v) for v in value))
+    return set()
 
 
 def read_only(entry: dict[str, Any]) -> bool:

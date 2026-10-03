@@ -10,8 +10,8 @@ retrieval) and hands only those to the agent.
 - **Two tools instead of hundreds.** `toolrank serve` is an MCP server with `search_tools` and
   `call_tool` in front of the whole catalogue, plus a REST API for platforms that run tools
   themselves.
-- **Where agents already look for tools.** Claude's and OpenAI's tool search, LangGraph
-  (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
+- **Where agents already look for tools.** Claude's and OpenAI's tool search, LangChain agents,
+  LangGraph (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
 - **Measured.** Every scorer is benchmarked on ToolRet, LiveMCPBench and MCP-Zero under the same
   protocol; see [Benchmarks](benchmarks.md).
 - **Yours to run.** Apache-2.0, model-agnostic, on-prem: one GPU for the embedding model, or any

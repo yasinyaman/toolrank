@@ -100,7 +100,7 @@ def write_config(directory: Path, port: int) -> Path:
 
 
 @contextmanager
-def served(data: Path, emb_url: str, heads: str | None, stand_in_port: int) -> Iterator[str]:
+def served(data: Path, emb_url: str, emb_model: str, heads: str | None, stand_in_port: int) -> Iterator[str]:
     """``toolrank serve`` on ``data`` with the week-1 servers and the stand-in; -> its URL, ready."""
     env = dict(os.environ)
     if heads:
@@ -110,7 +110,7 @@ def served(data: Path, emb_url: str, heads: str | None, stand_in_port: int) -> I
         port = free_port()
         url = f"http://127.0.0.1:{port}"
         cmd = [str(Path(sys.executable).with_name("toolrank")), "serve", "--data", str(data)]
-        cmd += ["--config", str(cfg), "--emb-url", emb_url, "--port", str(port)]
+        cmd += ["--config", str(cfg), "--emb-url", emb_url, "--emb-model", emb_model, "--port", str(port)]
         log = Path(tmp) / "serve.log"
         with log.open("w") as f:
             proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=f)
@@ -256,6 +256,11 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--data", required=True)
     p.add_argument("--emb-url", required=True)
+    p.add_argument(
+        "--emb-model",
+        default="qwen3-emb",
+        help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
+    )
     p.add_argument("--heads", default=None)
     p.add_argument("--live", action="store_true")
     p.add_argument("--claude-model", default="claude-opus-5-5")
@@ -274,7 +279,7 @@ def main() -> None:
     start = datetime.now(UTC).isoformat(timespec="milliseconds")
     stub = stand_in()
     report: dict[str, Any] = {"data": str(data), "emb_url": a.emb_url}
-    with served(data, a.emb_url, a.heads, stub.server_address[1]) as url:
+    with served(data, a.emb_url, a.emb_model, a.heads, stub.server_address[1]) as url:
         report["offline"] = offline(ToolrankClient(url))
         print(json.dumps(report["offline"], indent=2, ensure_ascii=False))
         if a.live:

@@ -35,7 +35,7 @@ copy its content into tracked files. The product/market plan lives outside the r
 - Heavy dependencies stay optional and are imported inside functions: `torch` → `[clm]`,
   `datasets` → `[data]`, `PyStemmer` → `[stem]`, `mcp` → `[mcp]`, `pyyaml` → `[openapi]`,
   `faiss-cpu` → `[faiss]`, `psycopg` + `pgvector` → `[pgvector]`, `langchain-core` → `[langgraph]`,
-  `llama-index-core` → `[llamaindex]` (all but torch and datasets also in `[dev]`; litellm is no
+  `langchain` → `[langchain]`, `llama-index-core` → `[llamaindex]` (all but torch and datasets also in `[dev]`; litellm is no
   extra and stays out of the venv, since it pins `openai<3`). `[mcp]` also brings the serve stack (starlette, uvicorn, httpx2, anyio);
   `test_ingest_mcp.py` checks that importing `toolrank.cli` and the serve adapters loads none of them. Packaged heads run
   in numpy (`adapters/heads_np.py`): torch is only for training and `toolrank heads export`. The base install must stay numpy + bm25s. BM25 stems only when PyStemmer is importable (otherwise the run name ends in
@@ -173,7 +173,7 @@ uv run python scripts/platforms_e2e.py --data data/w3 --emb-url http://$GB10:809
 # Faz 1 week 5: the framework adapters end to end with scripted models (bigtool runs in a
 # `uv run --with 'langgraph<1'` env, the LiteLLM proxy through uvx: litellm pins openai<3)
 uv run python scripts/frameworks_e2e.py --data data/w3 --emb-url http://$GB10:8091/v1 \
-  --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/frameworks_e2e.json
+  --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/frameworks_e2e.json [--only langchain]
 
 # Faz 1 week 6: packages, images, docs (nothing is published; see Working agreements)
 uv build --out-dir dist/pypi && uvx twine check --strict dist/pypi/*     # never publish dist/* (heads live there)
@@ -427,6 +427,15 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   imported only when the proxy loads it; no extra, litellm pins `openai<3`): a `CustomLogger` whose
   `async_pre_call_hook` must be defined on the class itself (the proxy skips inherited hooks), ranks
   the request's own function tools with `/v1/rank`, fails open, never edits `data` in place.
+  `langchain.ToolrankToolSelector` (backlog D1.4; PEP 562 like litellm, `Selector` is the work without
+  LangChain's class): a LangChain 1.x `AgentMiddleware` whose `wrap_model_call` / `awrap_model_call`
+  narrow `request.tools` (`request.override`) for the last human message: the agent's own tools via
+  `/v1/rank` + adaptive K, or with `toolbox=` the catalogue's tools via `Toolbox.retrieve_tools` (logged
+  searches, calls linked; the agent's other tools pass). Keeps called / `tool_choice` / `always_include` /
+  dict tools, passes deferred tools (`extras["defer_loading"]`) through, fails open after `timeout_s`; the
+  work runs in a pool thread under `contextvars.copy_context()` (the LangGraph thread id is a context var)
+  and its result is cached for `ttl_s` per (session, query) or (instruction, query, tool names), so a
+  late answer serves the next call and one turn's model calls ask once.
 - **Packaging and images** (Faz 1 week 6): the version lives only in `toolrank/__init__.py` (hatch reads
   it); PEP 639 license metadata with LICENSE and NOTICE; the sdist is `src`, `tests` and the top-level
   files. Missing extras print their install line (`build.require`, `cli._need_mcp`). `serve` on
@@ -522,7 +531,8 @@ src/toolrank/metrics.py           Metrics (Prometheus counters and histograms of
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
 src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)
 src/toolrank/integrations/        anthropic.py, openai.py (Toolbox, run), _common.py (read_only, get);
-                                  langgraph.py (Toolbox), llamaindex.py (ToolrankToolRetriever), litellm.py (tool_filter)
+                                  langgraph.py (Toolbox), langchain.py (ToolrankToolSelector, Selector),
+                                  llamaindex.py (ToolrankToolRetriever), litellm.py (tool_filter)
 src/toolrank/ingest/              text.py (the indexed text), mcp.py (server configs, MCP tool → Tool), openapi.py, sync.py
 src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py (pull + task→category map); toolret_train.py;
                                   livemcpbench.py; mcp_zero.py (download + LLM-written queries); synthetic.py;

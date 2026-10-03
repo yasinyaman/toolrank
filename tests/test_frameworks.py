@@ -141,6 +141,181 @@ def test_langgraph_tools_pass_every_argument_and_turn_failures_into_error_result
         lg.Toolbox(_Stub(fail="index not ready")).retrieve_tools("add")
 
 
+# -- LangChain ------------------------------------------------------------------------------------
+
+
+def _scripted_model(reply):
+    """A chat model for ``create_agent``: ``reply(messages, tool names bound) -> AIMessage``; its
+    ``seen`` lists the tool names of each call."""
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from pydantic import Field
+
+    class Scripted(BaseChatModel):
+        seen: list = Field(default_factory=list)
+
+        def bind_tools(self, tools, **kwargs):
+            names = [t.get("name") or t["type"] if isinstance(t, dict) else t.name for t in tools]
+            return self.bind(tool_names=names)
+
+        def _generate(self, messages, stop=None, run_manager=None, tool_names=(), **kwargs):
+            self.seen.append(list(tool_names))
+            return ChatResult(generations=[ChatGeneration(message=reply(messages, list(tool_names)))])
+
+        @property
+        def _llm_type(self):
+            return "scripted"
+
+    return Scripted()
+
+
+def _lc_request(n_tools=25, **overrides):
+    """A model request: ``t0``..``t24`` and a provider tool; t20 was called already, tool_choice
+    names t21, and the last message is a tool result."""
+    from langchain.agents.middleware import ModelRequest
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langchain_core.tools import StructuredTool
+
+    def tool(n):
+        return StructuredTool.from_function(
+            func=lambda x: f"t{n}({x})", name=f"t{n}", description=f"Tool number {n}."
+        )
+
+    request = {
+        "model": _scripted_model(lambda messages, names: AIMessage("")),
+        "tools": [*(tool(n) for n in range(n_tools)), {"type": "web_search"}],
+        "tool_choice": "t21",
+        "messages": [
+            HumanMessage([{"type": "text", "text": "Refund the last payment"}]),
+            AIMessage("", tool_calls=[{"name": "t20", "args": {"x": 1}, "id": "c1"}]),
+            ToolMessage("ok", tool_call_id="c1"),
+        ],
+    }
+    return ModelRequest(**{**request, **overrides})
+
+
+def _names(request):
+    return [t.get("type") if isinstance(t, dict) else t.name for t in request.tools]
+
+
+def test_langchain_selector_keeps_the_ranked_used_chosen_and_provider_tools():
+    pytest.importorskip("langchain")
+    from toolrank.integrations.langchain import Selector, record
+
+    request, ranker, seen = _lc_request(), _Ranker(), []
+    sel = Selector(ranker, always_include=["t3"], on_select=seen.append)
+    out = sel.select(request)
+    assert _names(out) == ["t3", "t5", "t7", "t9", "t20", "t21", "web_search"]  # the agent's order
+    assert len(request.tools) == 26  # the request itself is left as it was
+    assert ranker.asked == [("Refund the last payment", [f"t{n}" for n in range(25)])]
+    assert record(request.tools[4]) == {
+        "name": "t4",
+        "description": "Tool number 4.",
+        "inputSchema": {"type": "object", "properties": {"x": {}}, "required": ["x"]},
+    }
+    # the agent's next model call in the same turn: the same choice, toolrank not asked again
+    assert _names(asyncio.run(sel.aselect(request))) == _names(out)
+    assert len(ranker.asked) == 1
+    assert [e["cached"] for e in seen] == [False, True]
+    assert seen[0] == {
+        "outcome": "selected",
+        "tools": 26,
+        "kept": 7,
+        "query": "Refund the last payment",
+        "cached": False,
+    }
+    with_inst = Selector(ranker, instruction="Given a task")
+    with_inst.select(request)  # another instruction is another choice
+    assert len(ranker.asked) == 2
+
+
+def test_langchain_selector_shows_every_tool_when_it_should_and_fails_open():
+    pytest.importorskip("langchain")
+    import time
+
+    from langchain_core.messages import AIMessage
+
+    from toolrank.client import ToolrankError as Down
+    from toolrank.integrations.langchain import Selector
+
+    request, ranker = _lc_request(), _Ranker()
+    assert Selector(ranker, min_tools=25).select(request) is request  # few enough already
+    request.tools[7].extras = {"defer_loading": True}
+    assert Selector(ranker).select(request) is request  # the provider's own tool search
+    request = _lc_request()
+    assert Selector(ranker).select(request.override(messages=[AIMessage("hi")])).tools == request.tools
+    assert ranker.asked == []  # no user text: nothing to rank for
+
+    seen = []
+    down = Selector(_Ranker(fail=Down(0, "server unreachable")), on_select=seen.append)
+    assert down.select(request) is request
+    assert seen[0]["outcome"] == "skipped" and "server unreachable" in seen[0]["error"]
+
+    slow = Selector(_Ranker(delay=0.5), timeout_s=0.05)
+    for select in (slow.select, lambda r: asyncio.run(slow.aselect(r))):
+        t0 = time.perf_counter()
+        assert select(request) is request and time.perf_counter() - t0 < 0.4  # sent as it came
+    time.sleep(0.6)  # the ranking went on in the background; the next call uses it
+    assert _names(slow.select(request)) == ["t5", "t7", "t9", "t20", "t21", "web_search"]
+
+
+def test_langchain_selector_ranks_through_a_served_toolrank(tmp_path):
+    pytest.importorskip("langchain")
+    from toolrank.integrations.langchain import Selector
+
+    request = _lc_request()
+    with _toolrank(tmp_path) as tr:
+        out = Selector(tr).select(request)
+    kept = _names(out)
+    assert {"t20", "t21", "web_search"} <= set(kept) and 4 <= len(kept) <= 13 and len(kept) < 26
+
+
+def test_langchain_agent_shows_the_catalogue_tools_a_toolbox_search_finds(tmp_path):
+    pytest.importorskip("langchain")
+    from langchain.agents import create_agent
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langchain_core.tools import tool
+
+    from toolrank.integrations import langgraph as lg
+    from toolrank.integrations.langchain import ToolrankToolSelector
+
+    @tool
+    def note(text: str) -> str:
+        """Write a note."""
+        return "noted"
+
+    def reply(messages, names):
+        if isinstance(messages[-1], ToolMessage):
+            return AIMessage(f"Answer: {messages[-1].content}")
+        assert "fx__add" in names
+        return AIMessage("", tool_calls=[{"name": "fx__add", "args": {"a": 2, "b": 3}, "id": "c1"}])
+
+    events, selections = [], []
+    with _toolrank(tmp_path) as tr:
+        box = lg.Toolbox(tr, on_event=lambda kind, details: events.append(kind))
+        model = _scripted_model(reply)
+        selector = ToolrankToolSelector(toolbox=box, min_tools=0, on_select=selections.append)
+        agent = create_agent(model, tools=[*box.registry().values(), note], middleware=[selector])
+        state = agent.invoke(
+            {"messages": [HumanMessage("add two integers")]}, {"configurable": {"thread_id": "t1"}}
+        )
+        assert state["messages"][-1].content == "Answer: 5"
+        again = {"messages": [HumanMessage("add two integers")]}
+        assert asyncio.run(agent.ainvoke(again, {"configurable": {"thread_id": "t2"}}))["messages"][
+            -1
+        ].content == ("Answer: 5")
+    shown = set(model.seen[0]) - {"note"}
+    assert "note" in model.seen[0] and "fx__add" in shown and shown <= set(box.registry())
+    assert all(names == model.seen[0] for names in model.seen)  # four model calls, one choice
+    assert [s["cached"] for s in selections] == [False, True, False, True]  # one search per thread
+    assert events == ["search", "call", "search", "call"]
+    calls = [e for e in _events(tmp_path) if e["event"] == "call"]
+    assert [(c["tool"], c["link"], c["session"]) for c in calls] == [
+        ("fx/add", "search_id", "rest:langgraph:t1"),
+        ("fx/add", "search_id", "rest:langgraph:t2"),
+    ]
+
+
 # -- LlamaIndex -----------------------------------------------------------------------------------
 
 

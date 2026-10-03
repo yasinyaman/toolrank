@@ -6,6 +6,9 @@ every OpenAPI source), then runs each task through:
 
 - langgraph-bigtool 0.0.3's agent, in its own environment (the release needs ``langgraph<1``): the
   model calls ``retrieve_tools``, then the task's tool if it was retrieved, then answers;
+- a LangChain 1.x ``create_agent`` with ``ToolrankToolSelector``, two ways: the whole catalogue as
+  its tools with a ``Toolbox`` (a search per turn), and N_TOOLS of them as its own tools (``/v1/rank``);
+  the model calls the task's tool if it was shown, then answers;
 - a LlamaIndex ``FunctionAgent`` with ``ToolrankToolRetriever`` and ``MockFunctionCallingLLM``;
 - the LiteLLM proxy (``uvx``, its own environment) with ``tool_filter`` in front of a stub upstream
   that records the tools each request brings: 120 catalogue tools plus a provider tool, in Chat
@@ -14,6 +17,8 @@ every OpenAPI source), then runs each task through:
 
     uv run python scripts/frameworks_e2e.py --data data/w3 --emb-url http://$GB10:8091/v1 \
         --heads dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz --out results/frameworks_e2e.json
+
+``--only NAME`` (repeatable) runs some of the parts: langgraph_bigtool, langchain, llamaindex, litellm.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ BIGTOOL = ["--with", "langgraph<1", "--with", "langgraph-bigtool==0.0.3"]
 LITELLM = "litellm[proxy]==1.103.1"
 MASTER_KEY = "sk-e2e-local"  # the throwaway proxy's own admin key
 N_TOOLS = 120  # tools per LiteLLM request, under OpenAI's 128
+PARTS = ["langgraph_bigtool", "langchain", "llamaindex", "litellm"]
 TASKS = [
     {
         "task": "What time is it in Tokyo right now?",
@@ -138,6 +144,93 @@ def run_bigtool(url: str) -> Any:
     if out.returncode:
         return {"error": out.stderr[-3000:]}
     return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+# -- LangChain ------------------------------------------------------------------------------------
+
+
+def langchain_agent(url: str) -> list[dict[str, Any]]:
+    from langchain.agents import create_agent
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from pydantic import Field
+
+    from toolrank.integrations.langchain import ToolrankToolSelector
+    from toolrank.integrations.langgraph import Toolbox
+
+    class Scripted(BaseChatModel):
+        """Calls the task's tool if it was shown, then answers with the tool's output."""
+
+        task: dict[str, Any]
+        shown: list[list[str]] = Field(default_factory=list)
+
+        def bind_tools(self, tools: list[Any], **kwargs: Any) -> Any:
+            names = [t.get("name") or t["type"] if isinstance(t, dict) else t.name for t in tools]
+            return self.bind(tool_names=names)
+
+        def _generate(
+            self, messages: list[Any], stop: Any = None, run_manager: Any = None, **kwargs: Any
+        ) -> Any:
+            names = list(kwargs.get("tool_names") or [])
+            self.shown.append(names)
+            if isinstance(messages[-1], ToolMessage):
+                message = AIMessage(f"Answer: {str(messages[-1].content)[:300]}")
+            elif self.task["tool"] in names:
+                call = {"name": self.task["tool"], "args": self.task["args"], "id": "c1"}
+                message = AIMessage("", tool_calls=[call])
+            else:
+                message = AIMessage("The tool was not shown.")
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        @property
+        def _llm_type(self) -> str:
+            return "scripted"
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    box = Toolbox(ToolrankClient(url), on_event=lambda kind, details: events.append((kind, details)))
+    registry = box.registry()
+    own = [registry[t["api_name"]] for t in request_tools(list(box.entries.values()))]
+    ways = {"toolbox": (list(registry.values()), {"toolbox": box}), "own_tools": (own, {})}
+    rows = []
+    for way, (tools, options) in ways.items():
+        for n, t in enumerate(TASKS):
+            model, selections = Scripted(task=t), []
+            # a long timeout: the first ranking of a tool list embeds it, and the report should show the choice
+            selector = ToolrankToolSelector(
+                ToolrankClient(url), timeout_s=60.0, on_select=selections.append, **options
+            )
+            t0 = time.perf_counter()
+            agent = create_agent(model, tools=tools, middleware=[selector])
+            agent_s = time.perf_counter() - t0
+            config = {"configurable": {"thread_id": f"e2e-langchain-{way}-{n}"}}
+            inputs = {"messages": [HumanMessage(t["task"])]}
+            events.clear()
+            t0 = time.perf_counter()
+            state = asyncio.run(agent.ainvoke(inputs, config)) if n % 2 else agent.invoke(inputs, config)
+            calls = [d["tool"] + ":" + str(d.get("outcome")) for k, d in events if k == "call"]
+            shown = model.shown[0] if model.shown else []
+            rows.append(
+                {
+                    "way": way,
+                    "task": t["task"],
+                    "mode": "async" if n % 2 else "sync",
+                    "agent_tools": len(tools),
+                    "agent_s": round(agent_s, 2),
+                    "shown": shown,
+                    "model_calls": len(model.shown),
+                    "selections": [
+                        {k: s.get(k) for k in ("outcome", "kept", "cached", "error") if k in s}
+                        for s in selections
+                    ],
+                    "searches": sum(k == "search" for k, _ in events),
+                    "calls": calls,
+                    "answer": str(state["messages"][-1].content)[:300],
+                    "ok": t["tool"] in shown and any(c.endswith(":ok") for c in calls),
+                    "seconds": round(time.perf_counter() - t0, 2),
+                }
+            )
+    return rows
 
 
 # -- LlamaIndex -----------------------------------------------------------------------------------
@@ -481,8 +574,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--data")
     p.add_argument("--emb-url")
+    p.add_argument(
+        "--emb-model",
+        default="qwen3-emb",
+        help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
+    )
     p.add_argument("--heads", default=None)
     p.add_argument("--out", default=None)
+    p.add_argument("--only", action="append", choices=PARTS, help="run this part (repeatable); default: all")
     p.add_argument("--part", choices=["bigtool"], help=argparse.SUPPRESS)
     p.add_argument("--url", help=argparse.SUPPRESS)
     a = p.parse_args()
@@ -495,12 +594,16 @@ def main() -> None:
     start = datetime.now(UTC).isoformat(timespec="milliseconds")
     stub = stand_in()
     report: dict[str, Any] = {"data": str(data), "emb_url": a.emb_url}
-    with served(data, a.emb_url, a.heads, stub.server_address[1]) as url:
-        for name, part in (
-            ("langgraph_bigtool", lambda: run_bigtool(url)),
-            ("llamaindex", lambda: asyncio.run(llamaindex(url))),
-            ("litellm", lambda: litellm_proxy(url)),
-        ):
+    with served(data, a.emb_url, a.emb_model, a.heads, stub.server_address[1]) as url:
+        parts = {
+            "langgraph_bigtool": lambda: run_bigtool(url),
+            "langchain": lambda: langchain_agent(url),
+            "llamaindex": lambda: asyncio.run(llamaindex(url)),
+            "litellm": lambda: litellm_proxy(url),
+        }
+        for name, part in parts.items():
+            if a.only and name not in a.only:
+                continue
             t0 = time.perf_counter()
             report[name] = part()
             print(f"--- {name} ({time.perf_counter() - t0:.1f} s)")

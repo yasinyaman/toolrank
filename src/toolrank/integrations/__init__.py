@@ -5,9 +5,10 @@
   (``openai``), which never import the vendors' SDKs: responses are read as SDK objects or dicts
   alike, and what goes back is plain dicts;
 - framework adapters: LangChain tools and langgraph-bigtool retrieval (``langgraph``, which
-  imports langchain-core only when used), a LlamaIndex tool retriever (``llamaindex``, which needs
-  llama-index-core to import) and a tool filter for the LiteLLM proxy (``litellm``, which imports
-  litellm when the proxy loads it).
+  imports langchain-core only when used), a tool selection middleware for LangChain 1.x agents
+  (``langchain``, which imports langchain when the middleware is used), a LlamaIndex tool
+  retriever (``llamaindex``, which needs llama-index-core to import) and a tool filter for the
+  LiteLLM proxy (``litellm``, which imports litellm when the proxy loads it).
 """
 
 from toolrank.integrations._common import read_only
