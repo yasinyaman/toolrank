@@ -459,6 +459,69 @@ def test_learn_writes_the_candidate_and_mixes_in_general_pairs(tmp_path):
     assert NumpyHeads(out).cfg["learned_from"]["requests"] == 48 and out.with_suffix(".pt").exists()
 
 
+def test_replay_pairs_bring_no_negatives_and_none_the_dev_set_asks_about(tmp_path, monkeypatch):
+    """Replay rows: positives only (their mined negatives are never even encoded: their docs are not
+    cached, so encoding them would fail), and a pair whose request the --dev set asks about is dropped."""
+    pytest.importorskip("torch")
+    import toolrank.learn as learn_mod
+    from toolrank.datasets.jsonl import load_tools, write_pairs, write_queries
+    from toolrank.domain import Query, TrainPair
+    from toolrank.finetune import TrainConfig
+    from toolrank.formats import query_format
+
+    _served(tmp_path)
+    doc = lambda i: json.dumps({"name": f"g{i % 7}", "description": "x"})  # noqa: E731
+    general = [
+        TrainPair(
+            id=str(i),
+            text=f"general request {i}",
+            positives=(doc(i),),
+            negatives=(json.dumps({"name": f"neg{i}", "description": "never embedded"}),),
+        )
+        for i in range(40)
+    ]
+    write_pairs(tmp_path / "pairs.jsonl", general)
+    write_tools(tmp_path / "bench" / "tools.jsonl", load_tools(tmp_path / "tools.jsonl"))
+    write_queries(tmp_path / "bench" / "queries.jsonl", [Query(id="d1", text="general request 3", qrels={})])
+    enc, tf, qf = _enc(tmp_path), tool_format("documentation"), query_format("instruct_query")
+    rng = np.random.default_rng(9)
+    texts = [qf(Query(id=p.id, text=p.text, qrels={}, instruction="Find the tool.")) for p in general]
+    docs = sorted(
+        {tf(Tool(id="", doc=json.loads(p.positives[0]), documentation=p.positives[0])) for p in general}
+    )
+    bench_q = qf(Query(id="d1", text="general request 3", qrels={}))
+    enc.cache.put_many(
+        texts + docs + [bench_q], rng.standard_normal((len(texts) + len(docs) + 1, 16)).astype(np.float32)
+    )
+    seen = {}
+    real = learn_mod.train_heads
+
+    def spy(train_b, dev_b, cfg, **kw):
+        seen["batches"] = train_b
+        return real(train_b, dev_b, cfg, **kw)
+
+    monkeypatch.setattr(learn_mod, "train_heads", spy)
+    job = Job(
+        data=tmp_path,
+        out=tmp_path / "heads" / "candidate.npz",
+        dev=tmp_path / "bench",
+        init=None,
+        emb_url=URL,
+        emb_model=MODEL,
+        train=TrainConfig(
+            epochs=1, batch=32, neg_per_pair=3, head_cfg={"width": 64, "depth": 3, "skip": True}
+        ),
+        replay=tmp_path / "pairs.jsonl",
+        replay_n=25,
+        instruction="Find the tool.",
+    )
+    report = run(job, log=lambda _: None)
+    b = seen["batches"]
+    replay_pos, replay_neg = b.pos[48:], b.neg[48:]  # the log's 48 train pairs come first
+    assert len(replay_pos) == 24 and report["replay"]["against_dev"] == 1  # "general request 3" dropped
+    assert all(row for row in replay_pos) and not any(row for row in replay_neg)  # positives, no negatives
+
+
 def test_learn_starts_from_the_heads_a_server_would_serve(tmp_path, monkeypatch):
     from toolrank.learn import resolve_init
 
@@ -482,6 +545,23 @@ def test_learn_starts_from_the_heads_a_server_would_serve(tmp_path, monkeypatch)
     tenant_current.write_bytes(b"tenant")
     assert resolve_init("default", "qwen3-emb", data=data, tenant="acme") == str(tenant_current)
     assert resolve_init("default", "qwen3-emb", data=data, tenant="other") == str(current)
+
+
+def test_replay_sampling_covers_the_whole_file(tmp_path):
+    from toolrank.datasets.jsonl import iter_pairs, write_pairs
+    from toolrank.domain import TrainPair
+    from toolrank.learn import _reservoir
+
+    pairs = [TrainPair(id=str(i), text=f"r{i}", positives=("x",)) for i in range(200)]
+    pairs.insert(100, TrainPair(id="no-pos", text="nope", positives=()))  # counts for nothing
+    write_pairs(tmp_path / "pairs.jsonl", pairs)
+    picked = _reservoir(iter_pairs(tmp_path / "pairs.jsonl"), 10, 0)
+    assert len(picked) == 10 and all(p.positives and p.id != "no-pos" for p in picked)
+    assert max(int(p.id) for p in picked) > 50  # not the head of the file
+    again = _reservoir(iter_pairs(tmp_path / "pairs.jsonl"), 10, 0)  # the same seed, the same sample
+    assert [p.id for p in again] == [p.id for p in picked]
+    other = _reservoir(iter_pairs(tmp_path / "pairs.jsonl"), 10, 1)
+    assert [p.id for p in other] != [p.id for p in picked]
 
 
 def test_mine_skips_the_requests_another_backbone_answered():

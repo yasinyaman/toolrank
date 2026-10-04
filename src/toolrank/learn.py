@@ -24,7 +24,9 @@ beats them on the log's dev set without falling below them on the benchmark by m
 Forgetting (``replay``): general request -> tool pairs (``pairs.jsonl``, e.g. ToolRet's training
 set) can be mixed into the training batches, so heads learned from one catalogue's traffic keep
 what the released ones knew; they are embedded through the same cache, and selection stays on the
-log.
+log. The mix is a seeded reservoir sample over the whole file (the head of a 3.3 GB set is not a
+sample of it), its positives only — the mined negatives such files carry cost more than they
+taught (Phase 0) — without the requests a ``--dev`` set asks about.
 
 A/B (``judge``, ``decide``, ``apply``; ``toolrank ab``): published heads go to
 ``DATA/heads/candidate.npz`` (``tenants/<name>/`` for one API key), where a running server gives
@@ -45,19 +47,38 @@ import sqlite3
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from toolrank.domain import TrainPair
 from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, recall_at, train_heads
 from toolrank.usage import may_learn_from, read_events
 
 POSITIVE, WEAK = "ok", "tool_error"
 K = 5  # the log's own metric: the called tool among the top K of the catalogue
 SCHEMA = 3  # the first log schema with emb_hmac
+
+
+def _reservoir(pairs: Iterable[TrainPair], n: int, seed: int) -> list[TrainPair]:
+    """``n`` pairs sampled over the whole file, every pair equally likely, without holding it in
+    memory: the head of a 3.3 GB training set is not a sample of it. Pairs without a positive count
+    for nothing."""
+    rng = random.Random(seed)
+    out: list[TrainPair] = []
+    seen = 0
+    for p in pairs:
+        if not p.positives:
+            continue
+        seen += 1
+        if len(out) < n:
+            out.append(p)
+        elif (j := rng.randrange(seen)) < n:
+            out[j] = p
+    return out
 
 
 @dataclass(frozen=True)
@@ -351,13 +372,16 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
         batches(dev_pairs, states, index, tool_vecs),
     )
     if job.replay is not None and job.replay_n > 0:
-        from toolrank.datasets.jsonl import load_pairs
-        from toolrank.finetune import index_tools, pair_texts, with_instruction
+        from toolrank.datasets.jsonl import iter_pairs
+        from toolrank.finetune import drop_test_requests, index_tools, pair_texts, with_instruction
 
-        # the head of the file is enough to sample from: ToolRet's training set is 3.3 GB
-        general = [p for p in load_pairs(job.replay, limit=max(4 * job.replay_n, 1000)) if p.positives]
-        picked = random.Random(job.train.seed).sample(general, min(job.replay_n, len(general)))
+        picked = _reservoir(iter_pairs(job.replay), job.replay_n, job.train.seed)
         picked, _ = with_instruction(picked, job.instruction)
+        dropped = 0
+        if job.dev is not None:  # a pair the guard set asks about would make the guard meaningless
+            picked, dropped = drop_test_requests(picked, load_queries(job.dev / "queries.jsonl"))
+        # positives only: the mined negatives replay files carry cost more than they taught (Phase 0)
+        picked = [replace(p, negatives=()) for p in picked]
         state_texts, pos_texts, neg_texts = pair_texts(picked, tf, qf)
         tool_texts, pos, neg = index_tools(pos_texts, neg_texts)
         off = len(tools)  # replay tools follow the catalogue in the training matrix only
@@ -368,6 +392,8 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
             train_b.neg + [[off + j for j in row] for row in neg],
         )
         report["replay"] = {"pairs": len(picked), "tools": len(tool_texts), "from": job.replay.name}
+        if dropped:
+            report["replay"]["against_dev"] = dropped
         report["tokens_spent"] = enc.tokens_spent
         log(f"replay: {len(picked)} general pairs over {len(tool_texts)} tools from {job.replay.name}")
     bench = None

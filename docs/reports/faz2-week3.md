@@ -38,8 +38,9 @@ TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz uv run toolrank s
 cp dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz data/w3/heads/candidate.npz   # sunucu çalışırken
 uv run toolrank ab --data data/w3 --dry-run
 uv run toolrank ab --data data/w3 --promote
-# her gece: dünkü adayı yargıla, yenisini öğren
-toolrank ab --data data/mytools && toolrank learn --data data/mytools --replay data/toolret_train/pairs.jsonl
+# her gece: dünkü adayı yargıla, yenisini öğren (--replay, v0.2 backbone'unda ölçülene kadar
+# gece komutunda yok; 4 Eki 2026'da çıkarıldı, GB10 sırası 4)
+toolrank ab --data data/mytools && toolrank learn --data data/mytools
 ```
 
 ## Ortam

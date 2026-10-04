@@ -91,15 +91,21 @@ learned. While a candidate is still being judged, `learn` leaves it alone (`--re
 overwrites it, and its comparison starts over).
 
 ```bash
-toolrank ab --data data/mytools && toolrank learn --data data/mytools --replay pairs.jsonl
+toolrank ab --data data/mytools && toolrank learn --data data/mytools
 ```
+
+(`--replay` stays out of the nightly command until the simulation measures it on the default
+backbone; see below.)
 
 ## Not forgetting
 
 Heads trained on one catalogue's traffic can lose what the released ones knew. `--replay pairs.jsonl`
 mixes general request-to-tool pairs into the training batches (`--replay-n`, 1,000 of them; ToolRet's
-training pairs from `toolrank data pull toolret-train` are what the released heads saw). They are
+training pairs from `toolrank data pull toolret-train` are what the released heads saw): a seeded
+sample over the whole file, positives only, requests a `--dev` set asks about dropped. They are
 embedded once into the same cache; the epoch is still picked on the log, and `--dev` still guards.
+On the v0.1 heads this paid; on the default (v0.2) backbone it is not measured yet, so the nightly
+command leaves it out until the simulation says.
 
 ## What to expect
 

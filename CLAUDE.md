@@ -194,8 +194,9 @@ export LAPTOP=…; export EMB_URL=http://$LAPTOP:11434/v1 UV=~/.local/bin/uv; ba
 # Faz 2 week 1: learn from what serve logged (no request text leaves the machine; --dry-run needs no torch)
 toolrank learn --data data/mytools [--dev data/livemcpbench_server] [--since 2026-10-01] [--tenant NAME] [--dry-run]
 # Faz 2 week 3: learn writes DATA/heads/candidate.npz, a running serve gives it --candidate-share (0.1) of the
-# requests, ab reads the log back and promotes it to current.npz or sets it aside; every night:
-toolrank ab --data data/mytools [--dry-run] && toolrank learn --data data/mytools --replay data/toolret_train/pairs.jsonl
+# requests, ab reads the log back and promotes it to current.npz or sets it aside; every night (--replay stays
+# out until learn_sim measures it on the v0.2 backbone: GB10 queue 4):
+toolrank ab --data data/mytools [--dry-run] && toolrank learn --data data/mytools
 # Faz 2 week 4: the loop on simulated traffic (GB10): a benchmark as the served catalogue, 70% of its queries
 # logged by an agent that calls the gold tools shown, learn on that log, eval on the 30% never served;
 # NAME/BENCH/GUARD/EVALS/SIZES/NOISE/SEED/TAG/LEARN in the script's header; LEARN="--device cpu" when the GPU is full

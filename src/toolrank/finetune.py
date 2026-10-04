@@ -39,6 +39,16 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+def drop_test_requests(
+    pairs: Sequence[TrainPair], test_queries: Sequence[Query]
+) -> tuple[list[TrainPair], int]:
+    """Pairs whose request text equals a benchmark request are dropped -> (kept, n_dropped): a pair
+    the selection set already asks about would make the guard meaningless."""
+    test = {_norm(q.text) for q in test_queries if q.text.strip()}
+    kept = [p for p in pairs if _norm(p.text) not in test]
+    return kept, len(pairs) - len(kept)
+
+
 def split_pairs(
     pairs: Sequence[TrainPair], test_queries: Sequence[Query], n_train: int, n_val: int, seed: int = 0
 ) -> tuple[list[TrainPair], list[TrainPair], int]:
@@ -47,14 +57,13 @@ def split_pairs(
     -> (train, val, n_dropped). ``n_train`` 0 means every remaining pair. The same arguments give
     the same subsets, which is what lets the embed step and the train step agree.
     """
-    test = {_norm(q.text) for q in test_queries if q.text.strip()}
-    kept = [p for p in pairs if _norm(p.text) not in test]
+    kept, dropped = drop_test_requests(pairs, test_queries)
     order = list(range(len(kept)))
     random.Random(seed).shuffle(order)
     val = [kept[i] for i in order[:n_val]]
     rest = order[n_val:]
     train = [kept[i] for i in (rest[:n_train] if n_train else rest)]
-    return train, val, len(pairs) - len(kept)
+    return train, val, dropped
 
 
 def pair_texts(

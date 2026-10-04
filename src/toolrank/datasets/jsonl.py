@@ -135,24 +135,28 @@ def write_queries(path: str | Path, queries: Iterable[Query]) -> int:
     return n
 
 
-def load_pairs(path: str | Path, limit: int = 0) -> list[TrainPair]:
-    out: list[TrainPair] = []
+def iter_pairs(path: str | Path) -> Iterable[TrainPair]:
+    """The pairs of a ``pairs.jsonl``, one at a time: a 3.3 GB training set is sampled from, not held."""
     with open(path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
             r = json.loads(line)
-            out.append(
-                TrainPair(
-                    id=str(r["id"]),
-                    text=str(r["text"]),
-                    positives=tuple(str(x) for x in r.get("positives") or ()),
-                    negatives=tuple(str(x) for x in r.get("negatives") or ()),
-                    instruction=str(r.get("instruction") or ""),
-                )
+            yield TrainPair(
+                id=str(r["id"]),
+                text=str(r["text"]),
+                positives=tuple(str(x) for x in r.get("positives") or ()),
+                negatives=tuple(str(x) for x in r.get("negatives") or ()),
+                instruction=str(r.get("instruction") or ""),
             )
-            if limit and len(out) >= limit:
-                break
+
+
+def load_pairs(path: str | Path, limit: int = 0) -> list[TrainPair]:
+    out: list[TrainPair] = []
+    for p in iter_pairs(path):
+        out.append(p)
+        if limit and len(out) >= limit:
+            break
     return out
 
 

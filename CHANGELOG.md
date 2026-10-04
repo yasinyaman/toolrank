@@ -36,6 +36,11 @@ change behaviour.
 
 ### Fixed
 
+- `toolrank learn --replay`: the sample now covers the whole pairs file (a seeded reservoir; before,
+  the first `max(4N, 1000)` rows in file order stood in for it), replay rows bring their positives
+  only (the mined negatives such files carry cost more than they taught in Phase 0), and pairs a
+  `--dev` set asks about are dropped, as `finetune` already does. Until the simulation measures
+  replay on the v0.2 backbone it is out of the nightly command (CLAUDE.md, the learn guide).
 - Searches a Jev second stage answered no longer feed `learn`'s pairs, `ab`'s decision or the
   co-use table (the provider's terms, MCA 2.3(b)); each of them skips such searches and counts
   them (`searches_with_jev`), `ab` prints the count, and serve's Jev line says so.
