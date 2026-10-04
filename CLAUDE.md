@@ -671,7 +671,8 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   62.68, MCP-Zero top-1 79.87 → 92.34 / 91.26; Jev over the top 100 gives LiveMCPBench 66.25;
   bge-reranker-v2-gemma 53.96 on ToolRet and breaks the MCP lists (36.19, 48.24); CLM_v0.1-8B in the
   seat 15.36 / 28.94 (top 100 / top 20), fine-tuned 34.20. Jev alone (chunked): LiveMCPBench 65.05,
-  MCP-Zero top-1 90.04 at 40–80k tokens a query; all 17 Jev rows cost $18. Under Jev the heads' fine-tune
+  MCP-Zero top-1 90.04 at 41–91k tokens a query; the 17 Jev rows' spend is not published (the
+  provider's terms). Under Jev the heads' fine-tune
   is worth +1.7 at depth 20 and nothing at depth 100 (zero-shot → Jev 55.98 / 54.59). **LoRA on the
   backbone** (`scripts/lora_train.py`: rank 16, 20k ToolRet-train pairs, in-batch InfoNCE, 625 steps,
   8.6 h on the GB10, picked on MCP-Zero `_server`): ToolRet 58.90 / cat-macro 54.36 in one stage (the

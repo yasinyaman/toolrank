@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "docs" / "reports" / "faz2-jev.md"
-PRICE = 0.042 / 1e6  # $ per Jev input token
+# no fee column: Jev's price is the provider's confidential information (MCA §14.1); tokens stay
 SETS = [("toolret", "ToolRet"), ("livemcpbench_server", "LiveMCPBench"), ("mcp_zero_server", "MCP-Zero")]
 ROWS = [
     ("BM25 (w/ inst)", "readme_{s}_bm25_inst"),
@@ -55,8 +55,8 @@ ROWS = [
 SUMMARY = [
     ("heads (Qwen3-Embedding-8B + v0.1 head'leri), tek aşama", "readme_{s}_heads", "~1 ms, yerel"),
     ("Qwen3-Embedding-8B + LoRA, tek aşama", "lora_{s}_lora", "~1 ms, yerel; MCP-Zero seçim seti"),
-    ("heads → Jev, ilk 20 + dokümantasyon", "jev_{s}_heads_jev20doc", "+0.3 s, 0.0002 $, dış API"),
-    ("heads → Jev, ilk 100", "jev_{s}_heads_jev100", "+0.3 s, 0.0002 $, dış API"),
+    ("heads → Jev, ilk 20 + dokümantasyon", "jev_{s}_heads_jev20doc", "+0.3 s, dış API"),
+    ("heads → Jev, ilk 100", "jev_{s}_heads_jev100", "+0.3 s, dış API"),
     (
         "heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon",
         "cross_{s}_qwen3_heads_x20doc",
@@ -74,7 +74,7 @@ SUMMARY = [
     ),
     ("heads → CLM-8B, ilk 20", "clm_{s}_heads_clm20", "+2 ms, yerel"),
     ("zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon", "jev_{s}_qwen3emb_jev20doc", "+0.3 s, dış API"),
-    ("Jev tek başına, parçalı", "jev_{s}_jev", "0.3–0.6 s, 40–80k token, dış API"),
+    ("Jev tek başına, parçalı", "jev_{s}_jev", "0.3–0.6 s, 41–91k token/sorgu, dış API"),
 ]
 
 
@@ -99,11 +99,9 @@ def set_table(s: str, title: str) -> list[str]:
     heads = [f"{m} ↑ %" for m in ms] + (["cat-macro ↑ %"] if cat else [])
     out = [f"### {title} (w/ inst, n={base['n_queries']})", ""]
     out.append(
-        "| Satır | "
-        + " | ".join(heads)
-        + " | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |"
+        "| Satır | " + " | ".join(heads) + " | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ |"
     )
-    out.append("|---|" + "---:|" * (len(heads) + 4))
+    out.append("|---|" + "---:|" * (len(heads) + 3))
     for label, key in ROWS:
         d = load(key.format(s=s))
         if d is None:
@@ -117,12 +115,12 @@ def set_table(s: str, title: str) -> list[str]:
             tok = (
                 j["input_tokens"] / max(1, j["calls"]) * (j["calls"] + j["cached"])
             )  # cached calls were billed earlier
-            cells += [f"{j['call_ms_p50']:.0f}", f"{tok / n:,.0f} token", f"{tok * PRICE:.2f}"]
+            cells += [f"{j['call_ms_p50']:.0f}", f"{tok / n:,.0f} token"]
         elif x:
             p50 = f"{x['call_ms_p50']:.0f}" if x.get("call_ms_p50") else "önbellek"
-            cells += [p50, f"{(x['pairs'] + x['cached_pairs']) / n:,.0f} çift", "—"]
+            cells += [p50, f"{(x['pairs'] + x['cached_pairs']) / n:,.0f} çift"]
         else:
-            cells += ["—", "—", "—"]
+            cells += ["—", "—"]
         out.append(f"| {label} | " + " | ".join(cells) + " |")
     return out + [""]
 

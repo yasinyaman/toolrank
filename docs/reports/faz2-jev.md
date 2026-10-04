@@ -21,7 +21,7 @@ MCP setlerinde yetmiyor.
 ## Özet
 
 İlk iki satır tek aşama (yalnız gömme modeli); sonrakiler kısa listenin üstünde bir ikinci aşama.
-"Sorgu başına bedel" ikinci aşamanın eklediği gecikme, ücret ve bellek. Bu tablo ve aşağıdaki tam
+"Sorgu başına bedel" ikinci aşamanın eklediği gecikme, token ve bellek. Bu tablo ve aşağıdaki tam
 tablolar `scripts/rerank_report.py --write` ile sonuç dosyalarından üretiliyor.
 
 <!-- summary:start -->
@@ -29,8 +29,8 @@ tablolar `scripts/rerank_report.py --write` ile sonuç dosyalarından üretiliyo
 |---|---:|---:|---:|---:|---|
 | heads (Qwen3-Embedding-8B + v0.1 head'leri), tek aşama | 54.03 | 47.13 | 53.95 | 79.87 | ~1 ms, yerel |
 | Qwen3-Embedding-8B + LoRA, tek aşama | 58.90 | 54.36 | 55.74 | 88.57 | ~1 ms, yerel; MCP-Zero seçim seti |
-| heads → Jev, ilk 20 + dokümantasyon | 57.69 | 52.71 | 64.03 | 92.34 | +0.3 s, 0.0002 $, dış API |
-| heads → Jev, ilk 100 | 55.04 | 51.41 | 66.25 | 91.55 | +0.3 s, 0.0002 $, dış API |
+| heads → Jev, ilk 20 + dokümantasyon | 57.69 | 52.71 | 64.03 | 92.34 | +0.3 s, dış API |
+| heads → Jev, ilk 100 | 55.04 | 51.41 | 66.25 | 91.55 | +0.3 s, dış API |
 | heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon | 58.05 | 52.93 | 62.68 | 91.26 | +0.3–0.6 s, yerel, +16 GB |
 | LoRA → Qwen3-Reranker-8B, ilk 20 + dokümantasyon | 59.36 | 54.35 | 61.24 | 91.94 | +0.3–0.6 s, yerel, +16 GB |
 | heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon | 53.96 | 50.26 | 36.19 | 48.24 | +0.1 s, yerel, +5 GB |
@@ -56,15 +56,15 @@ ve yüzde olarak yazılıyor; "fark" sütunları yüzde puanı.
 | çağrı p50 | tek bir Jev ya da skor API çağrısının medyan süresi, GB10'dan | ms | ↓ |
 | token / sorgu | Jev'e gönderilen, faturalanan girdi tokenı, sorgu başına | token | ↓ |
 | çift / sorgu | cross-encoder'ın puanladığı (istek, aday) çifti sayısı, sorgu başına | adet | ↓ |
-| ücret | satırın tamamı, 0.042 $ / M token ile | $ | ↓ |
 | parite kosinüsü | süreç içi vektör ile servisten gelen vektörün kosinüs benzerliği; 1 = aynı | 0–1 | ↑ |
 | loss | InfoNCE eğitim kaybı | nat | ↓ |
 
 ## Jev nedir, buraya nasıl oturur
 
 - Jev metin üretmiyor: bir "state" ve tipli sorular alıyor; bir Choice sorusu en fazla 255 seçenek
-  için olasılık dağılımı döndürüyor. Girdi tokenı 0.042 $ / M, çıktı ücretsiz; istek başına 64k,
-  state + en uzun soru 32k token; 100K token/s, 40 istek/s. Model `jev-1.13.0` (alias'lar kayar).
+  için olasılık dağılımı döndürüyor. Fiyatı sağlayıcının gizli bilgisi (MCA §14.1), burada yazmıyor;
+  istek başına 64k, state + en uzun soru 32k token; 100K token/s, 40 istek/s. Model `jev-1.13.0`
+  (alias'lar kayar).
 - 255 sınırı yüzünden 44 bin araçlık ToolRet'i tek başına tarayamaz. Kendi dokümanlarının önerisi
   "önce hızlı arama, sonra yeniden sıralama"; skill suggestion cookbook'u 182 skill'i tek Choice ile
   sıralayıp ilk 3'ü tekrar okuyor.
@@ -74,7 +74,7 @@ ve yüzde olarak yazılıyor; "fark" sütunları yüzde puanı.
   büyüklüğünde parçalar, parça kazananları bir kez daha sıralanır). State `{"request"}`, kıyaslama
   talimatı sorunun başında, seçenek metni `--jev-tool-format` (`--jev-max-chars` ile kesilir).
 - Cevaplar istek gövdesiyle anahtarlanıp `.cache/toolrank/jev.sqlite`'a yazılıyor: tekrar koşu
-  ücretsiz ve birebir aynı sıralama. GB10'daki önbellekte 36.907 cevap var.
+  birebir aynı sıralama. GB10'daki önbellekte 36.907 cevap var.
 
 ## Kollar
 
@@ -102,103 +102,103 @@ w/ inst; taban satırları `docs/results/readme_*.json` (README tablosu), Jev sa
 `results/jev_*.json`, CLM satırları `results/clm_*.json` (`scripts/clm_rerank.sh`, `--rerank clm`).
 "sorgu p50 ms" eval'in `rank` adımı: Jev satırlarında 8 eşzamanlı isteğin toplam süresi bölü sorgu
 sayısı, yani verim, çağrı başı gecikme yandaki sütunda; CLM satırlarında GPU'daki head'ler ve
-önbellek aramaları. Son üç sütun Jev'e ait: GB10'dan çağrı başına p50, sorgu başına faturalanan token
-ve satırın toplam ücreti, 0.042 $ / M token ile.
+önbellek aramaları. Son iki sütun Jev'e ait: GB10'dan çağrı başına p50 ve sorgu başına faturalanan
+token.
 
 <!-- tables:start -->
 ### ToolRet (w/ inst, n=7961)
 
-| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | cat-macro ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 (w/ inst) | 39.27 | 42.42 | 49.49 | 40.70 | 36.41 | 0.4 | — | — | — |
-| BM25 → Jev, ilk 30 | 47.81 | 51.56 | 56.30 | 46.72 | 45.19 | 39.8 | 285 | 1,965 token | 0.66 |
-| Qwen3-Embedding-8B | 51.11 | 54.24 | 62.32 | 51.60 | 46.54 | 0.8 | — | — | — |
-| heads | 54.03 | 57.39 | 65.59 | 55.06 | 47.13 | 0.9 | — | — | — |
-| heads → Jev, ilk 100 | 55.04 | 58.25 | 66.76 | 56.81 | 51.41 | 43.1 | 310 | 5,564 token | 1.86 |
-| heads → Jev, ilk 20, documentation | 57.69 | 61.56 | 68.35 | 58.30 | 52.71 | 42.0 | 303 | 4,047 token | 1.35 |
-| Qwen3-Emb → Jev, ilk 100 | 54.59 | 58.04 | 66.03 | 55.90 | 52.05 | 45.0 | 320 | 5,459 token | 1.83 |
-| Qwen3-Emb → Jev, ilk 20, documentation | 55.98 | 59.55 | 65.41 | 54.80 | 52.67 | 43.2 | 306 | 4,138 token | 1.38 |
-| heads → CLM-8B, ilk 100 | 15.36 | 17.25 | 25.56 | 20.31 | 12.47 | 3.6 | — | — | — |
-| heads → CLM-8B, ilk 20 | 28.94 | 31.37 | 48.72 | 38.61 | 24.80 | 1.9 | — | — | — |
-| heads → CLM fine-tune, ilk 100 | 34.20 | 36.50 | 46.57 | 37.77 | 22.68 | 3.2 | — | — | — |
-| BM25 → CLM-8B, ilk 30 | 22.33 | 25.39 | 36.33 | 29.83 | 19.59 | 1.7 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 100 | 13.84 | 15.26 | 23.61 | 18.62 | 11.03 | 3.8 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 28.65 | 31.21 | 48.09 | 38.49 | 23.89 | 7.0 | — | — | — |
-| BM25 → CLM-8B, Jev'in metni, ilk 30 | 21.08 | 23.63 | 34.86 | 28.64 | 18.56 | 1.8 | — | — | — |
-| heads → Qwen3-Reranker-8B, ilk 20, documentation | 58.05 | 61.80 | 68.41 | 58.12 | 52.93 | 613.3 | 4517 | 20 çift | — |
-| heads → Qwen3-Reranker-8B, ilk 100 | 54.55 | 58.23 | 66.31 | 55.68 | 50.19 | 681.3 | 6049 | 100 çift | — |
-| BM25 → Qwen3-Reranker-8B, ilk 30 | 48.42 | 51.97 | 57.01 | 47.36 | 45.15 | 318.8 | 2496 | 30 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 20, documentation | 53.96 | 57.80 | 66.99 | 56.21 | 50.26 | 231.6 | 1888 | 20 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 100 | 48.21 | 51.47 | 60.89 | 50.09 | 46.33 | 340.0 | 2810 | 100 çift | — |
-| BM25 → bge-reranker-v2-gemma, ilk 30 | 44.62 | 48.03 | 54.34 | 45.15 | 42.46 | 130.4 | 929 | 30 çift | — |
-| Qwen3-Emb + LoRA | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 19.9 | — | — | — |
-| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 7.7 | — | — | — |
-| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 59.36 | 63.37 | 70.40 | 61.10 | 54.35 | 353.9 | 2435 | 20 çift | — |
-| LoRA → Qwen3-Reranker-8B, ilk 100 | 55.23 | 59.01 | 67.28 | 57.05 | 51.22 | 392.7 | 2859 | 100 çift | — |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | cat-macro ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 (w/ inst) | 39.27 | 42.42 | 49.49 | 40.70 | 36.41 | 0.4 | — | — |
+| BM25 → Jev, ilk 30 | 47.81 | 51.56 | 56.30 | 46.72 | 45.19 | 39.8 | 285 | 1,965 token |
+| Qwen3-Embedding-8B | 51.11 | 54.24 | 62.32 | 51.60 | 46.54 | 0.8 | — | — |
+| heads | 54.03 | 57.39 | 65.59 | 55.06 | 47.13 | 0.9 | — | — |
+| heads → Jev, ilk 100 | 55.04 | 58.25 | 66.76 | 56.81 | 51.41 | 43.1 | 310 | 5,564 token |
+| heads → Jev, ilk 20, documentation | 57.69 | 61.56 | 68.35 | 58.30 | 52.71 | 42.0 | 303 | 4,047 token |
+| Qwen3-Emb → Jev, ilk 100 | 54.59 | 58.04 | 66.03 | 55.90 | 52.05 | 45.0 | 320 | 5,459 token |
+| Qwen3-Emb → Jev, ilk 20, documentation | 55.98 | 59.55 | 65.41 | 54.80 | 52.67 | 43.2 | 306 | 4,138 token |
+| heads → CLM-8B, ilk 100 | 15.36 | 17.25 | 25.56 | 20.31 | 12.47 | 3.6 | — | — |
+| heads → CLM-8B, ilk 20 | 28.94 | 31.37 | 48.72 | 38.61 | 24.80 | 1.9 | — | — |
+| heads → CLM fine-tune, ilk 100 | 34.20 | 36.50 | 46.57 | 37.77 | 22.68 | 3.2 | — | — |
+| BM25 → CLM-8B, ilk 30 | 22.33 | 25.39 | 36.33 | 29.83 | 19.59 | 1.7 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 13.84 | 15.26 | 23.61 | 18.62 | 11.03 | 3.8 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 28.65 | 31.21 | 48.09 | 38.49 | 23.89 | 7.0 | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 21.08 | 23.63 | 34.86 | 28.64 | 18.56 | 1.8 | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 58.05 | 61.80 | 68.41 | 58.12 | 52.93 | 613.3 | 4517 | 20 çift |
+| heads → Qwen3-Reranker-8B, ilk 100 | 54.55 | 58.23 | 66.31 | 55.68 | 50.19 | 681.3 | 6049 | 100 çift |
+| BM25 → Qwen3-Reranker-8B, ilk 30 | 48.42 | 51.97 | 57.01 | 47.36 | 45.15 | 318.8 | 2496 | 30 çift |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 53.96 | 57.80 | 66.99 | 56.21 | 50.26 | 231.6 | 1888 | 20 çift |
+| heads → bge-reranker-v2-gemma, ilk 100 | 48.21 | 51.47 | 60.89 | 50.09 | 46.33 | 340.0 | 2810 | 100 çift |
+| BM25 → bge-reranker-v2-gemma, ilk 30 | 44.62 | 48.03 | 54.34 | 45.15 | 42.46 | 130.4 | 929 | 30 çift |
+| Qwen3-Emb + LoRA | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 19.9 | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 58.90 | 62.90 | 69.54 | 60.04 | 54.36 | 7.7 | — | — |
+| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 59.36 | 63.37 | 70.40 | 61.10 | 54.35 | 353.9 | 2435 | 20 çift |
+| LoRA → Qwen3-Reranker-8B, ilk 100 | 55.23 | 59.01 | 67.28 | 57.05 | 51.22 | 392.7 | 2859 | 100 çift |
 
 ### LiveMCPBench (w/ inst, n=94)
 
-| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 (w/ inst) | 25.38 | 22.92 | 31.41 | 17.02 | 0.3 | — | — | — |
-| BM25 → Jev, ilk 30 | 39.47 | 38.09 | 44.07 | 22.34 | 11.0 | 298 | 3,438 token | 0.01 |
-| Qwen3-Embedding-8B | 53.74 | 50.82 | 61.09 | 37.23 | 0.4 | — | — | — |
-| heads | 53.95 | 53.03 | 61.66 | 36.17 | 0.1 | — | — | — |
-| heads → Jev, ilk 100 | 66.25 | 65.84 | 73.68 | 46.81 | 12.2 | 329 | 7,018 token | 0.03 |
-| heads → Jev, ilk 20, documentation | 64.03 | 64.70 | 69.63 | 44.68 | 11.7 | 313 | 4,984 token | 0.02 |
-| Jev tek başına | 65.05 | 66.44 | 73.81 | 45.74 | 49.5 | 360 | 40,910 token | 0.16 |
-| Qwen3-Emb → Jev, ilk 100 | 66.00 | 66.15 | 74.99 | 51.06 | 46.1 | 327 | 7,010 token | 0.03 |
-| Qwen3-Emb → Jev, ilk 20, documentation | 62.48 | 63.99 | 68.81 | 43.62 | 45.6 | 315 | 5,062 token | 0.02 |
-| heads → CLM-8B, ilk 100 | 11.85 | 12.36 | 19.79 | 8.51 | 5.5 | — | — | — |
-| heads → CLM-8B, ilk 20 | 27.65 | 29.27 | 43.90 | 15.96 | 3.9 | — | — | — |
-| heads → CLM fine-tune, ilk 100 | 13.49 | 11.23 | 21.22 | 10.64 | 5.0 | — | — | — |
-| BM25 → CLM-8B, ilk 30 | 15.07 | 15.47 | 22.91 | 9.57 | 4.0 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 100 | 10.93 | 10.76 | 18.46 | 9.57 | 135.0 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 21.06 | 16.98 | 36.90 | 14.89 | 323.1 | — | — | — |
-| BM25 → CLM-8B, Jev'in metni, ilk 30 | 13.48 | 12.75 | 22.65 | 9.57 | 4.1 | — | — | — |
-| heads → Qwen3-Reranker-8B, ilk 20, documentation | 62.68 | 62.84 | 71.68 | 47.87 | 198.2 | 1667 | 20 çift | — |
-| heads → Qwen3-Reranker-8B, ilk 100 | 59.33 | 58.56 | 68.73 | 41.49 | 1143.2 | 8470 | 100 çift | — |
-| BM25 → Qwen3-Reranker-8B, ilk 30 | 40.07 | 40.56 | 44.10 | 23.40 | 540.2 | 4481 | 30 çift | — |
-| Qwen3-Reranker-8B tek başına | 55.25 | 53.49 | 63.03 | 35.11 | 32267.6 | 4426 | 525 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 20, documentation | 36.19 | 33.71 | 50.45 | 26.60 | 51.5 | 1938 | 20 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 100 | 27.64 | 28.10 | 44.50 | 23.40 | 51.5 | 427 | 100 çift | — |
-| BM25 → bge-reranker-v2-gemma, ilk 30 | 15.66 | 13.53 | 29.20 | 13.83 | 98.5 | 709 | 30 çift | — |
-| bge-reranker-v2-gemma tek başına | 7.65 | 6.42 | 14.53 | 6.38 | 7142.8 | 774 | 525 çift | — |
-| Qwen3-Emb + LoRA | 55.74 | 52.06 | 63.34 | 39.36 | 36.5 | — | — | — |
-| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 55.74 | 52.06 | 63.34 | 39.36 | 4.1 | — | — | — |
-| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 61.24 | 61.06 | 70.47 | 48.94 | 307.5 | 2316 | 20 çift | — |
-| LoRA → Qwen3-Reranker-8B, ilk 100 | 58.26 | 56.57 | 67.52 | 41.49 | 123.5 | 943 | 100 çift | — |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| BM25 (w/ inst) | 25.38 | 22.92 | 31.41 | 17.02 | 0.3 | — | — |
+| BM25 → Jev, ilk 30 | 39.47 | 38.09 | 44.07 | 22.34 | 11.0 | 298 | 3,438 token |
+| Qwen3-Embedding-8B | 53.74 | 50.82 | 61.09 | 37.23 | 0.4 | — | — |
+| heads | 53.95 | 53.03 | 61.66 | 36.17 | 0.1 | — | — |
+| heads → Jev, ilk 100 | 66.25 | 65.84 | 73.68 | 46.81 | 12.2 | 329 | 7,018 token |
+| heads → Jev, ilk 20, documentation | 64.03 | 64.70 | 69.63 | 44.68 | 11.7 | 313 | 4,984 token |
+| Jev tek başına | 65.05 | 66.44 | 73.81 | 45.74 | 49.5 | 360 | 40,910 token |
+| Qwen3-Emb → Jev, ilk 100 | 66.00 | 66.15 | 74.99 | 51.06 | 46.1 | 327 | 7,010 token |
+| Qwen3-Emb → Jev, ilk 20, documentation | 62.48 | 63.99 | 68.81 | 43.62 | 45.6 | 315 | 5,062 token |
+| heads → CLM-8B, ilk 100 | 11.85 | 12.36 | 19.79 | 8.51 | 5.5 | — | — |
+| heads → CLM-8B, ilk 20 | 27.65 | 29.27 | 43.90 | 15.96 | 3.9 | — | — |
+| heads → CLM fine-tune, ilk 100 | 13.49 | 11.23 | 21.22 | 10.64 | 5.0 | — | — |
+| BM25 → CLM-8B, ilk 30 | 15.07 | 15.47 | 22.91 | 9.57 | 4.0 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 10.93 | 10.76 | 18.46 | 9.57 | 135.0 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 21.06 | 16.98 | 36.90 | 14.89 | 323.1 | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 13.48 | 12.75 | 22.65 | 9.57 | 4.1 | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 62.68 | 62.84 | 71.68 | 47.87 | 198.2 | 1667 | 20 çift |
+| heads → Qwen3-Reranker-8B, ilk 100 | 59.33 | 58.56 | 68.73 | 41.49 | 1143.2 | 8470 | 100 çift |
+| BM25 → Qwen3-Reranker-8B, ilk 30 | 40.07 | 40.56 | 44.10 | 23.40 | 540.2 | 4481 | 30 çift |
+| Qwen3-Reranker-8B tek başına | 55.25 | 53.49 | 63.03 | 35.11 | 32267.6 | 4426 | 525 çift |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 36.19 | 33.71 | 50.45 | 26.60 | 51.5 | 1938 | 20 çift |
+| heads → bge-reranker-v2-gemma, ilk 100 | 27.64 | 28.10 | 44.50 | 23.40 | 51.5 | 427 | 100 çift |
+| BM25 → bge-reranker-v2-gemma, ilk 30 | 15.66 | 13.53 | 29.20 | 13.83 | 98.5 | 709 | 30 çift |
+| bge-reranker-v2-gemma tek başına | 7.65 | 6.42 | 14.53 | 6.38 | 7142.8 | 774 | 525 çift |
+| Qwen3-Emb + LoRA | 55.74 | 52.06 | 63.34 | 39.36 | 36.5 | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 55.74 | 52.06 | 63.34 | 39.36 | 4.1 | — | — |
+| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 61.24 | 61.06 | 70.47 | 48.94 | 307.5 | 2316 | 20 çift |
+| LoRA → Qwen3-Reranker-8B, ilk 100 | 58.26 | 56.57 | 67.52 | 41.49 | 123.5 | 943 | 100 çift |
 
 ### MCP-Zero (w/ inst, n=2792)
 
-| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | Precision@1 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ | ücret ↓ $ |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| BM25 (w/ inst) | 63.32 | 73.94 | 84.95 | 84.78 | 45.63 | 0.1 | — | — | — |
-| BM25 → Jev, ilk 30 | 92.84 | 94.55 | 94.89 | 94.70 | 90.29 | 39.1 | 286 | 1,289 token | 0.15 |
-| Qwen3-Embedding-8B | 87.21 | 92.31 | 95.63 | 95.52 | 78.19 | 0.1 | — | — | — |
-| heads | 88.53 | 94.20 | 96.12 | 96.02 | 79.87 | 0.1 | — | — | — |
-| heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 token | 0.36 |
-| heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 token | 0.21 |
-| Jev tek başına | 93.95 | 96.61 | 96.81 | 96.67 | 90.04 | 629.7 | 320 | 90,831 token | 10.65 |
-| Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 token | 0.37 |
-| Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 token | 0.20 |
-| heads → CLM-8B, ilk 100 | 13.11 | 16.10 | 25.81 | 25.68 | 3.76 | 2.4 | — | — | — |
-| heads → CLM-8B, ilk 20 | 33.22 | 39.42 | 65.25 | 64.97 | 10.10 | 1.1 | — | — | — |
-| heads → CLM fine-tune, ilk 100 | 20.01 | 23.59 | 37.67 | 37.54 | 7.23 | 2.3 | — | — | — |
-| BM25 → CLM-8B, ilk 30 | 27.64 | 32.68 | 60.30 | 60.10 | 5.27 | 1.2 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 100 | 12.76 | 15.20 | 24.79 | 24.71 | 4.08 | 6.2 | — | — | — |
-| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 32.60 | 38.20 | 64.40 | 64.04 | 9.63 | 26.8 | — | — | — |
-| BM25 → CLM-8B, Jev'in metni, ilk 30 | 26.65 | 35.79 | 57.03 | 56.88 | 3.94 | 1.1 | — | — | — |
-| heads → Qwen3-Reranker-8B, ilk 20, documentation | 94.57 | 96.64 | 97.30 | 97.21 | 91.26 | 298.0 | 2476 | 20 çift | — |
-| heads → Qwen3-Reranker-8B, ilk 100 | 93.97 | 96.39 | 97.64 | 97.53 | 89.86 | 574.0 | 4285 | 100 çift | — |
-| BM25 → Qwen3-Reranker-8B, ilk 30 | 92.66 | 94.52 | 95.61 | 95.49 | 89.29 | 196.9 | 1556 | 30 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 20, documentation | 71.41 | 85.32 | 94.56 | 94.45 | 48.24 | 103.4 | 773 | 20 çift | — |
-| heads → bge-reranker-v2-gemma, ilk 100 | 53.34 | 66.65 | 84.97 | 84.85 | 26.11 | 277.8 | 2343 | 100 çift | — |
-| BM25 → bge-reranker-v2-gemma, ilk 30 | 50.59 | 62.96 | 83.16 | 82.99 | 23.93 | 101.5 | 795 | 30 çift | — |
-| Qwen3-Emb + LoRA | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 5.4 | — | — | — |
-| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 4.9 | — | — | — |
-| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 95.45 | 97.64 | 98.39 | 98.35 | 91.94 | 125.1 | 952 | 20 çift | — |
-| LoRA → Qwen3-Reranker-8B, ilk 100 | 94.03 | 96.43 | 97.60 | 97.49 | 90.04 | 237.0 | 1763 | 100 çift | — |
+| Satır | NDCG@10 ↑ % | Recall@5 ↑ % | Recall@10 ↑ % | Comprehensiveness@10 ↑ % | Precision@1 ↑ % | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 (w/ inst) | 63.32 | 73.94 | 84.95 | 84.78 | 45.63 | 0.1 | — | — |
+| BM25 → Jev, ilk 30 | 92.84 | 94.55 | 94.89 | 94.70 | 90.29 | 39.1 | 286 | 1,289 token |
+| Qwen3-Embedding-8B | 87.21 | 92.31 | 95.63 | 95.52 | 78.19 | 0.1 | — | — |
+| heads | 88.53 | 94.20 | 96.12 | 96.02 | 79.87 | 0.1 | — | — |
+| heads → Jev, ilk 100 | 94.90 | 96.96 | 97.55 | 97.46 | 91.55 | 41.0 | 292 | 3,104 token |
+| heads → Jev, ilk 20, documentation | 95.01 | 96.55 | 97.23 | 97.13 | 92.34 | 38.8 | 285 | 1,796 token |
+| Jev tek başına | 93.95 | 96.61 | 96.81 | 96.67 | 90.04 | 629.7 | 320 | 90,831 token |
+| Qwen3-Emb → Jev, ilk 100 | 94.81 | 96.90 | 97.62 | 97.49 | 91.33 | 41.9 | 299 | 3,151 token |
+| Qwen3-Emb → Jev, ilk 20, documentation | 94.72 | 96.27 | 96.99 | 96.88 | 91.98 | 40.0 | 288 | 1,688 token |
+| heads → CLM-8B, ilk 100 | 13.11 | 16.10 | 25.81 | 25.68 | 3.76 | 2.4 | — | — |
+| heads → CLM-8B, ilk 20 | 33.22 | 39.42 | 65.25 | 64.97 | 10.10 | 1.1 | — | — |
+| heads → CLM fine-tune, ilk 100 | 20.01 | 23.59 | 37.67 | 37.54 | 7.23 | 2.3 | — | — |
+| BM25 → CLM-8B, ilk 30 | 27.64 | 32.68 | 60.30 | 60.10 | 5.27 | 1.2 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 100 | 12.76 | 15.20 | 24.79 | 24.71 | 4.08 | 6.2 | — | — |
+| heads → CLM-8B, Jev'in metni, ilk 20, documentation | 32.60 | 38.20 | 64.40 | 64.04 | 9.63 | 26.8 | — | — |
+| BM25 → CLM-8B, Jev'in metni, ilk 30 | 26.65 | 35.79 | 57.03 | 56.88 | 3.94 | 1.1 | — | — |
+| heads → Qwen3-Reranker-8B, ilk 20, documentation | 94.57 | 96.64 | 97.30 | 97.21 | 91.26 | 298.0 | 2476 | 20 çift |
+| heads → Qwen3-Reranker-8B, ilk 100 | 93.97 | 96.39 | 97.64 | 97.53 | 89.86 | 574.0 | 4285 | 100 çift |
+| BM25 → Qwen3-Reranker-8B, ilk 30 | 92.66 | 94.52 | 95.61 | 95.49 | 89.29 | 196.9 | 1556 | 30 çift |
+| heads → bge-reranker-v2-gemma, ilk 20, documentation | 71.41 | 85.32 | 94.56 | 94.45 | 48.24 | 103.4 | 773 | 20 çift |
+| heads → bge-reranker-v2-gemma, ilk 100 | 53.34 | 66.65 | 84.97 | 84.85 | 26.11 | 277.8 | 2343 | 100 çift |
+| BM25 → bge-reranker-v2-gemma, ilk 30 | 50.59 | 62.96 | 83.16 | 82.99 | 23.93 | 101.5 | 795 | 30 çift |
+| Qwen3-Emb + LoRA | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 5.4 | — | — |
+| Qwen3-Emb + LoRA + head (epoch 0 = kimlik) | 93.67 | 96.53 | 97.93 | 97.89 | 88.57 | 4.9 | — | — |
+| LoRA → Qwen3-Reranker-8B, ilk 20, documentation | 95.45 | 97.64 | 98.39 | 98.35 | 91.94 | 125.1 | 952 | 20 çift |
+| LoRA → Qwen3-Reranker-8B, ilk 100 | 94.03 | 96.43 | 97.60 | 97.49 | 90.04 | 237.0 | 1763 | 100 çift |
 
 ### ToolRet, kategori bazında NDCG@10: heads → heads + Jev 100
 
@@ -374,7 +374,7 @@ yeniden üretti (93.67'ye karşı 93.65).
 
 Tam koşu öncesi, aynı 50 sorguda taban satırlarıyla (`results/jevsmoke_*.json`; ToolRet'te tek
 görev, craft-math-algebra): heads → Jev 100 LiveMCPBench'te 52.06 → 67.24 NDCG@10, MCP-Zero'da
-top-1 92 → 94, Jev tek başına MCP-Zero'da top-1 98. 11 satır, 8.4 M token, 0.35 $.
+top-1 92 → 94, Jev tek başına MCP-Zero'da top-1 98. 11 satır, 8.4 M token.
 
 ## Komutlar
 
@@ -429,10 +429,9 @@ bf16 `--max-model-len 8192` (8091), paketlenmiş head'ler v0.1 (`.npz`, numpy). 
 commit `c40419e`. Jev: `api.typesafe.ai`, `jev-1.13.0`, 8 eşzamanlı istek, çağrılar GB10'dan
 (İstanbul; TypeSafe'in sunucuları Batı Kıyısı'nda, Mac'ten tek küçük istek 0.30 s, GB10'dan p50
 285–360 ms, p95 415–540 ms). Gömme önbelleği sıcak; Jev önbelleği duman testinin 50 sorgusu dışında
-soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ faturalandı (ilk 10 satır 4.66 $,
-zero-shot → Jev satırları 3.8 $, MCP-Zero tek başına 9.51 $ — tablodaki 10.65 $ satırın nominal
-maliyeti; kredi ortada bitince bir bölümü faturalanmadı), duman testi 0.35 $. İlk koşuda hesabın
-kredisi tek başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
+soğuk. 17 Jev satırı toplam 428,5 M token işledi; ücretler sağlayıcının gizli bilgisi (MCA §14.1),
+burada yazmıyor. İlk koşuda hesabın kredisi tek başına satırında bitmiş (HTTP 402), kredi eklenince
+kalan satırlar önbellekten devam etti.
 CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
 `data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
 (encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun

@@ -63,6 +63,9 @@ change behaviour.
 - `release_check.py` now also refuses a release whose Helm chart `appVersion` names the previous
   one (the chart's image tag defaults to it), and `docs/guides/local.md` pins the GGUF download to
   `--revision v0.2`.
+- Jev's price and the dollar figures leave the tracked documents — they are the provider's
+  confidential information (MCA §14.1). The token counts stay; `scripts/rerank_report.py` no longer
+  prints a fee column.
 - Stale sentences in the reports: the phase-1 gate report's "no GPU-less path" and "47.13 < 50"
   (the GGUF guide and the v0.2 backbone settled both), the 0.2.0 release week's "weights not on
   the Hub yet" and "names proposed", the Jev report's "60K pairs" heads (206K), its bge-gemma
