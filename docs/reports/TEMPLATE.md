@@ -10,6 +10,13 @@ Her tablo başlığında ok yönü (↑ yüksek iyi, ↓ düşük iyi) ve birim:
 `token / sorgu ↓`, `ücret ↓ $`. Rapora özgü bir ölçü varsa burada tek satırla tanımla (ne ölçüyor,
 birimi, hangi yön iyi). Sıralama ölçüleri yüzde, "fark" sütunları yüzde puanı.
 
+## Ön kayıt (koşudan önce doldurulur)
+
+Karar kuralı koşudan ÖNCE yazılır: hangi set, hangi ölçü, hangi eşik ve her olası sonuçta ne
+yapılacağı. İki koşu aynı sorgularda karşılaşıyorsa `toolrank compare --paired A B` çıktısı tabloya
+girer ve p değeri kararın parçası olur; "1 puan fark" tek başına karar verdirmez (LiveMCPBench'in
+94 sorgusunda top-1 farkının anlamlı olması için 8,5–12,8 puan gerekir).
+
 ## Tablo
 
 `toolrank compare results/<...>.json` çıktısı buraya, başlıklarında ok ve birimle; her satırın komutu

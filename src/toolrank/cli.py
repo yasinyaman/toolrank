@@ -64,6 +64,7 @@ def cmd_eval(a: argparse.Namespace) -> int:
             cut = cutter(scorer, rule)
         except ValueError as e:
             sys.exit(str(e))
+    runs: list[dict] | None = [] if a.runs_out else None
     report = run_eval(
         scorer,
         tools,
@@ -129,6 +130,7 @@ def cmd_eval(a: argparse.Namespace) -> int:
             "task_counts": dict(counts),
             "version": __version__,
         },
+        runs=runs,
     )
     encoder = getattr(scorer, "encoder", None)
     if encoder is not None:  # tokens sent to the endpoint, i.e. cache misses only
@@ -155,10 +157,23 @@ def cmd_eval(a: argparse.Namespace) -> int:
     if a.out:
         p = save_report(report, a.out)
         print(f"saved {p}")
+    if runs is not None:
+        p = Path(a.runs_out)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps(
+                {"dataset": data.name, "scorer": scorer.name, "rows": runs},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        print(f"saved {p}")
     return 0
 
 
 def cmd_compare(a: argparse.Namespace) -> int:
+    if a.paired:
+        return _compare_paired(a)
     metrics = a.metrics.split(",")
     macro = metrics[:1] if a.cat_macro is None else [m for m in a.cat_macro.split(",") if m]
     cols = metrics + [f"{m} cat-macro" for m in macro]
@@ -178,6 +193,52 @@ def cmd_compare(a: argparse.Namespace) -> int:
             + f" | {r['latency_ms'].get('per_query_p50', '')} |"
         )
     print("\n".join(rows))
+    return 0
+
+
+def _compare_paired(a: argparse.Namespace) -> int:
+    """Paired tests over two runs files (``eval --runs-out``): the same queries answered by two
+    scorers, so the differences are tested per query — sign test for the 0/1 metrics, a paired
+    permutation test for NDCG@10."""
+    from statistics import fmean
+
+    from toolrank.eval.paired import permutation_test, sign_test
+
+    if len(a.files) != 2:
+        sys.exit("--paired compares exactly two runs files (toolrank eval --runs-out writes them)")
+    runs = []
+    for f in a.files:
+        r = json.loads(Path(f).read_text())
+        rows = r.get("rows")
+        if not isinstance(rows, list):
+            sys.exit(f"{f} is not a runs file: run toolrank eval with --runs-out")
+        runs.append(r)
+    by_id = [{row["id"]: row for row in r["rows"]} for r in runs]
+    ids = [i for i in by_id[0] if i in by_id[1]]
+    if not ids:
+        sys.exit("the two runs share no query id")
+    names = [r.get("scorer", f) for r, f in zip(runs, a.files, strict=True)]
+    lines = [
+        f"| metric | {names[0]} ↑ % | {names[1]} ↑ % | A−B | p |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for metric, kind in (("P@1", "sign"), ("hit@5", "sign"), ("NDCG@10", "permutation")):
+        xs = [by_id[0][i][metric] for i in ids]
+        ys = [by_id[1][i][metric] for i in ids]
+        if kind == "sign":
+            wins, losses, p = sign_test(xs, ys)
+            detail = f"{wins} up, {losses} down"
+        else:
+            p, detail = permutation_test(xs, ys), "mean diff"
+        lines.append(
+            f"| {metric} ({detail}) | {100 * fmean(xs):.2f} | {100 * fmean(ys):.2f} | "
+            f"{100 * (fmean(xs) - fmean(ys)):+.2f} | {p:.4f} |"
+        )
+    note = f"n = {len(ids)} queries paired by id"
+    if len(ids) < len(by_id[0]) or len(ids) < len(by_id[1]):
+        note += f" (the runs answer {len(by_id[0])} and {len(by_id[1])}; only the shared ones pair)"
+    lines.append(f"\n{note}; p: exact sign test (P@1, hit@5), paired permutation test (NDCG@10)")
+    print("\n".join(lines))
     return 0
 
 
@@ -475,7 +536,8 @@ def cmd_finetune(a: argparse.Namespace) -> int:
         backbone=a.backbone,
         n_train=a.n_train,
         n_val=a.n_val,
-        seed=a.seed,
+        # the split takes the data seed; training takes --seed (same split across training seeds)
+        seed=a.data_seed if a.data_seed is not None else a.seed,
         select=a.select,
         curve=a.curve,
         embed_only=a.embed_only,
@@ -579,6 +641,8 @@ def cmd_learn(a: argparse.Namespace) -> int:
         dev_share=a.dev_share,
         max_drop=a.max_drop,
         dry_run=a.dry_run,
+        # the replay sample takes the data seed; training takes --seed
+        data_seed=a.data_seed if a.data_seed is not None else a.seed,
         replay=Path(a.replay) if a.replay else None,
         replay_n=a.replay_n if a.replay else 0,
         instruction=str(DEFAULT_SERVING["instruction"]),
@@ -1073,10 +1137,20 @@ def build_parser() -> argparse.ArgumentParser:
     _add_jev_args(e)
     e.add_argument("--device", default=None, help="torch device for the CLM heads")
     e.add_argument("--out", default=None, help="results JSON path")
+    e.add_argument(
+        "--runs-out",
+        default=None,
+        help="per-query rows (top-20 ids, P@1, hit@5, NDCG@10) for compare --paired",
+    )
     e.set_defaults(fn=cmd_eval)
 
     c = sub.add_parser("compare", help="markdown table across result files")
     c.add_argument("files", nargs="+")
+    c.add_argument(
+        "--paired",
+        action="store_true",
+        help="two runs files (eval --runs-out): sign and paired permutation tests per query",
+    )
     c.add_argument("--metrics", default="NDCG@10,Recall@10,Comprehensiveness@10")
     c.add_argument(
         "--cat-macro",
@@ -1290,6 +1364,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--n-val", type=int, default=0, help="held-out training pairs: a diagnostic, never selected on"
     )
     ft.add_argument("--seed", type=int, default=0)
+    ft.add_argument(
+        "--data-seed",
+        type=int,
+        default=None,
+        help="seed of the train/val split, so the same pairs split alike across training seeds "
+        "(default: --seed)",
+    )
     ft.add_argument("--epochs", type=int, default=5)
     ft.add_argument("--batch", type=int, default=512)
     ft.add_argument("--lr", type=float, default=1e-5, help="skip heads collapse at 3e-4 and above")
@@ -1369,6 +1450,12 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--weight-decay", type=float, default=0.01)
     ln.add_argument("--warmup", type=float, default=0.05)
     ln.add_argument("--seed", type=int, default=0)
+    ln.add_argument(
+        "--data-seed",
+        type=int,
+        default=None,
+        help="seed of the replay sample, so replay picks alike across training seeds (default: --seed)",
+    )
     ln.add_argument("--device", default=None)
     _add_encoder_args(ln, url=None, model=None, cache_dir=None)
     ln.set_defaults(fn=cmd_learn, emb_batch=128)

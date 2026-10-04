@@ -258,6 +258,7 @@ class Job:
     dev_share: float = 0.2
     max_drop: float = 0.5  # NDCG@10 points the benchmark dev may lose
     dry_run: bool = False
+    data_seed: int = 0  # the replay sample's seed, kept apart from the training one
     replay: Path | None = None  # general pairs.jsonl mixed into training, against forgetting
     replay_n: int = 0
     instruction: str = ""  # given to replay pairs without one (the serving instruction)
@@ -375,7 +376,7 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
         from toolrank.datasets.jsonl import iter_pairs
         from toolrank.finetune import drop_test_requests, index_tools, pair_texts, with_instruction
 
-        picked = _reservoir(iter_pairs(job.replay), job.replay_n, job.train.seed)
+        picked = _reservoir(iter_pairs(job.replay), job.replay_n, job.data_seed)
         picked, _ = with_instruction(picked, job.instruction)
         dropped = 0
         if job.dev is not None:  # a pair the guard set asks about would make the guard meaningless

@@ -20,6 +20,12 @@ change behaviour.
 - A guide for running without a large GPU (`docs/guides/local.md`): the default backbone as GGUF in
   Ollama, at the same quality as vLLM (ToolRet NDCG@10 59.50 for Q4_K_M against 58.90), and the smaller
   Qwen3-Embedding models, measured on a 4 GB laptop GPU. `scripts/gguf_matrix.sh` runs those rows.
+- `toolrank eval --runs-out FILE` writes one row per query (the top-20 ids, P@1, hit@5, NDCG@10),
+  and `toolrank compare --paired A B` tests two such runs query by query: the exact sign test for
+  P@1 and hit@5, a paired permutation test for NDCG@10.
+- `toolrank finetune --data-seed` seeds the train/val split apart from the training seed, and
+  `toolrank learn --data-seed` the replay sample, so the same pairs split alike across training
+  seeds. `docs/reports/TEMPLATE.md` gains a pre-registration section.
 
 ### Changed
 

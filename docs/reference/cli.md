@@ -63,6 +63,7 @@ index a tool set and score a query set
 | `--rerank-workers RERANK_WORKERS` | `1` | queries scored concurrently by the second scorer (cross: 8) |
 | `--device DEVICE` |  | torch device for the CLM heads |
 | `--out OUT` |  | results JSON path |
+| `--runs-out RUNS_OUT` |  | per-query rows (top-20 ids, P@1, hit@5, NDCG@10) for compare --paired |
 
 ## `toolrank compare`
 
@@ -71,6 +72,7 @@ markdown table across result files
 | Argument | Default | Description |
 | --- | --- | --- |
 | `files` | required |  |
+| `--paired` |  | two runs files (eval --runs-out): sign and paired permutation tests per query |
 | `--metrics METRICS` | `NDCG@10,Recall@10,Comprehensiveness@10` |  |
 | `--cat-macro CAT_MACRO` |  | metrics to add as category macro-averages (the ToolRet paper's Average); default: the first --metrics entry, '' for none |
 
@@ -315,6 +317,7 @@ Embed the pairs once (only what the cache lacks), train heads on the frozen back
 | `--n-train N_TRAIN` |  | training pairs (0 = all) |
 | `--n-val N_VAL` |  | held-out training pairs: a diagnostic, never selected on |
 | `--seed SEED` |  |  |
+| `--data-seed DATA_SEED` |  | seed of the train/val split, so the same pairs split alike across training seeds (default: --seed) |
 | `--epochs EPOCHS` | `5` |  |
 | `--batch BATCH` | `512` |  |
 | `--lr LR` | `1e-05` | skip heads collapse at 3e-4 and above |
@@ -367,6 +370,7 @@ From an ingest dir toolrank serve has served: the log's searches and calls becom
 | `--weight-decay WEIGHT_DECAY` | `0.01` |  |
 | `--warmup WARMUP` | `0.05` |  |
 | `--seed SEED` |  |  |
+| `--data-seed DATA_SEED` |  | seed of the replay sample, so replay picks alike across training seeds (default: --seed) |
 | `--device DEVICE` |  |  |
 | `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
 | `--emb-model EMB_MODEL` |  |  |

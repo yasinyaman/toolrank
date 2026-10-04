@@ -57,6 +57,7 @@ def run_eval(
     batch: int = 64,
     config: dict[str, Any] | None = None,
     cut: Callable[[RankedList], RankedList] | None = None,
+    runs: list[dict[str, Any]] | None = None,
 ) -> EvalReport:
     """Index ``tools`` with ``scorer``, rank ``queries`` in batches of ``batch``, return the report.
 
@@ -64,7 +65,8 @@ def run_eval(
     Latency is measured per batch on the ranking step only (indexing is a one-off) and reported
     per query, so a 64-query batch that takes 640 ms reports 10 ms/query. With ``cut`` (an adaptive
     K, ``toolrank.cut``) every query also gets the ``@cut`` metrics of the cut list; the fixed-k
-    metrics still read the full list.
+    metrics still read the full list. With ``runs`` (a list to fill) every query also leaves one
+    row — id, the top-20 ids, P@1, hit@5, NDCG@10 — the raw material of ``compare --paired``.
     """
     t0 = time.perf_counter()
     scorer.index(tools)
@@ -83,6 +85,8 @@ def run_eval(
             if cut is not None:
                 m.update(evaluate_cut(cut(r).tool_ids, q.qrels))
             per_query.append((q, m))
+            if runs is not None:
+                runs.append(_runs_row(q, r, m))
 
     summary = summarize(per_query)
     latency = {
@@ -103,6 +107,21 @@ def run_eval(
         per_category=summary.per_category,
         category_macro=summary.category_macro,
     )
+
+
+def _runs_row(q: Query, r: RankedList, m: dict[str, float]) -> dict[str, Any]:
+    """One per-query row of a runs file: the top-20 ids and the paired-test metrics."""
+    rel = {d for d, g in q.qrels.items() if g > 0}
+    ndcg10 = m.get("NDCG@10")
+    if ndcg10 is None:  # the run reported other cut-offs; the paired test still needs @10
+        ndcg10 = evaluate_query(r.tool_ids, q.qrels, (10,))["NDCG@10"]
+    return {
+        "id": q.id,
+        "top": list(r.tool_ids[:20]),
+        "P@1": float(bool(r.tool_ids) and r.tool_ids[0] in rel),
+        "hit@5": float(any(t in rel for t in r.tool_ids[:5])),
+        "NDCG@10": ndcg10,
+    }
 
 
 def _quantile(xs: Sequence[float], q: float) -> float:
