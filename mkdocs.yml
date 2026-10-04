@@ -42,7 +42,7 @@ nav:
       - Index your tools: guides/ingest.md
       - Serve them to agents: guides/serve.md
       - Claude and OpenAI tool search: guides/platforms.md
-      - LangGraph, LangChain, LlamaIndex, LiteLLM: guides/frameworks.md
+      - LangGraph, LangChain, LlamaIndex, LiteLLM, Strands: guides/frameworks.md
       - Docker: guides/docker.md
       - Laptop or Mac (Ollama): guides/local.md
       - Kubernetes: guides/kubernetes.md

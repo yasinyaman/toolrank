@@ -11,7 +11,7 @@ retrieval) and hands only those to the agent.
   `call_tool` in front of the whole catalogue, plus a REST API for platforms that run tools
   themselves.
 - **Where agents already look for tools.** Claude's and OpenAI's tool search, LangChain agents,
-  LangGraph (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
+  LangGraph (langgraph-bigtool), LlamaIndex agents, the LiteLLM proxy and Strands Agents.
 - **Measured.** Every scorer is benchmarked on ToolRet, LiveMCPBench and MCP-Zero under the same
   protocol; see [Benchmarks](benchmarks.md).
 - **Yours to run.** Apache-2.0, model-agnostic, on-prem: one GPU for the embedding model (or none:

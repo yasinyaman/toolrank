@@ -1,7 +1,7 @@
-# LangGraph, LangChain, LlamaIndex and LiteLLM
+# LangGraph, LangChain, LlamaIndex, LiteLLM and Strands
 
 With `toolrank serve` running, the adapters reach it through `toolrank.client.ToolrankClient`, and
-`serve` runs the tools.
+`serve` runs the tools. (Strands needs no adapter; it connects over MCP, see the last section.)
 
 ## LangGraph
 
@@ -122,3 +122,35 @@ mcp_servers:
 
 Tools that LiteLLM's MCP gateway adds on its own are added after the filter runs; for those, this
 second way is the one that works.
+
+## Strands Agents
+
+No adapter: `toolrank serve` speaks streamable-HTTP MCP, and a [Strands](https://strandsagents.com)
+agent connects to it like to any MCP server. The agent gets `search_tools` and `call_tool`; the
+model searches the catalogue and calls what the search found, and the calls land in the usage log
+[`toolrank learn`](learn.md) reads.
+
+```python
+import os
+
+from mcp.client.streamable_http import streamablehttp_client
+from strands import Agent
+from strands.tools.mcp import MCPClient
+
+client = MCPClient(
+    lambda: streamablehttp_client(
+        "http://127.0.0.1:8765/mcp",
+        headers={"Authorization": f"Bearer {os.environ['TOOLRANK_API_KEY']}"},
+    )
+)
+
+with client:
+    agent = Agent(tools=client.list_tools_sync())
+    agent("Refund the last payment of customer 42")
+```
+
+- strands-agents pins `mcp<2.2` and `toolrank[mcp]` needs `mcp>=2.2`: run the agent in its own
+  environment and process; toolrank serve runs unchanged in its own.
+- Verified with strands-agents 1.57.2: the tool list, `search_tools`, and one MCP and one OpenAPI
+  `call_tool` end to end, no change on toolrank's side.
+- A strands-harness deployment takes the same server as `create_harness(mcp_servers=[...])`.

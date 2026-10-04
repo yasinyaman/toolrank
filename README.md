@@ -77,7 +77,7 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
   `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/) Agents with only
   a shell get a skill. [Guide](https://yaman.dev/toolrank/guides/serve/#agents-with-only-a-shell)
 - **Frameworks**: LangChain agents (`create_agent` middleware), LangGraph (langgraph-bigtool),
-  LlamaIndex agents and the LiteLLM proxy.
+  LlamaIndex agents, the LiteLLM proxy and Strands Agents (over MCP, no adapter).
   [Guide](https://yaman.dev/toolrank/guides/frameworks/)
 - **Fine-tuning**: heads trained on your own request-to-tool pairs, the epoch picked on a dev set.
   [Guide](https://yaman.dev/toolrank/guides/finetune/)

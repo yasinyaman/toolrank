@@ -26,6 +26,10 @@ change behaviour.
 - `toolrank finetune --data-seed` seeds the train/val split apart from the training seed, and
   `toolrank learn --data-seed` the replay sample, so the same pairs split alike across training
   seeds. `docs/reports/TEMPLATE.md` gains a pre-registration section.
+- The frameworks guide covers Strands Agents: `toolrank serve` speaks streamable-HTTP MCP, so a
+  Strands agent connects with no adapter (its own environment — strands-agents pins `mcp<2.2`).
+  Verified with strands-agents 1.57.2: the tool list, `search_tools`, and one MCP and one OpenAPI
+  `call_tool`.
 
 ### Changed
 
