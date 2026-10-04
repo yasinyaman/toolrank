@@ -215,6 +215,7 @@ class UsageLog:
                 "scorer": result.scorer,
                 "heads": heads,
                 "arm": arm,
+                "model": result.model,
                 "catalog": result.catalog,
             }
         )

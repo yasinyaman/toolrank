@@ -1326,7 +1326,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--dev", default=None, help="benchmark-format dir scored alongside: a guard against forgetting"
     )
     ln.add_argument(
-        "--init", default="default", help="heads to start from: default (the served ones), a path, or none"
+        "--init",
+        default="default",
+        help="heads to start from: default (the served ones: DATA/heads/current.npz when there, else "
+        "the packaged ones when they fit the backbone, else fresh identity heads), a path, or none",
     )
     ln.add_argument("--since", default=None, help="only searches from this ISO date or timestamp on")
     ln.add_argument("--tenant", default=None, help="only one API key's searches (its name)")

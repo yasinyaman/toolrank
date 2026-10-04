@@ -189,3 +189,25 @@ def test_cached_heads_go_only_on_the_backbone_they_were_trained_on(
     monkeypatch.setenv("TOOLRANK_HEADS", str(cache / HEADS_FILE))  # asked for by name: always
     main(_args(ingest_dir, tmp_path, "--json"))
     assert json.loads(capsys.readouterr().out)["scorer"].startswith("clm[")
+
+
+def test_clm_ckpt_none_drops_only_the_packaged_heads(ingest_dir, tmp_path, fake_endpoint):
+    """--clm-ckpt none: the packaged heads stay off, but a learned DATA/heads/current.npz
+    (and a candidate) still serve."""
+    import shutil
+    import time
+
+    from test_heads_np import _case_npz
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+
+    home = ingest_dir / "heads"
+    home.mkdir()
+    shutil.copy(_case_npz(tmp_path, "gelu_layernorm_skip"), home / "current.npz")
+    r = build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path, "--clm-ckpt", "none")))
+    res = r.search("send an email")
+    deadline = time.time() + 10
+    while res.arm != "current" and time.time() < deadline:  # the variant builds in the background
+        time.sleep(0.02)
+        res = r.search("send an email")
+    assert res.arm == "current" and res.scorer.startswith("clm[current]")

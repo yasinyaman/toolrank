@@ -90,6 +90,7 @@ class SearchResult:
     # the server's own; True unless the retriever says otherwise, so a result built elsewhere hides it
     own_instruction: bool = True
     added: int = 0  # the last ``added`` hits are co-use partners of the hits before them
+    model: str | None = None  # the backbone that embedded the request (None: keyword, or unknown)
 
 
 @dataclass(frozen=True)
@@ -474,6 +475,7 @@ class Retriever:
             for tool, owner in partners(shown.tool_ids, table, self.co_use_extra, reach):
                 hits.append(Hit(st.by_id[tool], known.get(tool, 0.0), used_with=owner))
                 added += 1
+        encoder = getattr(getattr(st.scorer, "semantic", st.scorer), "encoder", None)
         return SearchResult(
             query=query,
             instruction=inst,
@@ -489,13 +491,23 @@ class Retriever:
             arm=arm,
             heads=heads,
             added=added,
+            model=getattr(encoder, "model", None),
         )
 
     def rank(
-        self, query: str, tools: Sequence[Tool], *, instruction: str | None = None
+        self,
+        query: str,
+        tools: Sequence[Tool],
+        *,
+        instruction: str | None = None,
+        arm_key: str | None = None,
+        tenant: str | None = None,
     ) -> list[tuple[str, float]]:
-        """Cosine of caller-supplied tools (not necessarily in the index), best first."""
-        st = self.state()
+        """Cosine of caller-supplied tools (not necessarily in the index), best first. The heads are
+        picked as a search's are: the tenant's or the promoted ones, and the candidate's share."""
+        st, _arm, _heads = self.pick(arm_key=arm_key, tenant=tenant)
+        if st.lexical:
+            st = self.state()  # the keyword stand-in cannot score tools it has not indexed: wait
         if not hasattr(st.scorer, "score_tools"):
             raise ValueError(f"{st.scorer.name} cannot score tools outside its index")
         inst = self.instruction if instruction is None else instruction

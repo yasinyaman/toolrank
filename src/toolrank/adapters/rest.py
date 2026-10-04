@@ -210,10 +210,10 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         items = ids if ids is not None else given
         if not isinstance(items, list) or not 1 <= len(items) <= MAX_RANK:
             raise _Reject(400, f"{'tool_ids' if ids is not None else 'tools'}: a list of 1 to {MAX_RANK}")
+        session, client, tenant = identity(request)
         if ids is not None:
             if not all(isinstance(i, str) for i in ids):
                 raise _Reject(400, "tool_ids must be strings")
-            tenant = identity(request)[2]
             found = await in_thread(lambda: [retriever.get(i, tenant) for i in ids])
             missing = [i for i, t in zip(ids, found, strict=True) if t is None]
             if missing:
@@ -228,7 +228,9 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         # position ids: the scores map back to the request even when names repeat
         tools = [dataclasses.replace(t, id=str(n)) for n, t in enumerate(tools)]
         try:
-            scored = await in_thread(retriever.rank, query, tools, instruction=inst)
+            scored = await in_thread(
+                retriever.rank, query, tools, instruction=inst, arm_key=session or client, tenant=tenant
+            )
         except IndexNotReady:
             raise
         except ValueError as e:  # a scorer that cannot score tools outside its index

@@ -30,6 +30,13 @@ BACKBONES: dict[str, dict[str, Any]] = {
     "qwen3-emb": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
     "qwen3-emb-fp8": {"repo": "Qwen/Qwen3-Embedding-8B", "heads": True},
     "qwen3-emb-lora": {"repo": "a local scripts/lora_train.py run", "heads": False},
+    "qwen3-emb-lora-fp8": {"repo": "a local scripts/lora_train.py run", "heads": False},
+    # the small Qwen3-Embedding models, by their vLLM names (D1.2) and the GGUF names
+    # scripts/gguf_matrix.sh serves: their vectors are narrower than the heads (1024, 2560 vs 4096)
+    "qwen3-emb-0.6b": {"repo": "Qwen/Qwen3-Embedding-0.6B", "heads": False},
+    "qwen3-emb-4b": {"repo": "Qwen/Qwen3-Embedding-4B", "heads": False},
+    "qwen3-emb-0.6b-f16": {"repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "heads": False},
+    "qwen3-emb-4b-q8_0": {"repo": "Qwen/Qwen3-Embedding-4B-GGUF", "heads": False},
     # GGUF builds served by Ollama (docs/guides/local.md): the names the guide creates, and Ollama's own
     # small Qwen3-Embedding models; the small ones' vectors are narrower than the heads (1024, 2560 vs 4096)
     "toolrank-emb-v0.2-q8_0": {"repo": BACKBONE_GGUF_REPO, "revision": BACKBONE_REVISION, "heads": False},
@@ -329,7 +336,9 @@ def build_retriever(
     from toolrank.cut import rule_from_flags
     from toolrank.retriever import Retriever
 
-    explicit_heads = a.clm_ckpt is not None  # --clm-ckpt wins over a learned DATA/heads/current.npz
+    explicit_heads = (
+        a.clm_ckpt is not None and a.clm_ckpt != "none"
+    )  # --clm-ckpt wins over a learned DATA/heads/current.npz; "none" drops only the packaged ones
     no_heads = a.clm_ckpt == "none"
     search_defaults(a)
     if a.scorer == "dense" and notify is not None and packaged_heads_fit(a.emb_model) and not no_heads:

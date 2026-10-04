@@ -32,9 +32,9 @@ from toolrank.usage import UsageLog
 URL, MODEL = "http://unused/v1", "fake"
 
 
-def _enc(tmp_path):
+def _enc(tmp_path, model=MODEL):
     """The encoder as ``learn`` builds it (the same cache namespace: URL, model and truncation)."""
-    return OpenAIEmbeddings(MODEL, URL, cache_dir=tmp_path / "cache", truncate_prompt_tokens=8192)
+    return OpenAIEmbeddings(model, URL, cache_dir=tmp_path / "cache", truncate_prompt_tokens=8192)
 
 
 def _search(sid, state, results, shown, ts, tenant=None, v=3):
@@ -132,14 +132,14 @@ def test_split_holds_out_the_newest_requests_and_batches_index_the_catalogue():
     )
 
 
-def _served(tmp_path, n_requests=60, dim=16, seed=0):
+def _served(tmp_path, n_requests=60, dim=16, seed=0, model=MODEL):
     """An ingest dir toolrank serve could have written: tools.jsonl, a cache with every vector and a
     usage log of searches and calls. A request is a noisy, rotated copy of its tool's vector, so the
     starting (identity) heads rank it poorly and training can learn the rotation."""
     rng = np.random.default_rng(seed)
     tools = make_tools(30, random.Random(seed))
     write_tools(tmp_path / "tools.jsonl", tools)
-    enc = _enc(tmp_path)
+    enc = _enc(tmp_path, model)
     tf = tool_format("documentation")
     tool_vecs = rng.standard_normal((len(tools), dim)).astype(np.float32)
     enc.cache.put_many([tf(t) for t in tools], tool_vecs)
@@ -470,3 +470,126 @@ def test_learn_starts_from_the_heads_a_server_would_serve(tmp_path, monkeypatch)
     monkeypatch.setenv("TOOLRANK_HEADS", str(heads))
     assert resolve_init("default", "qwen3-emb") == str(heads)
     assert resolve_init("default", "toolrank-emb-v0.2") == str(heads)  # asked for by name
+    # the promoted heads come first: learn continues from what is served, not the packaged ones
+    data = tmp_path / "data"
+    current = heads_home(data) / "current.npz"
+    current.parent.mkdir(parents=True)
+    current.write_bytes(b"promoted")
+    assert resolve_init("default", "qwen3-emb", data=data) == str(current)
+    assert resolve_init("default", "toolrank-emb-v0.2", data=data) == str(current)
+    tenant_current = heads_home(data, "acme") / "current.npz"  # a tenant's own heads, for its log
+    tenant_current.parent.mkdir(parents=True)
+    tenant_current.write_bytes(b"tenant")
+    assert resolve_init("default", "qwen3-emb", data=data, tenant="acme") == str(tenant_current)
+    assert resolve_init("default", "qwen3-emb", data=data, tenant="other") == str(current)
+
+
+def test_mine_skips_the_requests_another_backbone_answered():
+    events = [
+        {**_search("s1", "A", ["t1"], 1, "2026-09-30T10:00:00"), "model": "toolrank-emb-v0.2"},
+        _call("t1", "s1"),
+        {**_search("s2", "B", ["t2"], 1, "2026-09-30T11:00:00"), "model": "qwen3-emb-0.6b"},
+        _call("t2", "s2"),
+        _search("s3", "C", ["t3"], 1, "2026-09-30T12:00:00"),  # logged before the model field: kept
+        _call("t3", "s3"),
+    ]
+    pairs, counts = mine(events, model="toolrank-emb-v0.2")
+    assert [p.state for p in pairs] == ["A", "C"]
+    assert counts["searches_of_other_models"] == 1 and counts["pairs"] == 2
+    pairs, counts = mine(events)  # no model named: everything counts, as before
+    assert [p.state for p in pairs] == ["A", "B", "C"]
+
+
+def test_learn_uses_only_the_served_models_requests(tmp_path, capsys):
+    _served(tmp_path)  # 60 requests logged without the model field (an older serve): kept
+    from toolrank.datasets.jsonl import load_tools
+
+    tools = load_tools(tmp_path / "tools.jsonl")
+    other = OpenAIEmbeddings("qwen3-emb-0.6b", URL, cache_dir=tmp_path / "cache", truncate_prompt_tokens=8192)
+    texts = [f"other request {i}" for i in range(10)]
+    other.cache.put_many(texts, np.random.default_rng(1).standard_normal((10, 16)).astype(np.float32))
+    log = UsageLog(tmp_path / "usage")
+    for i, text in enumerate(texts):
+        res = SearchResult(
+            query=text,
+            instruction="",
+            hits=[Hit(tools[0], 0.5)],
+            ranked=[(tools[0].id, 0.5)],
+            took_ms=1.0,
+            rule="top 1",
+            emb_key=other.cache_key(text),
+            scorer="test",
+            catalog="c",
+            model="qwen3-emb-0.6b",
+        )
+        sid = log.search(res, session=f"o{i}", via="rest")
+        log.call(
+            tool=tools[0].id, kind="mcp", session=f"o{i}", via="rest", outcome="ok", took_ms=1, search_id=sid
+        )
+    assert (
+        main(
+            [
+                "learn",
+                "--data",
+                str(tmp_path),
+                "--dry-run",
+                "--results",
+                str(tmp_path / "res"),
+                "--emb-url",
+                URL,
+                "--emb-model",
+                MODEL,
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    (report,) = (tmp_path / "res").glob("learn_*.json")
+    j = json.loads(report.read_text())
+    assert j["pairs"] == 60 and j["counts"]["searches_of_other_models"] == 10
+
+
+def test_learn_on_a_headless_backbone_starts_from_identity(tmp_path, monkeypatch):
+    """v0.2 (no fitting packaged heads, none promoted): learn trains a fresh skip head, so epoch 0
+    is the backbone's own score, not a random head's noise."""
+    pytest.importorskip("torch")
+    import toolrank.learn as learn_mod
+    from toolrank.datasets.jsonl import load_tools
+    from toolrank.finetune import TrainConfig, recall_at
+    from toolrank.usage import read_events
+
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    _served(tmp_path, model="toolrank-emb-v0.2")
+    seen = {}
+    real = learn_mod.train_heads
+
+    def spy(train_b, dev_b, cfg, **kw):
+        seen["init"], seen["skip"] = kw["init"], cfg.head_cfg.get("skip")
+        return real(train_b, dev_b, cfg, **kw)
+
+    monkeypatch.setattr(learn_mod, "train_heads", spy)
+    job = Job(
+        data=tmp_path,
+        out=tmp_path / "heads" / "learned.npz",
+        emb_url=URL,
+        emb_model="toolrank-emb-v0.2",
+        train=TrainConfig(epochs=1, batch=32, neg_per_pair=3, head_cfg={"width": 64, "depth": 3}),
+    )
+    report = run(job, log=lambda _: None)
+    assert seen == {"init": None, "skip": True}
+    # epoch 0 is the backbone alone: the raw (identity-mapped) vectors' Recall@5 on the dev split
+    events = read_events(tmp_path / "usage")
+    pairs, _ = mine(events, model="toolrank-emb-v0.2")
+    key = (tmp_path / "usage" / ".key").read_bytes()
+    states = state_vectors(tmp_path / "cache" / "embeddings.sqlite", key, {p.state for p in pairs})
+    _, dev = split([p for p in pairs if p.state in states], 0.2)
+    tools = load_tools(tmp_path / "tools.jsonl")
+    index = {t.id: n for n, t in enumerate(tools)}
+    tf = tool_format("documentation")
+    enc = _enc(tmp_path, "toolrank-emb-v0.2")
+    got = enc.cache.get_many([tf(t) for t in tools])
+    tool_vecs = np.stack([got[i] for i in range(len(tools))])
+    tool_vecs = tool_vecs / (np.linalg.norm(tool_vecs, axis=-1, keepdims=True) + 1e-12)
+    zs = np.stack([states[p.state] for p in dev])
+    pos = [[index[t] for t in p.positives + p.weak if t in index] for p in dev]
+    assert report["start"]["log.Recall@5"] == pytest.approx(recall_at(zs, tool_vecs, pos, 5), abs=1e-6)

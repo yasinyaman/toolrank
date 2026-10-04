@@ -345,7 +345,7 @@ From an ingest dir toolrank serve has served: the log's searches and calls becom
 | `--replay REPLAY` |  | general pairs.jsonl mixed into training, against forgetting |
 | `--replay-n REPLAY_N` | `1000` | how many of --replay's pairs |
 | `--dev DEV` |  | benchmark-format dir scored alongside: a guard against forgetting |
-| `--init INIT` | `default` | heads to start from: default (the served ones), a path, or none |
+| `--init INIT` | `default` | heads to start from: default (the served ones: DATA/heads/current.npz when there, else the packaged ones when they fit the backbone, else fresh identity heads), a path, or none |
 | `--since SINCE` |  | only searches from this ISO date or timestamp on |
 | `--tenant TENANT` |  | only one API key's searches (its name) |
 | `--strict` |  | a tool_error call is not a (weak) positive |

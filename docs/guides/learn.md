@@ -30,13 +30,18 @@ A request becomes a training pair when a search of it has calls linked to it:
 Searches of the same request merge; requests whose tools left the catalogue are dropped and
 counted. Hard negatives the starting heads score like a positive are dropped as well
 (`--neg-filter 0.95`): two tools that do the same job are not each other's negatives, a lesson from
-training on mined negatives.
+training on mined negatives. Searches another backbone answered are skipped and counted too (the
+log records the model): their vectors do not belong with this backbone's tools.
 
 ## How it decides
 
 The newest 20% of the requests (`--dev-share`) are held out, by time, and never trained on. The
 metric is the log's own: the share of those requests whose called tool ranks in the top 5 of the
 whole catalogue. The starting heads compete as epoch 0, and a later epoch has to beat them there.
+The start is what the server would serve (`--init` names another): the promoted
+`DATA/heads/current.npz` when there is one (a tenant's own with `--tenant`), else the packaged
+heads when they fit the backbone, else fresh heads that start as the identity — so on a headless
+backbone like the default one, epoch 0 is the backbone's own score, not a random head's noise.
 
 With `--dev DIR` (a benchmark-format set, as `toolrank finetune` takes) the same heads are scored on
 it every epoch; an epoch that wins on the log but loses more than `--max-drop` NDCG@10 points there

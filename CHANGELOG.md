@@ -31,9 +31,25 @@ change behaviour.
   smaller Qwen3-Embedding models (`build.BACKBONES`), as they already did for the LoRA backbone.
 - `scripts/fp8_agreement.py` compares any two endpoints, vLLM against Ollama or llama.cpp included;
   `--encode` sends what one side lacks, `--heads none` compares the backbones alone.
+- `scripts/learn_sim.sh` runs headless with `HEADS=none`: dense scoring and `learn --init none`,
+  for the v0.2 backbone.
 
 ### Fixed
 
+- `toolrank learn` on the default (v0.2) backbone: it started from a random head, mixed the
+  vectors of requests different models had answered, and never saw the promoted heads. Now a start
+  without fitting heads is a fresh skip head (identity, so epoch 0 is the backbone's own score),
+  the usage log records the serving model and `learn` uses only its requests (the rest are skipped
+  and counted), and the start is what a server would serve: `DATA/heads/current.npz` first (a
+  tenant's own with `--tenant`), the packaged heads when they fit, identity otherwise. `--init`'s
+  help said "the served ones"; now it means it.
+- `--clm-ckpt none` drops only the packaged heads: a learned `DATA/heads/current.npz` (and a
+  candidate) still serves. Before, `none` switched them off too while `candidate.npz` kept running.
+- `/v1/rank` ranks with the heads a search would use: the tenant's own, the promoted
+  `current.npz`, the candidate's share. Before, it always used the base heads.
+- `build.BACKBONES` knows the vLLM names of the small Qwen3-Embedding models, the GGUF names
+  `scripts/gguf_matrix.sh` serves and `qwen3-emb-lora-fp8`: the packaged heads no longer count as
+  fitting them.
 - `toolrank search` and `serve` take `--clm-ckpt none`: the backbone alone, whatever heads are cached.
   Before, a backbone the cached heads do not fit (Qwen3-Embedding-0.6B or 4B, say) could not be
   served without deleting the heads; the width error now names the flag.

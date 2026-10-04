@@ -11,6 +11,8 @@
 #   SIZES=0 TAG=e10 LEARN="--epochs 10" bash scripts/learn_sim.sh   # another recipe, the same logs
 #   SIZES=0 NOISE=0.2 bash scripts/learn_sim.sh                 # an agent that calls a wrong tool 1 time in 5
 #   SIZES=0 SEED=1 NAME=toolret_s1 bash scripts/learn_sim.sh    # another split of the queries
+#   HEADS=none EMB_MODEL=toolrank-emb-v0.2 bash scripts/learn_sim.sh   # headless: dense scoring,
+#                                                                      # learn from identity heads
 #
 # Restartable: a run dir that has a usage log is not served again, a report that exists is not
 # recomputed. Reports: results/sim_<NAME>_*.json; then `toolrank compare results/sim_<NAME>_*heldout.json`.
@@ -33,15 +35,27 @@ CACHE=${CACHE:-.cache/toolrank}
 HEADS=${HEADS:-dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz}
 ROOT=data/sim/$NAME
 EMB="--emb-url $EMB_URL --emb-model $EMB_MODEL --truncate 8192 --cache-dir $CACHE"
-export TOOLRANK_HEADS=$PWD/$HEADS
+if [ "$HEADS" = none ]; then
+  # headless (the v0.2 backbone): score with the embedding model alone, learn from fresh
+  # identity heads (--init none); no packaged heads anywhere
+  unset TOOLRANK_HEADS || true
+  SCORER=(--scorer dense)
+  INIT=(--init none)
+else
+  export TOOLRANK_HEADS=$PWD/$HEADS
+  SCORER=()
+  INIT=()
+fi
 
 score() { # score <heads> <report prefix>: the held-out sets and EVALS with these heads
   local heads=$1 prefix=$2 dir out
+  local ckpt=("${SCORER[@]}")
+  [ "$HEADS" != none ] && ckpt=(--scorer clm --clm-ckpt "$heads")
   for dir in "$ROOT/heldout" "$ROOT/heldout_new" $EVALS; do
     out=results/${prefix}_$(basename "$dir").json
     [ -s "$out" ] && continue
     # shellcheck disable=SC2086
-    "$UV" run toolrank eval --data "$dir" --scorer clm --clm-ckpt "$heads" $EMB --tool-format documentation \
+    "$UV" run toolrank eval --data "$dir" "${ckpt[@]}" $EMB --tool-format documentation \
       --query-format instruct_query --with-inst --out "$out" | tail -n 4 || echo "FAILED $out"
   done
 }
@@ -62,7 +76,7 @@ for n in $SIZES; do
   heads=$dir/learned/$TAG.npz
   if [ ! -s "results/learn_sim_${NAME}_${run}_${TAG}.json" ]; then
     # shellcheck disable=SC2086
-    "$UV" run toolrank learn --data "$dir" --out "$heads" --dev "$GUARD" $EMB $LEARN \
+    "$UV" run toolrank learn --data "$dir" --out "$heads" --dev "$GUARD" $EMB "${INIT[@]}" $LEARN \
       --name "sim_${NAME}_${run}_${TAG}" | tail -n 6
   fi
   [ -s "$heads" ] && score "$heads" "sim_${NAME}_${run}_${TAG}"

@@ -78,10 +78,13 @@ def mine(
     strict: bool = False,
     since: str | None = None,
     tenant: str | None = None,
+    model: str | None = None,
 ) -> tuple[list[LogPair], dict[str, int]]:
     """Searches with linked calls -> one ``LogPair`` per request, oldest first, and the counts of
     what was used and what was passed over (``since``: an ISO date or timestamp, searches from it
-    on; ``tenant``: one API key's searches)."""
+    on; ``tenant``: one API key's searches; ``model``: only searches this backbone served — a log
+    can hold requests another model answered, and their vectors do not belong with its tools).
+    Searches logged before the ``model`` field existed carry none and are kept."""
     counts: Counter[str] = Counter()
     searches: dict[str, dict[str, Any]] = {}
     calls: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -95,6 +98,8 @@ def mine(
                 counts["searches_before_since"] += 1
             elif tenant and e.get("tenant") != tenant:
                 counts["searches_of_other_tenants"] += 1
+            elif model and e.get("model") is not None and e.get("model") != model:
+                counts["searches_of_other_models"] += 1
             else:
                 searches[e["id"]] = e
         elif kind == "call":
@@ -238,8 +243,14 @@ class Job:
     )
 
 
-def resolve_init(init: str | None, emb_model: str | None = None) -> str | None:
-    """``default`` -> the heads a server would serve on ``emb_model``: the packaged (or
+def resolve_init(
+    init: str | None,
+    emb_model: str | None = None,
+    data: str | Path | None = None,
+    tenant: str | None = None,
+) -> str | None:
+    """``default`` -> the heads a server would serve on ``emb_model``: the promoted ones
+    (``DATA/heads/current.npz``, or the tenant's own) when there are some, else the packaged (or
     ``TOOLRANK_HEADS``) ones, or none on a backbone they do not belong on; a path as is; None ->
     fresh skip heads (identity at the start, so epoch 0 is the backbone alone)."""
     if init == "default":
@@ -248,6 +259,14 @@ def resolve_init(init: str | None, emb_model: str | None = None) -> str | None:
         from toolrank.adapters.heads_np import default_heads
         from toolrank.build import packaged_heads_fit
 
+        if data is not None:
+            # what a server would serve: the tenant's own heads, else the promoted ones
+            homes = [heads_home(Path(data), tenant)] if tenant else []
+            homes.append(heads_home(Path(data)))
+            for home in homes:
+                current = home / CURRENT
+                if current.exists():
+                    return str(current)
         if not packaged_heads_fit(emb_model) and not os.environ.get("TOOLRANK_HEADS"):
             return None
         return str(default_heads())
@@ -266,7 +285,7 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
     if not key_path.exists():
         raise FileNotFoundError(f"{usage_dir}: no usage log here (toolrank serve writes one, with its .key)")
     events = read_events(usage_dir)
-    pairs, counts = mine(events, strict=job.strict, since=job.since, tenant=job.tenant)
+    pairs, counts = mine(events, strict=job.strict, since=job.since, tenant=job.tenant, model=job.emb_model)
     tools = load_tools(job.data / "tools.jsonl")
     index = {t.id: n for n, t in enumerate(tools)}
     cache_dir = Path(job.cache_dir) if job.cache_dir else job.data / "cache"
@@ -384,7 +403,11 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
         return m
 
     select = f"log.Recall@{K}"
-    init = resolve_init(job.init, job.emb_model)
+    init = resolve_init(job.init, job.emb_model, data=job.data, tenant=job.tenant)
+    if init is None:
+        # fresh heads on a backbone the packaged ones do not fit: a skip head starts as the
+        # identity, so epoch 0 is the backbone's own score, not noise
+        job.train.head_cfg.setdefault("skip", True)
     ck, history = train_heads(train_b, None, job.train, init=init, on_epoch=on_epoch, log=log, select=select)
     best = int(ck["cfg"]["best_epoch"])
     start, chosen = history[0], history[best]
