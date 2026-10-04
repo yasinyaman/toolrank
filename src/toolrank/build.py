@@ -381,8 +381,10 @@ def build_retriever(
             raise ValueError("--co-use reads the usage log: it cannot be combined with --no-usage-log")
         co_use = CoUseTable(getattr(a, "usage_log", None) or Path(a.data) / "usage")
         if notify is not None:
+            skipped = co_use.counts()["searches_with_jev"]
             notify(
                 f"co-use: {len(co_use.table())} tools have partners in the usage log (up to {extra} added)"
+                + (f"; {skipped} Jev-served searches shape no table" if skipped else "")
             )
     retriever = Retriever(
         Path(a.data),

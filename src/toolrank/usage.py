@@ -18,7 +18,7 @@ instruction_hmac, instruction, rule, results ([[tool, score], ...], the top 20 b
 shown (tools returned from the ranking), added (tools appended after them because they are called
 together with one of those, ``serve --co-use``; absent when there are none), took_ms, scorer, heads,
 arm (which heads answered: base, current, candidate, tenant:<name>[:candidate]; added to v3 with
-``toolrank learn``), catalog.
+``toolrank learn``), model (the backbone that embedded the request), catalog.
 
 ``call``: v, event, ts, id, session, client, via, tenant, tool, kind (mcp | openapi), search_id,
 rank, link, outcome (ok | tool_error | protocol_error | timeout | refused | unknown_tool),
@@ -77,6 +77,14 @@ def read_events(directory: str | Path, *, newest: int | None = None) -> list[dic
                 if isinstance(event, dict):
                     out.append(event)
     return out
+
+
+def may_learn_from(scorer: Any) -> bool:
+    """Whether what a search showed may feed training, judging or co-use. A search served with a
+    Jev second stage takes its order from TypeSafe's model, and the MCA (2.3(b)) keeps that order
+    and the negatives it implies out of anything that trains or promotes toolrank's own heads;
+    a search logged before the ``scorer`` field (or by a build without one) carries no mark."""
+    return scorer is None or "jev[" not in str(scorer)
 
 
 # what ``mask_pii`` replaces, in this order: an IBAN or card number must not be left as a "phone"

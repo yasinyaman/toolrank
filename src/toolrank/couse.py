@@ -32,7 +32,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
-from toolrank.usage import read_events
+from toolrank.usage import may_learn_from, read_events
 
 Partners = dict[str, list[tuple[str, float, int]]]  # tool -> [(partner, p(partner | tool), count)]
 MIN_COUNT, MIN_P = 2, 0.5
@@ -47,11 +47,14 @@ def co_use(
     since: str | None = None,
     tenant: str | None = None,
     exact_tenant: bool = False,
+    counts: Counter[str] | None = None,
 ) -> Partners:
     """Tool -> its partners, most likely first. A request is one ``emb_hmac`` (its searches merge;
     a search without one counts alone) and its tools are those of the linked calls that ended
     ``ok``; ``since`` (an ISO date or timestamp) and ``tenant`` narrow the searches (with
-    ``exact_tenant``, ``tenant=None`` means the requests without a named key, not all of them)."""
+    ``exact_tenant``, ``tenant=None`` means the requests without a named key, not all of them).
+    Searches a Jev second stage answered shape no table (the provider's terms); when ``counts`` is
+    given they are tallied in it."""
     events = list(events)
     request_of: dict[str, str] = {}
     for e in events:
@@ -60,6 +63,10 @@ def co_use(
         if since and str(e.get("ts", "")) < since:
             continue
         if (exact_tenant or tenant) and e.get("tenant") != tenant:
+            continue
+        if not may_learn_from(e.get("scorer")):
+            if counts is not None:
+                counts["searches_with_jev"] += 1
             continue
         request_of[e["id"]] = e.get("emb_hmac") or e["id"]
     called: dict[str, set[str]] = defaultdict(set)
@@ -130,11 +137,13 @@ class CoUseTable:
         self._lock = threading.Lock()
         self._building = False
         self._tables: dict[str | None, Partners] = {}
+        self._counts: Counter[str] = Counter()
         self._at = 0.0
         self._build()
 
     def _build(self) -> None:
         tables: dict[str | None, Partners] = {}
+        counts: Counter[str] = Counter()
         try:
             events = read_events(self.dir, newest=self.days)
             owner = {e["id"]: e.get("tenant") for e in events if e.get("event") == "search" and "id" in e}
@@ -145,11 +154,17 @@ class CoUseTable:
                 elif e.get("event") == "call" and e.get("search_id") in owner:
                     by_tenant[owner[e["search_id"]]].append(e)
             for tenant, own in by_tenant.items():
-                tables[tenant] = co_use(own, min_count=self.min_count, min_p=self.min_p)
+                tables[tenant] = co_use(own, min_count=self.min_count, min_p=self.min_p, counts=counts)
         except OSError:  # the log directory is not readable: no partners
             tables = {}
         with self._lock:
             self._tables, self._at, self._building = tables, time.monotonic(), False
+            self._counts = counts
+
+    def counts(self) -> Counter[str]:
+        """What the latest build passed over (e.g. ``searches_with_jev``)."""
+        with self._lock:
+            return Counter(self._counts)
 
     def table(self, tenant: str | None = None) -> Partners:
         """``tenant``'s table (None: requests without a named key); tables older than ``every``

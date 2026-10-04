@@ -53,7 +53,7 @@ from typing import Any
 import numpy as np
 
 from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, recall_at, train_heads
-from toolrank.usage import read_events
+from toolrank.usage import may_learn_from, read_events
 
 POSITIVE, WEAK = "ok", "tool_error"
 K = 5  # the log's own metric: the called tool among the top K of the catalogue
@@ -100,6 +100,8 @@ def mine(
                 counts["searches_of_other_tenants"] += 1
             elif model and e.get("model") is not None and e.get("model") != model:
                 counts["searches_of_other_models"] += 1
+            elif not may_learn_from(e.get("scorer")):
+                counts["searches_with_jev"] += 1  # the provider's terms keep them out of training
             else:
                 searches[e["id"]] = e
         elif kind == "call":
@@ -480,15 +482,24 @@ def heads_home(data: Path, tenant: str | None = None) -> Path:
 
 
 def judge(
-    events: Iterable[dict[str, Any]], *, since: str | None = None, tenant: str | None = None
+    events: Iterable[dict[str, Any]],
+    *,
+    since: str | None = None,
+    tenant: str | None = None,
+    counts: Counter[str] | None = None,
 ) -> dict[str, dict[str, float]]:
     """How the control and the candidate did since ``since`` -> {"control" | "candidate": {searches,
     called, top1, mrr}}. A search belongs to the candidate when its ``arm`` ends in ``candidate``,
     with ``tenant`` only that key's searches count; a search counts as called when a linked call
-    ended ``ok`` or ``tool_error``, at the best rank among those calls."""
+    ended ``ok`` or ``tool_error``, at the best rank among those calls. Searches a Jev second stage
+    answered decide nothing (the provider's terms); when ``counts`` is given they are tallied in it."""
     arms: dict[str, str] = {}
     for e in events:
         if e.get("event") != "search" or (since and str(e.get("ts", "")) < since):
+            continue
+        if not may_learn_from(e.get("scorer")):
+            if counts is not None:
+                counts["searches_with_jev"] += 1
             continue
         arm = str(e.get("arm") or "base")
         if tenant is not None and e.get("tenant") != tenant:

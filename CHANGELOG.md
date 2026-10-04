@@ -36,6 +36,9 @@ change behaviour.
 
 ### Fixed
 
+- Searches a Jev second stage answered no longer feed `learn`'s pairs, `ab`'s decision or the
+  co-use table (the provider's terms, MCA 2.3(b)); each of them skips such searches and counts
+  them (`searches_with_jev`), `ab` prints the count, and serve's Jev line says so.
 - The Jev seat is provider-aware: `TYPESAFE_API_KEY` goes to `api.typesafe.ai` alone (never to a
   local or third-party `/systemone` endpoint, which is asked without a key), TypeSafe's answers
   stay in `jev.sqlite` with their keys unchanged while every other endpoint gets its own

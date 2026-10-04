@@ -500,6 +500,32 @@ def test_mine_skips_the_requests_another_backbone_answered():
     assert [p.state for p in pairs] == ["A", "B", "C"]
 
 
+def test_mine_and_judge_skip_searches_a_jev_second_stage_answered():
+    """MCA 2.3(b): an order TypeSafe's model gave trains and promotes nothing of toolrank's."""
+    from collections import Counter
+
+    jev = "jev[jev-1.13.0@api.typesafe.ai,d20,name_desc]/dense/emb/x"
+    events = [
+        {**_search("s1", "A", ["t1"], 1, "2026-09-30T10:00:00"), "scorer": jev},
+        _call("t1", "s1"),
+        _search("s2", "B", ["t2"], 1, "2026-09-30T11:00:00"),
+        _call("t2", "s2"),
+    ]
+    pairs, counts = mine(events)
+    assert [p.state for p in pairs] == ["B"] and counts["searches_with_jev"] == 1
+    seen: Counter[str] = Counter()
+    stats = judge(
+        [
+            {**_arm_search("a1", "candidate", "2026-10-01T10:00:00"), "scorer": jev},
+            _ranked_call("a1", 1),
+            _arm_search("b1", "candidate", "2026-10-01T10:01:00"),
+            _ranked_call("b1", 1),
+        ],
+        counts=seen,
+    )
+    assert stats["candidate"]["searches"] == 1 and seen["searches_with_jev"] == 1
+
+
 def test_learn_uses_only_the_served_models_requests(tmp_path, capsys):
     _served(tmp_path)  # 60 requests logged without the model field (an older serve): kept
     from toolrank.datasets.jsonl import load_tools

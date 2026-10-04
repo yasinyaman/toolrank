@@ -46,8 +46,9 @@ def _events():
 
 
 def test_co_use_counts_requests_whose_ok_calls_share_a_search():
-    table = co_use(_events(), min_count=2, min_p=0.5)
-    # list was called in 4 requests (A, B, C, s5), comment in 2 of them, label in 2
+    table = co_use(
+        _events(), min_count=2, min_p=0.5
+    )  # list was called in 4 requests (A, B, C, s5), comment in 2 of them, label in 2
     assert table == {
         "list": [("comment", 0.5, 2), ("label", 0.5, 2)],
         "comment": [("list", 1.0, 2)],
@@ -74,6 +75,31 @@ def test_partners_follow_the_shown_tools_best_share_first():
     assert expand(["a", "b"], table, 2) == ["a", "b", "x", "y"]
     assert expand(["b"], table, 1) == ["b", "a"] and expand(["a"], table, 0) == ["a"]
     assert expand(["q"], table, 3) == ["q"] and partners([], table, 3) == []
+
+
+def test_searches_a_jev_second_stage_answered_shape_no_table():
+    from collections import Counter
+
+    jev = "jev[jev-1.13.0@api.typesafe.ai,d20,name_desc]/dense/emb/x"
+    events = [
+        {**_search("s1", "A"), "scorer": jev},
+        _call("list", "s1"),
+        _call("comment", "s1"),
+        {**_search("s2", "B"), "scorer": jev},
+        _call("list", "s2"),
+        _call("comment", "s2"),
+    ]
+    counts: Counter[str] = Counter()
+    assert co_use(events, min_count=1, counts=counts) == {}  # the provider's terms: no evidence
+    assert counts["searches_with_jev"] == 2
+    events.append(_search("s3", "C"))
+    events += [_call("list", "s3"), _call("comment", "s3")]
+    counts = Counter()
+    assert co_use(events, min_count=1, counts=counts) == {  # one clean request still counts
+        "list": [("comment", 1.0, 1)],
+        "comment": [("list", 1.0, 1)],
+    }
+    assert counts["searches_with_jev"] == 2
 
 
 def test_the_servers_table_is_rebuilt_from_its_log_in_the_background(tmp_path):

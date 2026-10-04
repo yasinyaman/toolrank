@@ -406,6 +406,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
 
         label = "Jev (TypeSafe AI)" if is_typesafe(a.jev_url) else "a System One endpoint"
         log(f"second stage: {label} - each request's text and its top tools' text are sent to " + a.jev_url)
+        log("searches served with Jev feed neither learn, ab nor co-use (the provider's terms)")
     try:
         retriever = build_retriever(a, background=True, serving_limits=True, notify=log)
     except ValueError as e:
@@ -620,9 +621,15 @@ def cmd_ab(a: argparse.Namespace) -> int:
     since = a.since or datetime.fromtimestamp(candidate.stat().st_mtime, UTC).isoformat(
         timespec="milliseconds"
     )
-    stats = judge(read_events(data / "usage"), since=since, tenant=a.tenant)
+    counts: Counter[str] = Counter()
+    stats = judge(read_events(data / "usage"), since=since, tenant=a.tenant, counts=counts)
     decision = a.force or decide(stats, min_searches=a.min_searches, margin=a.margin)
     print(f"since {since}" + (f", tenant {a.tenant}" if a.tenant else ""))
+    if counts["searches_with_jev"]:
+        print(
+            f"{counts['searches_with_jev']} Jev-served searches decide nothing "
+            "(the provider's terms keep them out)"
+        )
     print("| arm | searches | called | top-1 | mrr |\n| --- | ---: | ---: | ---: | ---: |")
     for name in ("control", "candidate"):
         r = stats[name]
@@ -630,6 +637,8 @@ def cmd_ab(a: argparse.Namespace) -> int:
     moved = {} if a.dry_run else apply(home, decision)
     report = {"data": str(data), "tenant": a.tenant, "since": since, "stats": stats, "decision": decision}
     report.update(moved=moved, forced=bool(a.force), min_searches=a.min_searches, margin=a.margin)
+    if counts:
+        report["skipped"] = dict(counts)
     path = Path(a.results) / f"ab_{time.strftime('%Y%m%d-%H%M%S')}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
