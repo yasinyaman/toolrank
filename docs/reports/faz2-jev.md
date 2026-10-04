@@ -36,7 +36,7 @@ tablolar `scripts/rerank_report.py --write` ile sonuç dosyalarından üretiliyo
 | heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon | 53.96 | 50.26 | 36.19 | 48.24 | +0.1 s, yerel, +5 GB |
 | heads → CLM-8B, ilk 20 | 28.94 | 24.80 | 27.65 | 10.10 | +2 ms, yerel |
 | zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon | 55.98 | 52.67 | 62.48 | 91.98 | +0.3 s, dış API |
-| Jev tek başına, parçalı | — | — | 65.05 | 90.04 | 0.3–0.6 s, 40–80k token, dış API |
+| Jev tek başına, parçalı | — | — | 65.05 | 90.04 | 0.3–0.6 s, 41–91k token/sorgu, dış API |
 <!-- summary:end -->
 
 ## Ölçüler, birimler ve yön
@@ -279,7 +279,8 @@ satır Jev'in okuduğu metinle (ad + açıklama 1000 karakter, dokümantasyon 30
 olmasından değil, araç metnini okuyup isteğe göre karar verebilmesinden geliyor; CLM soru → cevap
 ve ajan adımı çiftleriyle eğitildiği için araç açıklamaları onun dağılımının dışında (Faz 0 kapı
 raporu), ve 100 adaylık kısa liste bunu değiştirmiyor. Yerel bir Jev alternatifi istenirse adres,
-Faz 0'da ölçülen cross-encoder sınıfı (bge-reranker-v2-gemma, ToolRet 47.52) olur, CLM değil.
+Faz 0'da ölçülen cross-encoder sınıfı (bge-reranker-v2-gemma; ToolRet 47.52, ToolRet makalesinin
+sayısı — Faz 0'da ölçülmedi) olur, CLM değil.
 
 ### Cross-encoder Jev'in yerine
 
@@ -346,7 +347,7 @@ yeniden üretti (93.67'ye karşı 93.65).
 | Tek aşama, w/ inst | ToolRet NDCG@10 ↑ % | ToolRet cat-macro ↑ % | ToolRet Recall@20 ↑ % | LiveMCPBench NDCG@10 ↑ % | LiveMCPBench Recall@10 ↑ % | MCP-Zero Precision@1 ↑ % |
 |---|---:|---:|---:|---:|---:|---:|
 | Qwen3-Embedding-8B, zero-shot | 51.11 | 46.54 | 69.45 | 53.74 | 61.09 | 78.19 |
-| + v0.1 head'leri (60 bin çift) | 54.03 | 47.13 | 72.51 | 53.95 | 61.66 | 79.87 |
+| + v0.1 head'leri (206 bin çift) | 54.03 | 47.13 | 72.51 | 53.95 | 61.66 | 79.87 |
 | + LoRA (20 bin çift) | 58.90 | 54.36 | 75.25 | 55.74 | 63.34 | 88.57 (seçim seti) |
 
 - **ToolRet'te tek aşamada en iyi satır.** cat-macro 54.36, Faz 0 kapısının eşiği 50'nin ve head'lerin
@@ -428,9 +429,10 @@ bf16 `--max-model-len 8192` (8091), paketlenmiş head'ler v0.1 (`.npz`, numpy). 
 commit `c40419e`. Jev: `api.typesafe.ai`, `jev-1.13.0`, 8 eşzamanlı istek, çağrılar GB10'dan
 (İstanbul; TypeSafe'in sunucuları Batı Kıyısı'nda, Mac'ten tek küçük istek 0.30 s, GB10'dan p50
 285–360 ms, p95 415–540 ms). Gömme önbelleği sıcak; Jev önbelleği duman testinin 50 sorgusu dışında
-soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ (ilk 10 satır 4.66 $, zero-shot → Jev
-satırları 3.8 $, MCP-Zero tek başına 9.51 $), duman testi 0.35 $. İlk koşuda hesabın kredisi tek
-başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
+soğuk. Harcama: 17 Jev satırı toplam 428.5 M token = 18.00 $ faturalandı (ilk 10 satır 4.66 $,
+zero-shot → Jev satırları 3.8 $, MCP-Zero tek başına 9.51 $ — tablodaki 10.65 $ satırın nominal
+maliyeti; kredi ortada bitince bir bölümü faturalanmadı), duman testi 0.35 $. İlk koşuda hesabın
+kredisi tek başına satırında bitmiş (HTTP 402), 15 $ eklenince kalan satırlar önbellekten devam etti.
 CLM satırları: Qwen3-8B pooling (8090, `--max-model-len 2048`), `~/.cache/clm/CLM_v0.1-8B.pt` ve
 `data/heads/clm_60k_lr1e-2.pt`, head'ler torch ile GPU'da, gömmeler Faz 0 matrisinin önbelleğinden
 (encoder tokens 0); commit `c4723b1`, birebir metin satırları `76472ec` (3000 karakterde kesilen uzun

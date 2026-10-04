@@ -14,8 +14,8 @@ retrieval) and hands only those to the agent.
   LangGraph (langgraph-bigtool), LlamaIndex agents and the LiteLLM proxy.
 - **Measured.** Every scorer is benchmarked on ToolRet, LiveMCPBench and MCP-Zero under the same
   protocol; see [Benchmarks](benchmarks.md).
-- **Yours to run.** Apache-2.0, model-agnostic, on-prem: one GPU for the embedding model, or any
-  OpenAI-compatible embeddings endpoint.
+- **Yours to run.** Apache-2.0, model-agnostic, on-prem: one GPU for the embedding model (or none:
+  [it runs as a GGUF in Ollama](guides/local.md)), or any OpenAI-compatible embeddings endpoint.
 
 ```bash
 pip install "toolrank[mcp]"
@@ -33,9 +33,10 @@ from 13.6% to 43.1% on a large MCP set by retrieving tools first. The hosted too
 to one model provider or cloud, and most are lexical. toolrank is a retriever you can run anywhere
 and measure.
 
-The heads are small (29.9M parameters for the query and the tool side together) and start as the
-identity on top of a frozen embedding model: tool vectors are computed once, and heads trained on
-your own requests (`toolrank finetune`) cannot start below the base model's quality.
+The backbone is an embedding model trained further on tool retrieval, and tool vectors are computed
+once. The optional heads on top of it are small (29.9M parameters for the query and the tool side
+together) and start as the identity: heads trained on your own requests (`toolrank finetune`) cannot
+start below the base model's quality.
 
 ## Feedback
 

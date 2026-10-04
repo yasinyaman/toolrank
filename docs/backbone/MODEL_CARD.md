@@ -60,11 +60,11 @@ w/ inst, each set under its own protocol ([benchmarks](https://yaman.dev/toolran
 
 | | ToolRet NDCG@10 (micro / cat-macro) | LiveMCPBench NDCG@10 / Recall@5 | MCP-Zero top-1 (selection set) |
 | --- | ---: | ---: | ---: |
-| Qwen3-Embedding-8B | 51.11 / 46.54 | — / 50.82 | 78.19 |
+| Qwen3-Embedding-8B | 51.11 / 46.54 | 53.74 / 50.82 | 78.19 |
 | Qwen3-Embedding-8B + toolrank heads v0.1 | 54.03 / 47.13 | 53.95 / 53.03 | 79.87 |
 | **this model** | **58.90 / 54.36** | **55.74** / 52.06 | 88.57 |
 | this model in FP8 (`--quantization fp8`) | 59.02 / 54.53 | 55.34 / 52.06 | 87.71 |
-| this model + toolrank heads v0.1 | — | 53.52 / 48.18 | 87.46 |
+| this model + toolrank heads v0.1 | 58.71 / 52.94 | 53.52 / 48.18 | 87.46 |
 
 - ToolRet: 44,453 tools, 7,961 queries. LiveMCPBench: 525 tools, 94 tasks. MCP-Zero: 2,792 tools, one
   LLM-written request per tool. On both MCP sets the server name is in the tool text.

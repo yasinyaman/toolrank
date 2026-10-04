@@ -182,7 +182,7 @@ remove whole sources
 
 ## `toolrank search`
 
-Rank the tools of an ingest dir for one request. Defaults: Qwen3-Embedding-8B on 127.0.0.1:8091 (qwen3-emb), the packaged heads when TOOLRANK_HEADS or the cache has them, adaptive K (margin 0.2, max 10), a persistent index in DIR/index.
+Rank the tools of an ingest dir for one request. Defaults: the toolrank backbone on 127.0.0.1:8091 (toolrank-emb-v0.2), no heads, adaptive K (margin 0.2, max 10), a persistent index in DIR/index.
 
 | Argument | Default | Description |
 | --- | --- | --- |

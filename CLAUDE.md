@@ -5,9 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **toolrank** — tool retrieval for LLM agents with hundreds of tools. Phase 0 (Oct 2026) is a
 benchmark harness whose only job is a fair number per scorer (BM25, Qwen3-Embedding-8B, CLM
 heads) on ToolRet, then MCP-Zero and LiveMCPBench, to decide the core model. Decided on
-29 Sep 2026 (`docs/reports/faz0-gate.md`): the gate did not hold, and the core adapter is
-Qwen3-Embedding-8B + our own skip heads (`--scorer clm --clm-ckpt data/heads/<skip>.pt` on port
-8091); CLM stays as a benchmark adapter. Plans and gates live in `docs/plan/` (Turkish): a separate,
+29 Sep 2026 (`docs/reports/faz0-gate.md`): the gate did not hold; the core adapter became
+Qwen3-Embedding-8B + our own skip heads, and since 0.2.0 the default is the toolrank backbone
+(Qwen3-Embedding-8B + a LoRA on ToolRet pairs), served headless as `toolrank-emb-v0.2` on port
+8091 — the v0.1 heads cost it 1–2 points. CLM stays as a benchmark adapter. Plans and gates live in `docs/plan/` (Turkish): a separate,
 private git repository checked out in place and ignored here, so public clones do not have it; never
 copy its content into tracked files. The product/market plan lives outside the repo.
 
@@ -15,7 +16,7 @@ copy its content into tracked files. The product/market plan lives outside the r
 
 - Python 3.11+, `uv`, `src/` layout. Before any commit: `uv run ruff format src tests scripts examples`,
   `uv run ruff check src tests scripts examples`, `uv run pytest` — all green, no exceptions. CI
-  (3.11 + 3.12) runs `ruff check`, `pytest` and a 50-query synthetic BM25 eval; it never installs
+  (3.11–3.13) runs `ruff check`, `pytest` and a 50-query synthetic BM25 eval; it never installs
   `[clm]`, so the torch tests (`test_clm_heads.py`, the training tests in `test_finetune.py`) are
   skipped there and wherever torch is missing: after touching `adapters/clm.py` or `finetune.py`,
   run `uv sync --extra clm` and then those tests locally.
@@ -135,9 +136,10 @@ toolrank ingest openapi spec.yaml --out data/mytools --dry-run                  
 toolrank ingest drop stripe --out data/mytools
 # + --emb-url http://127.0.0.1:8091/v1 (the URL serve will use): embed new/changed tools into DIR/cache now
 
-# Faz 1 week 2: search an ingest dir (defaults: qwen3-emb on 8091, heads from TOOLRANK_HEADS or the
-# cache, adaptive K margin 0.2 / max 10, persistent index in DIR/index; --json for machines)
-TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank search --data data/mytools "refund this payment"
+# Faz 1 week 2: search an ingest dir (defaults: toolrank-emb-v0.2 on 8091, no heads,
+# adaptive K margin 0.2 / max 10, persistent index in DIR/index; --json for machines)
+# (the v0.1 heads sit on qwen3-emb, so a run with them names the base model:)
+TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank search --emb-model qwen3-emb --data data/mytools "refund this payment"
 toolrank eval --data data/toolret --scorer clm ... --index faiss|pgvector --hybrid --cut-margin 0.2 --instruction "..."
 toolrank eval --data data/toolret --scorer clm ... --rerank jev --rerank-depth 100   # TypeSafe AI's Jev over the top K
 # (key in TYPESAFE_API_KEY, answers cached in .cache/toolrank/jev.sqlite); --scorer jev = Jev alone, chunked, MCP sets only.
@@ -155,7 +157,7 @@ docker compose -f deploy/spark/compose.yaml --profile pg up -d toolrank-pg      
 
 # Faz 1 week 3: serve an ingest dir to agents: MCP at /mcp + REST at /v1 on 127.0.0.1:8765, or --stdio.
 # --config = an MCP client file (+ "openapi": {source: {base_url, headers}}, ${ENV} expanded); search flags apply
-TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank serve --data data/mytools --config toolrank.json
+TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank serve --emb-model qwen3-emb --data data/mytools --config toolrank.json
 curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" -d '{"query": "refund this payment"}' http://127.0.0.1:8765/v1/search
 curl -s -H "Authorization: Bearer $TOOLRANK_API_KEY" http://127.0.0.1:8765/v1/metrics      # Prometheus text (Faz 2 week 6)
 # end to end on the Mac, embeddings from the GB10: MCP over HTTP and stdio, REST, usage log, cold start
@@ -301,7 +303,7 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `ingest/sync.py` replaces exactly the listed sources' tools, keeps failed ones, guards kind
   changes and empty listings, and writes `sources.json` (no secrets). Unchanged tools are never
   re-embedded because the embedding cache is keyed by text; `ingest --emb-url` embeds only cache
-  misses, into `DIR/cache` with search's and serve's model and truncation (qwen3-emb, 8192), so
+  misses, into `DIR/cache` with search's and serve's model and truncation (toolrank-emb-v0.2, 8192), so
   their first index is all cache hits (1,862 tools: 154 s cold over Tailscale otherwise).
 - **Vector indexes** (Faz 1 week 2): `DenseScorer` keeps tool vectors in a `VectorIndex`
   (`ports.py`; `hashes`, one atomic `apply`, `search`): `NumpyIndex` (default; exact `topk_dot`, rows
@@ -379,8 +381,7 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
 - **Packaged heads**: `NumpyHeads` reads `.npz` checkpoints (`allow_pickle=False`) and runs
   `make_head`'s forward in numpy; the `.npz` `cfg` carries serving defaults (backbone, formats,
   truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz`, `default` or (search / serve) `none`, the backbone alone
-  (`TOOLRANK_HEADS`, `~/.cache/toolrank/heads/`, else a sha256-checked download from `HEADS_URL`,
-  empty until hosted). The artifact and its model card: `dist/heads/` (gitignored),
+  (`TOOLRANK_HEADS`, `~/.cache/toolrank/heads/`, else a sha256-checked download from `HEADS_URL`). The artifact and its model card: `dist/heads/` (gitignored),
   `docs/heads/MODEL_CARD.md` (training data has no license; the maintainers accepted that).
 - **Serving** (Faz 1 week 3, `toolrank serve`): `retriever.Retriever` holds one immutable state
   (tools, id map, indexed scorer) and swaps it whole when `tools.jsonl` changes (mtime + size,
@@ -568,6 +569,7 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   frameworks_e2e.py (bigtool, LlamaIndex, LiteLLM proxy + MCP gateway);
                                   readme_results.sh (the README's runs), readme_table.py (--write | --check);
                                   cli_reference.py, third_party.py, release_check.py, container_smoke.py, fp8_agreement.py, latency.py;
+                                  per_task_diff.py (per-task diffs between two eval reports);
                                   publish_heads.py (the Hub, pinned to a tag), leaderboard_table.py (ToolRet leaderboard sheets),
                                   launch_metrics.py (the Faz 1 gate's numbers);
                                   jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
@@ -615,9 +617,10 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   Qwen3 up to 10 points, and recall on held-out training pairs rises while the benchmark falls,
   so it is no proxy for the gate (`docs/reports/faz0-week3.md`). All 206K pairs: 54.03 micro but
   still 47.14 cat-macro — more data helps the big tasks only.
-- LiveMCPBench (w/ inst, Recall@5 micro): Qwen3-Embedding-8B 49.04, + ToolRet-trained skip heads
-  52.25, BM25 20.33 (28.95 w/o inst: the generic instruction hurts BM25 on MCP sets), CLM 4.56
-  (fine-tuned 8.57).
+- LiveMCPBench (w/ inst, Recall@5 micro; the set without server names, and the 60K-pairs heads —
+  the README's table uses the server-named set and the 206K heads): Qwen3-Embedding-8B 49.04,
+  + ToolRet-trained skip heads 52.25, BM25 20.33 (28.95 w/o inst: the generic instruction hurts
+  BM25 on MCP sets), CLM 4.56 (fine-tuned 8.57).
 - MCP-Zero (2,792 tools, one Qwen3-8B-written request per tool, w/ inst, Precision@1 = the paper's
   top-1 accuracy; the paper gives no single number): Qwen3-Embedding-8B 69.73, + skip heads 71.99,
   BM25 56.34 (w/o inst), CLM 1.47 (fine-tuned 4.62). The server name in the tool text adds ~8

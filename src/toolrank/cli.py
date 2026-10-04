@@ -1264,9 +1264,9 @@ def build_parser() -> argparse.ArgumentParser:
     se = sub.add_parser(
         "search",
         help="find the tools for one request in an ingest dir",
-        description="Rank the tools of an ingest dir for one request. Defaults: Qwen3-Embedding-8B on "
-        "127.0.0.1:8091 (qwen3-emb), the packaged heads when TOOLRANK_HEADS or the cache has them, "
-        "adaptive K (margin 0.2, max 10), a persistent index in DIR/index.",
+        description="Rank the tools of an ingest dir for one request. Defaults: the toolrank "
+        "backbone on 127.0.0.1:8091 (toolrank-emb-v0.2), no heads, adaptive K (margin 0.2, max 10), "
+        "a persistent index in DIR/index.",
     )
     se.add_argument("request")
     se.add_argument("--json", action="store_true", help="one JSON object instead of a table")

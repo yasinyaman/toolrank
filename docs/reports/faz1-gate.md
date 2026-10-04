@@ -58,10 +58,12 @@ T+0 lansman akşamı yazılıyor, sonra haftada bir.
 ## Açık kalanlar
 
 - **ToolRet'te 50 cat-macro.** Faz 0'dan kalan eşik tutmadı; sayı 47.13. Kaldıraçlar backlog'da: LoRA,
-  temiz negatifler, LLM'le zenginleştirilmiş tool metni.
+  temiz negatifler, LLM'le zenginleştirilmiş tool metni. (4 Ekim 2026: LoRA'lı backbone v0.2
+  54.36 cat-macro ile eşiği geçti.)
 - **toolrank-vllm imajı GHCR'da değil.** Ücretsiz runner'da iki mimariye sığmıyor. Her mimari kendi
   runner'ında build edilip birleştirilince yayımlanabilir.
 - **GPU'suz bir yol yok.** Ollama ya da llama.cpp'deki GGUF Qwen3-Embedding-8B'nin head'lerle ölçülmesi
-  bekliyor.
+  bekliyor. (4 Ekim 2026: ölçüldü — backbone'un Q4_K_M GGUF'u Ollama'da vLLM kalitesinde, ToolRet
+  NDCG@10 59.50'e karşı 58.90; `docs/guides/local.md`.)
 - **Head'lerin eğitim verisinin lisansı yok.** ToolRet-Training-20w lisans belirtmiyor; model kartında
   yazıyor.

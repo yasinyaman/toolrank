@@ -29,6 +29,12 @@ change behaviour.
 
 ### Changed
 
+- The docs' product text now describes the v0.2 default (the headless LoRA backbone, heads
+  optional): the README's "Why" bullet and `docs/index.md`, the `search` help text, and the
+  package docstring. The README's "What's inside" gains learn/ab with tenants, Prometheus metrics,
+  `serve --rerank` and the Helm chart; the Python reference documents the LangChain integration;
+  README, index and the quick start link the GGUF (no big GPU) guide. The results table's notes
+  state LiveMCPBench NDCG@10 next to Recall@5.
 - The `dev` extra is now a PEP 735 dependency group, so the package on PyPI no longer offers a `dev`
   extra. `uv sync` installs it. The images' `uv export` and the third-party notices pass
   `--no-default-groups`, so the images keep the same 35 packages.
@@ -50,6 +56,16 @@ change behaviour.
 - Searches a Jev second stage answered no longer feed `learn`'s pairs, `ab`'s decision or the
   co-use table (the provider's terms, MCA 2.3(b)); each of them skips such searches and counts
   them (`searches_with_jev`), `ab` prints the count, and serve's Jev line says so.
+- `release_check.py` now also refuses a release whose Helm chart `appVersion` names the previous
+  one (the chart's image tag defaults to it), and `docs/guides/local.md` pins the GGUF download to
+  `--revision v0.2`.
+- Stale sentences in the reports: the phase-1 gate report's "no GPU-less path" and "47.13 < 50"
+  (the GGUF guide and the v0.2 backbone settled both), the 0.2.0 release week's "weights not on
+  the Hub yet" and "names proposed", the Jev report's "60K pairs" heads (206K), its bge-gemma
+  number (the ToolRet paper's, not measured) and its per-query token range and spend note, the
+  backbone card's two em-dashes (LiveMCPBench NDCG@10 of the base model, ToolRet of this model +
+  v0.1 heads), benchmarks.md's parity range (it spans Recall@5 and Precision@1, not NDCG), and
+  backlog-d1's 8B encode time.
 - The Jev seat is provider-aware: `TYPESAFE_API_KEY` goes to `api.typesafe.ai` alone (never to a
   local or third-party `/systemone` endpoint, which is asked without a key), TypeSafe's answers
   stay in `jev.sqlite` with their keys unchanged while every other endpoint gets its own

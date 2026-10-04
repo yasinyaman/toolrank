@@ -65,6 +65,16 @@ def problems(
         out.append(f"CHANGELOG.md: no dated entry for {version} (## [{version}] - YYYY-MM-DD)")
     if tag is not None and tag != f"v{version}":
         out.append(f"the tag {tag} does not match the version {version}")
+    chart = root / "deploy" / "helm" / "toolrank" / "Chart.yaml"
+    if chart.exists():  # absent from the sdist
+        text = chart.read_text(encoding="utf-8")
+        app = re.search(r'^appVersion:\s*"?([^"\s]+)"?\s*$', text, re.M)
+        if not app or app.group(1) != version:
+            # the image tag defaults to appVersion: a stale one ships last release's image
+            out.append(
+                f"deploy/helm/toolrank/Chart.yaml: appVersion "
+                f"{app.group(1) if app else 'is missing'}, the release is {version}"
+            )
     return out
 
 

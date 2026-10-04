@@ -35,7 +35,7 @@ benchmarks run with instructions, as in the [README table](../benchmarks.md):
 
 ```bash
 # the LoRA backbone as GGUF (TODO(launch): publish yasinyaman/toolrank-emb-8b-GGUF); hf: pip install huggingface_hub
-hf download yasinyaman/toolrank-emb-8b-GGUF toolrank-emb-8b-v0.2-Q4_K_M.gguf --local-dir models
+hf download yasinyaman/toolrank-emb-8b-GGUF toolrank-emb-8b-v0.2-Q4_K_M.gguf --revision v0.2 --local-dir models
 printf 'FROM ./models/toolrank-emb-8b-v0.2-Q4_K_M.gguf\nPARAMETER num_ctx 8192\n' > Modelfile
 ollama create toolrank-emb-v0.2-q4_k_m -f Modelfile
 

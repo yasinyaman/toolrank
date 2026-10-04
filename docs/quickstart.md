@@ -1,8 +1,9 @@
 # Quick start
 
 toolrank needs an embedding model to rank tools: its backbone, Qwen3-Embedding-8B trained further
-on tool retrieval, served by vLLM on a GPU with at least 16 GB of memory (or any OpenAI-compatible
-`/v1/embeddings` endpoint serving it). The
+on tool retrieval, served by vLLM on a GPU with at least 16 GB of memory (without one,
+[it runs as a GGUF in Ollama](guides/local.md)), or any OpenAI-compatible
+`/v1/embeddings` endpoint serving it. The
 Docker path starts both; the pip path uses an endpoint you already run.
 
 ## With Docker (one GPU host)

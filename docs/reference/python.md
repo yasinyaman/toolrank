@@ -19,6 +19,16 @@ the CLI.
 
 ::: toolrank.integrations.openai.run
 
+## LangChain
+
+`ToolrankToolSelector` is built lazily, on first use (`langchain` is an optional extra), so the
+module carries its documentation:
+
+::: toolrank.integrations.langchain
+    options:
+      members:
+        - Selector
+
 ## LangGraph
 
 ::: toolrank.integrations.langgraph.Toolbox

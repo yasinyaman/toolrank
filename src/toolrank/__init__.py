@@ -9,7 +9,8 @@ The package is organised as ports and adapters:
 * ``toolrank.ingest``       - MCP servers and OpenAPI specs -> an ingest dir (``tools.jsonl``).
 * ``toolrank.retriever``    - query-time retrieval over an ingest dir, shared by search and serve.
 * ``toolrank.client``       - a standard-library client for ``toolrank serve``'s REST API.
-* ``toolrank.integrations`` - Claude's and OpenAI's tool search, LangGraph, LlamaIndex, LiteLLM.
+* ``toolrank.integrations`` - Claude's and OpenAI's tool search, LangChain, LangGraph, LlamaIndex,
+  LiteLLM.
 * ``toolrank.datasets``     - benchmark converters and the on-disk JSONL format.
 * ``toolrank.eval``         - trec_eval-compatible metrics and the benchmark runner.
 """

@@ -6,7 +6,8 @@ Diğer oturumun LoRA ile eğittiği Qwen3-Embedding-8B, FP8'de de bf16 kadar iyi
 LiveMCPBench NDCG@10 55,34, MCP-Zero top-1 87,71) ve v0.1 head'leri onun üstünde 1–2 puan kaybettiriyor;
 bu yüzden paketin varsayılanı head'siz LoRA'lı backbone oldu (`toolrank-emb-v0.2`, Docker / compose /
 Helm'de FP8), head'ler yalnız eğitildikleri temel modelde uygulanıyor, ve `search` / `serve` isteğe
-bağlı ikinci aşamayı (`--rerank cross | jev`) aldı; ağırlıklar henüz Hub'da değil, yükleme bekliyor.
+bağlı ikinci aşamayı (`--rerank cross | jev`) aldı; ağırlıklar aynı gün Hub'a yüklendi (aşağıdaki
+yayın bölümü).
 
 ## Ölçüler, birimler ve yön
 
@@ -194,7 +195,7 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
 - **MCP-Zero seçim seti:** LoRA'nın kontrol noktası MCP-Zero üzerinde seçildi; o sütun bağımsız değil
   (model kartında ve README notunda yazılı). backlog'daki "v0.2'den önce ayrı dev seti" maddesi bu
   ağırlıklar için de geçerli; seçimin etkisi küçük (üç kontrol noktası, 600. ve 625. adım neredeyse aynı).
-- **Adlar önerildi, onaylanmadı:** `yasinyaman/toolrank-emb-8b`, `v0.2`, `toolrank-emb-v0.2`. Hepsi
+- **Adlar:** `yasinyaman/toolrank-emb-8b`, `v0.2`, `toolrank-emb-v0.2` — yayın bunlarla çıktı. Hepsi
   `build.py`'de tek yerde (giriş betiği, compose ve chart aynı değerleri taşıyor; bir test betiği
   `build`'e bağlıyor).
 - Jev ikinci aşaması gerçek API'yle denenmedi (krediler 30 Eylül'de bitti); testler sahte istemciyle.

@@ -34,6 +34,8 @@ docker compose up -d
 ```
 
 The [quick start](https://yaman.dev/toolrank/quickstart/) connects Claude Code, Claude Desktop and REST clients.
+No big GPU? The backbone also runs as a GGUF in Ollama, at the same measured quality.
+[Guide](https://yaman.dev/toolrank/guides/local/)
 
 ## Results
 
@@ -56,7 +58,7 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 | StackOne v2, a fine-tuned 109M BGE-base ([StackOne](https://www.stackone.com/blog/autoresearch-charged-action-search/)) | — | 54.40 | — | — |
 
 - ToolRet: 7,961 queries over 44,453 tools, top 100 over the whole corpus. *NDCG@10* is the micro-average of the paper's released code; *cat-macro* is the paper's own aggregation (the mean of the web, code and customized categories) and the only column with published numbers. Our BM25 reproduces the paper's BM25s within 0.1 (22.24 / 36.41 against 22.32 / 36.46).
-- LiveMCPBench (94 queries, 525 tools) and MCP-Zero (2,792 tools): the tool text includes the MCP server's name (`toolrank data server-names`). One LiveMCPBench query is about one point. MCP-Zero ships no queries: ours were written by Qwen3-8B, one per tool (`toolrank data pull mcp-zero`), so its column does not compare with the MCP-Zero paper. Top-1 is Precision@1.
+- LiveMCPBench (94 queries, 525 tools) and MCP-Zero (2,792 tools): the tool text includes the MCP server's name (`toolrank data server-names`). One LiveMCPBench query is about one point. MCP-Zero ships no queries: ours were written by Qwen3-8B, one per tool (`toolrank data pull mcp-zero`), so its column does not compare with the MCP-Zero paper. Top-1 is Precision@1. LiveMCPBench shows Recall@5; on NDCG@10 the v0.2 backbone leads the v0.1 heads (55.74 / 53.95), on Recall@5 it trails them (52.06 / 53.03) — the gap either way is about one query.
 - *With instruction*, each query carries its task's instruction (ToolRet) or a generic one (the MCP sets), as the embedding model is served; the generic instruction costs BM25 on the MCP sets. BM25 is bm25s without stemming, the paper's setting.
 - The heads (29.9M parameters, `docs/heads/MODEL_CARD.md`) were trained on ToolRet's training pairs, so ToolRet is in-domain for them and the MCP sets are not. On MCP-Zero, BM25 without instruction still wins at top-1: each generated query opens with a `server:` line that usually names the server, and exact matching rewards that.
 - The toolrank backbone v0.2 (`docs/backbone/MODEL_CARD.md`) is Qwen3-Embedding-8B with a LoRA trained on 20,000 of ToolRet's training pairs, served without heads (the v0.1 heads cost it 1–2 points). Its checkpoint was picked on MCP-Zero, so that column is its selection set; ToolRet is in-domain, LiveMCPBench is held out. Beyond these sets, on generated requests over a GitHub + Stripe catalogue it gains 12–20 NDCG@10 points on tasks that need two or three tools and ties with the base model on requests for one tool (the model card has the numbers).
@@ -69,7 +71,8 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
 - **Ingestion** of MCP servers (stdio and streamable HTTP) and OpenAPI 3.x specs; a re-run syncs only
   what changed. [Guide](https://yaman.dev/toolrank/guides/ingest/)
 - **Search and serve**: adaptive K, a persistent vector index (numpy, FAISS HNSW or pgvector), an MCP
-  proxy with two tools, a REST API, API keys and a usage log. [Guide](https://yaman.dev/toolrank/guides/serve/)
+  proxy with two tools, a REST API, API keys, Prometheus metrics and a usage log; an optional second
+  scorer reranks the shortlist (`serve --rerank`). [Guide](https://yaman.dev/toolrank/guides/serve/)
 - **Agent platforms**: toolrank as Claude's (`tool_reference`) and OpenAI's (client-side
   `tool_search`) tool search. [Guide](https://yaman.dev/toolrank/guides/platforms/) Agents with only
   a shell get a skill. [Guide](https://yaman.dev/toolrank/guides/serve/#agents-with-only-a-shell)
@@ -78,12 +81,15 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
   [Guide](https://yaman.dev/toolrank/guides/frameworks/)
 - **Fine-tuning**: heads trained on your own request-to-tool pairs, the epoch picked on a dev set.
   [Guide](https://yaman.dev/toolrank/guides/finetune/)
+- **Learning from usage**: `toolrank learn` mines the serve log into training pairs and trains heads
+  from them; `toolrank ab` judges the candidate on live traffic and promotes or rolls back, per
+  tenant. [Guide](https://yaman.dev/toolrank/guides/learn/)
 - **Benchmarks**: ToolRet, LiveMCPBench and MCP-Zero with BM25, dense and head scorers (and CLM, for
   comparison). [Benchmarks](https://yaman.dev/toolrank/benchmarks/) CLM here is
   [Contrastive-LM](https://huggingface.co/Contrastive-LM/CLM-v0.1-8B), whose head architecture
   toolrank's heads follow, not Context Language Models.
-- **Docker**: the `toolrank` image for amd64 and arm64, compose files with vLLM, and a Dockerfile
-  that puts vLLM and toolrank in one container.
+- **Docker and Helm**: the `toolrank` image for amd64 and arm64, compose files with vLLM, a Dockerfile
+  that puts vLLM and toolrank in one container, and a Helm chart.
   [Guide](https://yaman.dev/toolrank/guides/docker/)
 
 ## Why
@@ -93,9 +99,10 @@ Retrieval quality on three benchmarks, every number from `toolrank eval` under T
   selection accuracy from 13.6% to 43.1% on a large MCP set by retrieving tools first.
 - **Hosted tool searches are tied to one model provider or cloud, and most are lexical.** toolrank
   is model-agnostic and runs on your own hardware.
-- **Small heads on a frozen embedding model** (29.9M parameters for the request and the tool side
-  together). You embed your tools once and rank with one dot product. The heads start as the
-  identity, so heads fine-tuned on your data start from the base model's quality, not below it.
+- **An embedding backbone trained further on tool retrieval** (`yasinyaman/toolrank-emb-8b`, the
+  default). You embed your tools once and rank with one dot product. Optional small heads on top of
+  it (29.9M parameters for the request and the tool side together) start as the identity, so heads
+  fine-tuned on your data start from the base model's quality, not below it.
 
 ## Feedback
 

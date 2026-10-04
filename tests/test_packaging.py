@@ -150,6 +150,15 @@ def test_the_release_check_finds_every_placeholder(tmp_path):
     card = tmp_path / "docs" / "heads" / "MODEL_CARD.md"
     card.write_text("The download address is empty until the file is hosted.\n")
     assert "still says the heads are not hosted" in check(tmp_path, files, "https://x", "0.1.0")[0]
+    # a stale chart appVersion would ship last release's image (the tag defaults to it)
+    chart = tmp_path / "deploy" / "helm" / "toolrank" / "Chart.yaml"
+    chart.parent.mkdir(parents=True)
+    chart.write_text('version: 0.1.0\nappVersion: "0.0.9"\n')
+    found = check(tmp_path, files, "https://x", "0.1.0")
+    assert "Chart.yaml: appVersion 0.0.9, the release is 0.1.0" in found[-1]
+    chart.write_text('version: 0.1.0\nappVersion: "0.1.0"\n')
+    card.write_text("Downloads are checked.\n")
+    assert check(tmp_path, files, "https://x", "0.1.0") == []
 
 
 def test_publish_heads_writes_the_address_into_the_code_and_the_card(tmp_path):

@@ -54,7 +54,7 @@ Değerlendirmeler dizüstünde koştu, Ollama'ya kendi Tailscale adresinden gidi
 
 ### ToolRet (7.961 istek, 44.453 tool)
 
-8B'nin bir ToolRet satırı bu dizüstünde 8,4 saat sürdüğü için üç model koşuldu.
+8B'nin ToolRet kataloğunu kodlaması bu dizüstünde 7,3 saat sürdüğü için üç model koşuldu.
 
 | Model | NDCG@10 ↑ % | cat-macro ↑ % | Recall@10 ↑ % | Recall@20 ↑ % | 44.453 tool'un kodlanması ↓ sa |
 | --- | ---: | ---: | ---: | ---: | ---: |
