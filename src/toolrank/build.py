@@ -126,11 +126,12 @@ def build_scorer(a: Any) -> Any:
 
 
 def jev_client(a: Any) -> Any:
-    """A ``JevClient`` from the ``--jev-*`` flags; the key comes from ``TYPESAFE_API_KEY`` only."""
-    if not os.environ.get("TYPESAFE_API_KEY"):
-        raise ValueError("Jev needs a key: set TYPESAFE_API_KEY (https://console.typesafe.ai/keys)")
-    from toolrank.adapters.jev import JevClient
+    """A ``JevClient`` from the ``--jev-*`` flags; TypeSafe itself needs ``TYPESAFE_API_KEY``, a
+    local or self-hosted ``/systemone`` endpoint is asked without one."""
+    from toolrank.adapters.jev import JevClient, is_typesafe
 
+    if is_typesafe(a.jev_url) and not os.environ.get("TYPESAFE_API_KEY"):
+        raise ValueError("Jev needs a key: set TYPESAFE_API_KEY (https://console.typesafe.ai/keys)")
     return JevClient(a.jev_model, a.jev_url, cache_dir=a.cache_dir or None, workers=a.jev_workers)
 
 

@@ -94,7 +94,7 @@ def test_reranker_orders_the_head_by_probability_and_keeps_the_tail(fake_jev, tm
     # head (w, f, m): m matches "send", "email", "message"; w and f tie at 0 and keep the base order
     assert r.tool_ids == ["m", "w", "f", "r"] and r.scores[0] == 1.0 and r.scores[1:3] == [0.0, 0.0]
     assert r.scores[3] == -1.0  # below the depth: the base order, negative scores
-    assert rr.name == "jev[jev-1.13.0,d3,name_desc]/fixed" and rr.score_kind == "jev"
+    assert rr.name == "jev[jev-1.13.0@api.typesafe.ai,d3,name_desc]/fixed" and rr.score_kind == "jev"
     body = JevClient.posted[-1]
     assert body["model"] == "jev-1.13.0" and body["state"] == {"request": q.text}
     assert body["questions"]["tool"]["instructions"] == (
@@ -141,7 +141,7 @@ def test_standalone_scorer_chunks_the_corpus_and_reranks_the_winners(fake_jev, t
     s = JevScorer(JevClient(workers=1), "name_desc", chunk=25, per_chunk=5)  # one thread: calls in order
     s.index(tools)
     ranked = s.rank(queries, k=10)
-    assert s.name == "jev[jev-1.13.0,c25x5,name_desc]"
+    assert s.name == "jev[jev-1.13.0@api.typesafe.ai,c25x5,name_desc]"
     assert all(len(r.tool_ids) == 10 and len(set(r.tool_ids)) == 10 for r in ranked)
     # round one: 3 chunks per query; round two: one final Choice over the 15 winners per query
     assert len(JevClient.posted) == 8 * 3 + 8
@@ -194,8 +194,8 @@ def test_post_retries_429_with_retry_after_and_shows_a_400_body(monkeypatch):
     with pytest.raises(RuntimeError, match="HTTP 400 .*too many options"):
         c.ask("s", {})
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="TYPESAFE_API_KEY"):
-        JevClient("m", "https://x/v1").ask("s", {})
+    with pytest.raises(RuntimeError, match="TYPESAFE_API_KEY"):  # TypeSafe itself always wants a key
+        JevClient("m", "https://api.typesafe.ai/v1").ask("s", {})
 
 
 def test_eval_cli_reranks_bm25_and_records_the_jev_block(fake_jev, tmp_path, capsys):
@@ -207,7 +207,7 @@ def test_eval_cli_reranks_bm25_and_records_the_jev_block(fake_jev, tmp_path, cap
     jev = ["--rerank", "jev", "--rerank-depth", "10", "--cache-dir", str(tmp_path / "c"), "--out", str(out)]
     assert main(args + jev) == 0
     rep = json.loads(out.read_text())
-    assert rep["scorer"].startswith("jev[jev-1.13.0,d10,name_desc]/bm25")
+    assert rep["scorer"].startswith("jev[jev-1.13.0@api.typesafe.ai,d10,name_desc]/bm25")
     j = rep["config"]["jev"]
     assert j["rerank_depth"] == 10 and j["calls"] == 6 and j["cached"] == 0 and j["input_tokens"] > 0
     assert "jev calls 6 (+0 cached)" in capsys.readouterr().out
@@ -221,7 +221,10 @@ def test_eval_cli_reranks_bm25_and_records_the_jev_block(fake_jev, tmp_path, cap
         == 0
     )
     rep = json.loads(out.read_text())
-    assert rep["scorer"] == "jev[jev-1.13.0,c16x20,name_desc]" and rep["config"]["emb_url"] is None
+    assert (
+        rep["scorer"] == "jev[jev-1.13.0@api.typesafe.ai,c16x20,name_desc]"
+        and rep["config"]["emb_url"] is None
+    )
     assert rep["config"]["jev"]["chunk"] == 16
     with pytest.raises(SystemExit, match="cosine scores"):
         main(args + jev + ["--cut-margin", "0.2"])
@@ -234,3 +237,79 @@ def test_eval_cli_refuses_to_start_without_a_key(monkeypatch, tmp_path):
     write_synthetic(tmp_path, n_tools=10, n_queries=2, seed=1)
     with pytest.raises(SystemExit, match="TYPESAFE_API_KEY"):
         main(["eval", "--data", str(tmp_path), "--scorer", "bm25", "--rerank", "jev"])
+
+
+def test_the_key_goes_to_typesafe_alone(monkeypatch):
+    monkeypatch.setenv("TYPESAFE_API_KEY", "secret")
+    assert JevClient("m", "https://api.typesafe.ai/v1").api_key == "secret"
+    for url in ("http://127.0.0.1:8093/v1", "https://elsewhere.example/v1"):
+        assert JevClient("m", url).api_key is None  # never sent to a local or third-party endpoint
+
+    sent = []
+
+    def ok(req, timeout):
+        sent.append(req)
+        return io.BytesIO(json.dumps({"model": "m", "answers": {}, "usage": {}}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", ok)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    JevClient("m", "http://127.0.0.1:8093/v1").ask("s", {})  # a local endpoint: none needed, none sent
+    assert sent[0].get_header("Authorization") is None
+    JevClient("m", "http://127.0.0.1:8093/v1", api_key="k").ask("s", {})  # an explicit key goes as asked
+    assert sent[1].get_header("Authorization") == "Bearer k"
+
+
+def test_each_endpoint_has_its_own_cache(fake_jev, tmp_path):
+    q = {"tool": choice_question("", ["send email", "weather"], 100)}
+    ts = JevClient(cache_dir=tmp_path)  # TypeSafe stays in jev.sqlite, its keys unchanged
+    ts.ask({"request": "send an email"}, q)
+    assert (tmp_path / "jev.sqlite").exists()
+    local = JevClient("m", "http://127.0.0.1:8093/v1", cache_dir=tmp_path)
+    local.ask({"request": "send an email"}, q)  # the same body at another endpoint is asked again
+    assert (local.calls, local.cached) == (1, 0)
+    assert (tmp_path / "jev-127.0.0.1-8093.sqlite").exists()
+    again = JevClient("m", "http://127.0.0.1:8093/v1", cache_dir=tmp_path)
+    again.ask({"request": "send an email"}, q)
+    assert (again.calls, again.cached) == (0, 1)  # a new process reads that endpoint's own file
+
+
+def test_standalone_scorer_never_sends_a_one_option_question(fake_jev):
+    tools = _tools() + [Tool(id=f"x{i}", doc={"name": f"t{i}", "description": "d"}) for i in range(7)]
+    s = JevScorer(JevClient(workers=1), "name_desc", chunk=10, per_chunk=2)
+    s.index(tools)  # 11 tools: chunks of 10 and 1
+    (r,) = s.rank([Query(id="q", text="refund the payment", qrels={})], k=11)
+    # only the 10-option chunk is asked (the single wins by default), then one final over 3 winners
+    sizes = [len(b["questions"]["tool"]["criteria"]) for b in JevClient.posted]
+    assert sizes == [10, 3] and len(r.tool_ids) == 11
+
+
+def test_eval_cli_reranks_through_a_local_endpoint_without_a_key(fake_jev, tmp_path, monkeypatch):
+    from toolrank.datasets.synthetic import write_synthetic
+
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    write_synthetic(tmp_path / "d", n_tools=20, n_queries=3, seed=1)
+    out = tmp_path / "r.json"
+    assert (
+        main(
+            [
+                "eval",
+                "--data",
+                str(tmp_path / "d"),
+                "--scorer",
+                "bm25",
+                "--tool-format",
+                "name_desc",
+                "--rerank",
+                "jev",
+                "--rerank-depth",
+                "10",
+                "--jev-url",
+                "http://127.0.0.1:8093/v1",
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    rep = json.loads(out.read_text())
+    assert rep["scorer"].startswith("jev[jev-1.13.0@127.0.0.1:8093,d10,name_desc]/bm25")

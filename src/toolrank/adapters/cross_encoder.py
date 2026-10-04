@@ -70,8 +70,8 @@ class ScoreCache:
         self.db.commit()
 
     @staticmethod
-    def key(model: str, text_1: str, text_2: str) -> str:
-        return hashlib.sha256(f"{model}\x00{text_1}\x00{text_2}".encode()).hexdigest()
+    def key(base_url: str, model: str, text_1: str, text_2: str) -> str:
+        return hashlib.sha256(f"{base_url}\x00{model}\x00{text_1}\x00{text_2}".encode()).hexdigest()
 
     def get_many(self, keys: Sequence[str]) -> dict[str, float]:
         out: dict[str, float] = {}
@@ -113,7 +113,7 @@ class ScoreClient:
         self._lock = threading.Lock()
 
     def score(self, text_1: str, text_2: Sequence[str]) -> list[float]:
-        keys = [ScoreCache.key(self.model, text_1, t) for t in text_2]
+        keys = [ScoreCache.key(self.base_url, self.model, text_1, t) for t in text_2]
         have = self.cache.get_many(keys) if self.cache is not None else {}
         out: list[float | None] = [have.get(k) for k in keys]
         todo = [i for i, v in enumerate(out) if v is None]

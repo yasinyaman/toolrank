@@ -36,6 +36,12 @@ change behaviour.
 
 ### Fixed
 
+- The Jev seat is provider-aware: `TYPESAFE_API_KEY` goes to `api.typesafe.ai` alone (never to a
+  local or third-party `/systemone` endpoint, which is asked without a key), TypeSafe's answers
+  stay in `jev.sqlite` with their keys unchanged while every other endpoint gets its own
+  `jev-<host>.sqlite` with the URL in the key, the cross-encoder's score cache keys the URL too,
+  `JevScorer` never sends a one-option Choice, and the scorer names and serve's privacy line name
+  the endpoint (`jev[<model>@<host>,...]`).
 - `toolrank learn` on the default (v0.2) backbone: it started from a random head, mixed the
   vectors of requests different models had answered, and never saw the promoted heads. Now a start
   without fitting heads is a fresh skip head (identity, so epoch 0 is the backbone's own score),

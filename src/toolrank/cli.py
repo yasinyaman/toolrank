@@ -402,10 +402,10 @@ def cmd_serve(a: argparse.Namespace) -> int:
     )
     _check_rerank(a)
     if a.rerank == "jev":
-        log(
-            "second stage: Jev (TypeSafe AI) - each request's text and its top tools' text are sent to "
-            + a.jev_url
-        )
+        from toolrank.adapters.jev import is_typesafe
+
+        label = "Jev (TypeSafe AI)" if is_typesafe(a.jev_url) else "a System One endpoint"
+        log(f"second stage: {label} - each request's text and its top tools' text are sent to " + a.jev_url)
     try:
         retriever = build_retriever(a, background=True, serving_limits=True, notify=log)
     except ValueError as e:

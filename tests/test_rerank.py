@@ -252,5 +252,7 @@ def test_search_reranks_with_jev_end_to_end(tmp_path, monkeypatch, capsys):
     ]
     assert main([*args, "--k", "4", "--json", "--rerank", "jev"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["tools"][0]["id"] == "m" and out["scorer"].startswith("jev[jev-1.13.0,d20,documentation")
+    assert out["tools"][0]["id"] == "m" and out["scorer"].startswith(
+        "jev[jev-1.13.0@api.typesafe.ai,d20,documentation"
+    )
     assert JevClient.posted  # the request went to the (faked) hosted model

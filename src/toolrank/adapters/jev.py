@@ -18,8 +18,11 @@ the request in the state. Two adapters:
 The state is ``{"request": ...}``; the benchmark instruction (w/ inst) leads the question. Option
 keys are ``t000``...; the option text is the tool in ``tool_format`` cut to ``max_chars`` (Jev's
 budget is 32k tokens for the state plus the longest question). Standard library only. The key is
-``TYPESAFE_API_KEY``; responses are cached in SQLite by model and request body, so a rerun costs
-nothing and ranks exactly the same. Pin a versioned model id (``jev-1.13.0``): aliases move.
+``TYPESAFE_API_KEY``, and it goes to TypeSafe itself alone; any other ``/systemone`` endpoint (a
+local or self-hosted one) is asked without it. Responses are cached in SQLite by model and request
+body, so a rerun costs nothing and ranks exactly the same: ``jev.sqlite`` for TypeSafe (its keys
+stay valid), one ``jev-<host>.sqlite`` per other endpoint, the URL in the key. Pin a versioned
+model id (``jev-1.13.0``): aliases move.
 """
 
 from __future__ import annotations
@@ -27,11 +30,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import statistics
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -41,12 +46,38 @@ from typing import Any
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter
 
-__all__ = ["MAX_OPTIONS", "JevClient", "JevReranker", "JevScorer", "choice_question"]
+__all__ = [
+    "MAX_OPTIONS",
+    "JevClient",
+    "JevReranker",
+    "JevScorer",
+    "choice_question",
+    "env_jev_key",
+    "is_typesafe",
+]
 
 MAX_OPTIONS = 255  # a Choice question's limit (https://docs.typesafe.ai/api)
 DEFAULT_MODEL = "jev-1.13.0"
 DEFAULT_URL = "https://api.typesafe.ai/v1"
 LEAD = "Which of the listed tools should be called to carry out `request`?"
+
+
+def is_typesafe(base_url: str) -> bool:
+    """Whether ``base_url`` is TypeSafe itself — the only address ``TYPESAFE_API_KEY`` may go to."""
+    url = urllib.parse.urlsplit(base_url)
+    return (url.scheme, url.hostname) == ("https", "api.typesafe.ai")
+
+
+def env_jev_key(base_url: str) -> str | None:
+    """``TYPESAFE_API_KEY`` for TypeSafe itself, nothing for any other endpoint: an agent's key
+    sits in many shells; it must not travel to a local or third-party server (the rule of
+    ``embeddings_api.env_api_key``)."""
+    return os.environ.get("TYPESAFE_API_KEY") if is_typesafe(base_url) else None
+
+
+def _host(base_url: str) -> str:
+    """The endpoint's ``host[:port]``, for scorer names and cache files."""
+    return urllib.parse.urlsplit(base_url).netloc or base_url
 
 
 def option_key(n: int) -> str:
@@ -123,17 +154,31 @@ class JevClient:
         workers: int = 8,
     ):
         self.model, self.base_url = model, base_url.rstrip("/")
-        self.api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
-        self.cache = JevCache(Path(cache_dir) / "jev.sqlite") if cache_dir else None
+        self.api_key = api_key or env_jev_key(self.base_url)
+        self.cache = JevCache(self._cache_path(cache_dir)) if cache_dir else None
         self.timeout, self.max_retries, self.workers = timeout, max_retries, max(1, workers)
         self.calls = self.cached = self.tokens_spent = 0
         self.call_ms: list[float] = []
         self._lock = threading.Lock()
 
+    def _cache_path(self, cache_dir: str | Path) -> Path:
+        """TypeSafe's answers stay in ``jev.sqlite`` (its keys keep working); every other endpoint
+        gets its own file, so one endpoint's answer can never serve another's question."""
+        if is_typesafe(self.base_url):
+            return Path(cache_dir) / "jev.sqlite"
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", _host(self.base_url))
+        return Path(cache_dir) / f"jev-{safe}.sqlite"
+
+    def _key(self, body: dict[str, Any]) -> str:
+        raw = json.dumps(body, sort_keys=True, ensure_ascii=False)
+        if not is_typesafe(self.base_url):
+            raw = f"{self.base_url}\x00{raw}"  # the endpoint is part of what was asked
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
     def ask(self, state: Any, questions: dict[str, Any]) -> dict[str, Any]:
         """The ``answers`` for one evaluation, from the cache when the same body was sent before."""
         body = {"state": state, "model": self.model, "questions": questions}
-        key = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        key = self._key(body)
         if self.cache is not None and (hit := self.cache.get(key)) is not None:
             with self._lock:
                 self.cached += 1
@@ -157,7 +202,7 @@ class JevClient:
             return list(pool.map(lambda x: self.ask(*x), items))
 
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
-        if not self.api_key:
+        if is_typesafe(self.base_url) and not self.api_key:
             raise RuntimeError("Jev needs a key: set TYPESAFE_API_KEY (https://console.typesafe.ai/keys)")
         req = urllib.request.Request(
             f"{self.base_url}/systemone",
@@ -165,7 +210,8 @@ class JevClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        req.add_unredirected_header("Authorization", f"Bearer {self.api_key}")  # never onto a redirect
+        if self.api_key:
+            req.add_unredirected_header("Authorization", f"Bearer {self.api_key}")  # never onto a redirect
         last: Exception | None = None
         for attempt in range(self.max_retries):
             try:
@@ -222,7 +268,9 @@ class JevReranker:
         self.base, self.client, self.depth, self.max_chars = base, client, depth, max_chars
         self.jev_format = _formatter(tool_format)
         self.tool_format, self.query_format = base.tool_format, base.query_format
-        self.name = f"jev[{client.model},d{depth},{self.jev_format.name}]/{base.name}"
+        self.name = (
+            f"jev[{client.model}@{_host(client.base_url)},d{depth},{self.jev_format.name}]/{base.name}"
+        )
         self.tools: dict[str, Tool] = {}
         self.last_base: dict[str, RankedList] = {}
 
@@ -296,7 +344,9 @@ class JevScorer:
         self.client, self.chunk, self.per_chunk, self.max_chars = client, chunk, per_chunk, max_chars
         self.tool_format = _formatter(tool_format)
         self.query_format = QUERY_FORMATS["plain"]  # the instruction goes into the question, not the state
-        self.name = f"jev[{client.model},c{chunk}x{per_chunk},{self.tool_format.name}]"
+        self.name = (
+            f"jev[{client.model}@{_host(client.base_url)},c{chunk}x{per_chunk},{self.tool_format.name}]"
+        )
         self.ids: list[str] = []
         self.texts: list[str] = []
 
@@ -321,28 +371,49 @@ class JevScorer:
         chunks = self._chunks()
         if len(self.ids) == 1:
             return [RankedList(q.id, self.ids[:k], [1.0][:k]) for q in queries]
-        first = self.client.ask_many([self._question(q, ch) for q in queries for ch in chunks])
+        # a one-option question answers itself: never sent (round one's last chunk can be a single)
+        asked = [(qi, ci) for qi in range(len(queries)) for ci, ch in enumerate(chunks) if len(ch) >= 2]
+        first = dict(
+            zip(
+                asked,
+                self.client.ask_many([self._question(queries[qi], chunks[ci]) for qi, ci in asked]),
+                strict=True,
+            )
+        )
+
+        def round_one(qi: int, ci: int) -> list[tuple[int, float]]:  # global indexes, best first
+            ch = chunks[ci]
+            if len(ch) == 1:
+                return [(ch[0], 1.0)]
+            return [(ch[n], p) for n, p in _order(first[(qi, ci)]["tool"]["probabilities"], len(ch))]
+
         if len(chunks) == 1:  # one chunk: round one is the final order
-            return [
-                self._assemble(q, _order(first[qi]["tool"]["probabilities"], len(self.ids)), [], k)
-                for qi, q in enumerate(queries)
-            ]
+            return [self._assemble(q, round_one(qi, 0), [], k) for qi, q in enumerate(queries)]
         per = max(1, min(self.per_chunk, MAX_OPTIONS // len(chunks)))
         winners: list[list[int]] = []  # per query: the chunk winners, global indexes
         rest: list[list[tuple[int, float]]] = []  # the others by round-one probability
         for qi in range(len(queries)):
             w: list[int] = []
             others: list[tuple[int, float]] = []
-            for ci, ch in enumerate(chunks):
-                order = _order(first[qi * len(chunks) + ci]["tool"]["probabilities"], len(ch))
-                w.extend(ch[n] for n, _ in order[:per])
-                others.extend((ch[n], p) for n, p in order[per:])
+            for ci in range(len(chunks)):
+                order = round_one(qi, ci)
+                w.extend(i for i, _ in order[:per])
+                others.extend(order[per:])
             winners.append(w)
             rest.append(sorted(others, key=lambda x: (-x[1], x[0])))
-        final = self.client.ask_many([self._question(q, winners[qi]) for qi, q in enumerate(queries)])
+        finals = [qi for qi in range(len(queries)) if len(winners[qi]) >= 2]
+        final = dict(
+            zip(
+                finals,
+                self.client.ask_many([self._question(queries[qi], winners[qi]) for qi in finals]),
+                strict=True,
+            )
+        )
         out = []
         for qi, q in enumerate(queries):
-            order = _order(final[qi]["tool"]["probabilities"], len(winners[qi]))
+            order = (
+                _order(final[qi]["tool"]["probabilities"], len(winners[qi])) if qi in final else [(0, 1.0)]
+            )
             out.append(self._assemble(q, [(winners[qi][n], p) for n, p in order], rest[qi], k))
         return out
 
