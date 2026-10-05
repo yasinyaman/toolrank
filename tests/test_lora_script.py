@@ -38,3 +38,12 @@ def test_infonce_masks_duplicate_positives():
     masked = m.infonce(sim, ["a", "a", "c"], tau=0.1)  # rows 0 and 1 share a positive text
     assert masked < plain  # the duplicate is no longer a competing negative
     assert torch.isfinite(masked)
+
+
+def test_the_data_seed_is_apart_from_the_training_seed():
+    """A replica run changes --seed (initialisation, dropout, batch order) and keeps the pairs."""
+    m = _script()
+    base = ["--pairs", "p.jsonl", "--dev", "d", "--out", "o"]
+    assert m.parse([*base, "--seed", "3"]).data_seed == 3  # default: --seed, as before
+    a = m.parse([*base, "--seed", "3", "--data-seed", "0"])
+    assert (a.seed, a.data_seed) == (3, 0)

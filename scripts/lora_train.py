@@ -70,14 +70,23 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
         "dev set can pick again without training again",
     )
     p.add_argument("--eval-batch", type=int, default=32)
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=0, help="initialisation, dropout and batch order")
+    p.add_argument(
+        "--data-seed",
+        type=int,
+        default=None,
+        help="which training pairs are drawn, so the same pairs train across --seed replicas (default: --seed)",
+    )
     p.add_argument("--instruction", default=DEFAULT_SERVING["instruction"])
     p.add_argument("--check-parity", action="store_true", help="compare 8 vectors with --emb-url first")
     p.add_argument("--emb-url", default="http://127.0.0.1:8091/v1")
     p.add_argument("--emb-model", default="qwen3-emb")
     p.add_argument("--no-merge", action="store_true")
     p.add_argument("--limit-dev", type=int, default=0, help="first N dev queries (smoke tests)")
-    return p.parse_args(argv)
+    a = p.parse_args(argv)
+    if a.data_seed is None:
+        a.data_seed = a.seed
+    return a
 
 
 # -- pure parts (tested without a model) --------------------------------------------------------
@@ -228,10 +237,13 @@ def main(argv: list[str] | None = None) -> int:
         **leaks(pairs, {dev_dir.name: dev_queries, **eval_queries}),
     }
     everything = list(dev_queries) + [q for qs in eval_queries.values() for q in qs]
-    train, _, _ = split_pairs(pairs, everything, a.n_train, 0, a.seed)
+    train, _, _ = split_pairs(pairs, everything, a.n_train, 0, a.data_seed)
     train, filled = with_instruction(train, a.instruction)
     states, positives, _ = pair_texts(train, tf, qf)
-    log(f"{len(loaded):,} pairs -> train {len(train):,}; dropped {dropped}; instruction filled {filled:,}")
+    log(
+        f"{len(loaded):,} pairs -> train {len(train):,} (data seed {a.data_seed}, seed {a.seed}); "
+        f"dropped {dropped}; instruction filled {filled:,}"
+    )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     enc = Encoder(a.model, a.rank, a.alpha, a.dropout, device)
