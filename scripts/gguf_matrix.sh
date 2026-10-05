@@ -9,7 +9,7 @@
 # MODELS are Ollama model names, each created with `PARAMETER num_ctx 8192` (Ollama ignores vLLM's
 # truncate_prompt_tokens and cuts at num_ctx instead, keeping the head like vLLM). SETS are data dirs,
 # TAG the results' prefix (results/<TAG>_<set>_<model>.json).
-set -u
+set -u -o pipefail # a failed eval, not tail, decides "FAILED"
 EMB_URL=${EMB_URL:?set EMB_URL to the Ollama endpoint, e.g. http://\$LAPTOP:11434/v1}
 MODELS=${MODELS:-"qwen3-emb-0.6b-f16 qwen3-emb-0.6b-q8_0 qwen3-emb-4b-q4_k_m qwen3-emb-4b-q8_0 qwen3-emb-8b-q4_k_m qwen3-emb-8b-q8_0 toolrank-emb-v0.2-q4_k_m toolrank-emb-v0.2-q8_0"}
 SETS=${SETS:-"livemcpbench_server"}

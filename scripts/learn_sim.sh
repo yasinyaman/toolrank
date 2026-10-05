@@ -36,21 +36,22 @@ HEADS=${HEADS:-dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz}
 ROOT=data/sim/$NAME
 EMB="--emb-url $EMB_URL --emb-model $EMB_MODEL --truncate 8192 --cache-dir $CACHE"
 if [ "$HEADS" = none ]; then
-  # headless (the v0.2 backbone): score with the embedding model alone, learn from fresh
-  # identity heads (--init none); no packaged heads anywhere
+  # headless (the v0.2 backbone): serve and score the start with the embedding model alone, learn
+  # from fresh identity heads (--init none); no packaged heads anywhere, cached ones included
   unset TOOLRANK_HEADS || true
-  SCORER=(--scorer dense)
   INIT=(--init none)
+  SERVE=(--clm-ckpt none)
 else
   export TOOLRANK_HEADS=$PWD/$HEADS
-  SCORER=()
   INIT=()
+  SERVE=()
 fi
+set -o pipefail # a failed eval or learn, not tail, decides "FAILED"
 
-score() { # score <heads> <report prefix>: the held-out sets and EVALS with these heads
+score() { # score <heads|none> <report prefix>: the held-out sets and EVALS with these heads
   local heads=$1 prefix=$2 dir out
-  local ckpt=("${SCORER[@]}")
-  [ "$HEADS" != none ] && ckpt=(--scorer clm --clm-ckpt "$heads")
+  local ckpt=(--scorer clm --clm-ckpt "$heads")
+  [ "$heads" = none ] && ckpt=(--scorer dense)
   for dir in "$ROOT/heldout" "$ROOT/heldout_new" $EVALS; do
     out=results/${prefix}_$(basename "$dir").json
     [ -s "$out" ] && continue
@@ -71,12 +72,13 @@ for n in $SIZES; do
     mkdir -p "$dir" && ln -sf "$PWD/$BENCH/tools.jsonl" "$dir/tools.jsonl"
     # shellcheck disable=SC2086
     "$UV" run python scripts/learn_sim.py traffic --queries "$ROOT/traffic.jsonl" --limit "$n" --noise "$NOISE" \
-      --report "results/sim_${NAME}_${run}_traffic.json" -- --data "$dir" $EMB > /dev/null || echo "FAILED traffic $run"
+      --report "results/sim_${NAME}_${run}_traffic.json" -- --data "$dir" $EMB ${SERVE[@]+"${SERVE[@]}"} \
+      > /dev/null || echo "FAILED traffic $run"
   fi
   heads=$dir/learned/$TAG.npz
   if [ ! -s "results/learn_sim_${NAME}_${run}_${TAG}.json" ]; then
     # shellcheck disable=SC2086
-    "$UV" run toolrank learn --data "$dir" --out "$heads" --dev "$GUARD" $EMB "${INIT[@]}" $LEARN \
+    "$UV" run toolrank learn --data "$dir" --out "$heads" --dev "$GUARD" $EMB ${INIT[@]+"${INIT[@]}"} $LEARN \
       --name "sim_${NAME}_${run}_${TAG}" | tail -n 6
   fi
   [ -s "$heads" ] && score "$heads" "sim_${NAME}_${run}_${TAG}"
