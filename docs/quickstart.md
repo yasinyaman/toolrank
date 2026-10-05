@@ -52,8 +52,11 @@ Serve the backbone on a GPU host, as `toolrank-emb-v0.2` on port 8091 (the defau
 
 ```bash
 vllm serve yasinyaman/toolrank-emb-8b --revision v0.2 --served-model-name toolrank-emb-v0.2 \
-  --runner pooling --max-model-len 8192 --port 8091
+  --runner pooling --max-model-len 8192 --port 8091 \
+  --no-enable-chunked-prefill --max-num-batched-tokens 8192
 ```
+
+(Without the last two flags, a long tool text batched next to short ones can hang a pooling engine.)
 
 With the base `Qwen/Qwen3-Embedding-8B` served as `qwen3-emb` instead, `toolrank heads pull` fetches
 the heads that go with it (60 MB) and `--emb-model qwen3-emb` selects it.

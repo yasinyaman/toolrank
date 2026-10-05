@@ -114,14 +114,16 @@ python3 scripts/call.py time/get_current_time '{"timezone": "Asia/Tokyo"}' --sea
 ## Many servers, several tools, nothing that fits
 
 Four options for catalogues where plain ranking leaves something on the table. All are off by
-default; the numbers are from the benchmarks ([Benchmarks](../benchmarks.md) explains the sets).
+default; the numbers are from the benchmarks ([Benchmarks](../benchmarks.md) explains the sets), and
+each says which first stage it was measured on.
 
 **`--server-weight 0.2`: a vote for the right server.** Each server is embedded once as a summary
 (its name and tool names), and a tool's score becomes its own cosine plus 0.2 of the request's
-cosine with its server. On catalogues of many servers this lifts the first hit: MCP-Zero (293
-servers) top-1 79.9 → 81.0, LiveMCPBench NDCG@10 54.0 → 55.1, with fewer tools returned at a higher
-recall. Choosing servers first and searching only those loses points everywhere (the right server
-ranks first only 70–85% of the time), so the vote is soft. On a catalogue whose "servers" are a few
+cosine with its server. On catalogues of many servers this lifts the first hit (measured on the
+base model with the v0.1 heads, not yet on the v0.2 backbone): MCP-Zero (293 servers) top-1 79.9 →
+81.0, LiveMCPBench NDCG@10 54.0 → 55.1, with fewer tools returned at a higher recall. Choosing
+servers first and searching only those loses points everywhere (the right server ranks first only
+68–86% of the time), so the vote is soft. On a catalogue whose "servers" are a few
 huge groups it does nothing useful (ToolRet's three categories: −0.1 NDCG@10, −0.8 averaged by
 category), which is why it is not the default.
 
@@ -137,15 +139,19 @@ names its own `k`.
 **`--rerank cross` or `--rerank jev`: a second stage.** The first stage scores the request and each
 tool apart; a second stage reads the request together with each of the top 20 tools' full
 documentation (cut to 3,000 characters) and reorders them. How many tools a search returns still
-comes from the first stage's cosines (adaptive K); the order comes from the second stage. Measured
-over the released heads, it is the largest single gain on catalogues the models never saw:
-LiveMCPBench NDCG@10 54.0 → 62.7 with the local reranker, 64.0 with Jev; MCP-Zero top-1 79.9 →
-91.3 / 92.3; ToolRet 54.0 → 58.1 / 57.7 ([the comparison](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz2-jev.md)).
+comes from the first stage's cosines (adaptive K); the order comes from the second stage. It is
+the largest single gain on catalogues the models never saw. Over the default v0.2 backbone, with the
+local reranker: LiveMCPBench NDCG@10 55.7 → 61.2, MCP-Zero top-1 88.6 → 91.9, ToolRet 58.9 → 59.4.
+Over the base model with the v0.1 heads: LiveMCPBench 54.0 → 62.7 with the local reranker, 64.0
+with Jev; MCP-Zero top-1 79.9 → 91.3 / 92.3; ToolRet 54.0 → 58.1 / 57.7
+([the comparison](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz2-jev.md)).
 
 - `--rerank cross --rerank-emb-url http://HOST:PORT/v1`: Qwen3-Reranker-8B behind vLLM's score API
-  (about 16 GB more GPU memory, 0.3–0.6 s more per search). `deploy/spark/compose.yaml`'s `rerank`
-  profile shows the vLLM flags.
-- `--rerank jev`: TypeSafe AI's hosted Jev, with `TYPESAFE_API_KEY` set (about 0.3 s per search).
+  (about 16 GB more GPU memory). One search is one call of 20 pairs: 1.7–2.5 s at p50 on a GB10
+  shared with three other vLLM servers (0.3–0.6 s a query at 8 requests in flight; not measured on
+  an idle GPU). `deploy/spark/compose.yaml`'s `rerank` profile shows the vLLM flags.
+- `--rerank jev`: TypeSafe AI's hosted Jev, with `TYPESAFE_API_KEY` set (about 0.3 s per search), or
+  another `/systemone` endpoint named with `--jev-url` (asked without the key).
   **The request text and the top tools' text are sent to TypeSafe**; the server says so when it
   starts. Answers are cached in `DATA/cache`.
 

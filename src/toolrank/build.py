@@ -21,7 +21,7 @@ INDEX_KINDS = ("numpy", "faiss", "pgvector")
 # new name (a version in it). "heads": whether the packaged heads were trained on its vectors; an
 # unknown name keeps the old behaviour (heads when a checkpoint is at hand). The default is
 # Qwen3-Embedding-8B LoRA-trained on ToolRet's training pairs (docs/backbone/MODEL_CARD.md): one
-# stage, no heads (the v0.1 heads cost it 1-2 points; heads trained on it stay at identity).
+# stage, no heads (the v0.1 heads cost it 0.2-3.9 points; heads trained on it stay at identity).
 BACKBONE_REPO, BACKBONE_REVISION = "yasinyaman/toolrank-emb-8b", "v0.2"
 BACKBONE_PUBLISHED = True  # True once the weights are on the Hub at that revision (release_check)
 BACKBONE_GGUF_REPO = BACKBONE_REPO + "-GGUF"  # its Q8_0 and Q4_K_M builds for Ollama / llama.cpp

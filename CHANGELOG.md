@@ -93,9 +93,37 @@ change behaviour.
 - `build.BACKBONES` knows the vLLM names of the small Qwen3-Embedding models, the GGUF names
   `scripts/gguf_matrix.sh` serves and `qwen3-emb-lora-fp8`: the packaged heads no longer count as
   fitting them.
-- `toolrank search` and `serve` take `--clm-ckpt none`: the backbone alone, whatever heads are cached.
+- `toolrank search` and `serve` take `--clm-ckpt none`: no packaged heads, whatever heads are cached.
   Before, a backbone the cached heads do not fit (Qwen3-Embedding-0.6B or 4B, say) could not be
   served without deleting the heads; the width error now names the flag.
+- A running server picks up heads replaced under the same name (`learn` rewriting `candidate.npz`,
+  `ab` promoting it to `current.npz`). The heads file's hash was cached by its path, so the variant's
+  persistent index kept tool rows projected by the old heads while requests went through the new
+  ones. The hash now follows the file (inode, size, modification time) and comes from the bytes the
+  heads were loaded from.
+- Heads go only on the backbone their cfg names. Heads trained on Qwen3-Embedding-8B and the v0.2
+  backbone have the same width, so `--clm-ckpt heads.npz` without `--emb-model` put them silently on
+  `toolrank-emb-v0.2`. `search` and `serve` now stop with the fix when the model was left to its
+  default (a learned `current.npz` from 0.1.x leaves an error on its variant and the base serves),
+  and warn when the model was named and in `eval`. `learn`'s default start skips a promoted
+  `current.npz` trained on another backbone, and `finetune --backbone` defaults to what `--emb-model`
+  names (it was always `Qwen/Qwen3-Embedding-8B`).
+- A search behind a second stage (`serve --rerank`) logs the model that embedded it. It logged
+  `model: null`, which `learn`'s backbone filter let through; `learn` also tells searches logged
+  without the field by the scorer's name.
+- `search` and `serve --rerank jev` ask for `TYPESAFE_API_KEY` only when `--jev-url` is TypeSafe's.
+- `scripts/learn_sim.sh` with `HEADS=none` scored the learned heads as the backbone alone; it now
+  scores them, serves the simulated traffic with `--clm-ckpt none`, runs on bash 3.2, and prints
+  `FAILED` when an eval fails (`scripts/gguf_matrix.sh` too). `scripts/lora_train.py --data-seed`
+  draws the training pairs apart from `--seed`, as `finetune` and `learn` do.
+- Docs: the REST reference's call outcomes, authentication rule and hit fields; the reranker's
+  latency per search and the server vote's measured setting in the serve guide, with the second
+  stage's numbers over the v0.2 backbone; the v0.1 heads cost the v0.2 backbone 0.2–3.9 points, not
+  1–2; benchmarks' reproduce steps work from a clone; the `vllm serve` lines carry
+  `--no-enable-chunked-prefill --max-num-batched-tokens 8192`; the heads card and the fine-tuning
+  guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
+  serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
+  the `langchain` extra and the default backbone.
 - `scripts/serve_e2e.py`, `platforms_e2e.py` and `frameworks_e2e.py` pass `--emb-model` (default
   `qwen3-emb`) to the server they start; since 0.2.0 the server's own default is the LoRA backbone's
   name, which port 8091 does not serve.

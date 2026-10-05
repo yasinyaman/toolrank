@@ -112,7 +112,8 @@ command leaves it out until the simulation says.
 Measured on simulated traffic: a benchmark served as a catalogue, 70% of its queries played as
 requests by an agent that calls the right tools when they are shown, and the other 30% never served
 (`scripts/learn_sim.py` and `scripts/learn_sim.sh` in the repository; NDCG@10 on the held-out
-queries, with the released heads as the start).
+queries, with the released heads as the start, on the base Qwen3-Embedding-8B). On the default v0.2
+backbone, `learn` starts from identity heads instead; that start is not measured yet.
 
 | Catalogue | Requests logged | Usable pairs | Held-out NDCG@10 |
 | --- | ---: | ---: | --- |

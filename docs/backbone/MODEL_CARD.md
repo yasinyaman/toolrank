@@ -20,13 +20,14 @@ Code, documentation and benchmarks: [github.com/yasinyaman/toolrank](https://git
 
 ```bash
 vllm serve yasinyaman/toolrank-emb-8b --revision v0.2 --served-model-name toolrank-emb-v0.2 \
-  --runner pooling --max-model-len 8192 --port 8091      # add --quantization fp8 (as toolrank-emb-v0.2-fp8)
+  --runner pooling --max-model-len 8192 --port 8091 \
+  --no-enable-chunked-prefill --max-num-batched-tokens 8192   # add --quantization fp8 (as toolrank-emb-v0.2-fp8)
 ```
 
 - Requests: `Instruct: Given an agent's request for a tool, retrieve the MCP tool that fulfills it.\nQuery: <request>`.
 - Tools: toolrank's `documentation` text; for MCP and OpenAPI tools `{"server", "name", "description",
   "inputSchema"}` as JSON. 8192 tokens per text.
-- No heads: toolrank's v0.1 heads, trained on the base model, cost 1–2 points here, and heads
+- No heads: toolrank's v0.1 heads, trained on the base model, cost 0.2–3.9 points here (the table below), and heads
   trained on top of this model stay at the identity. toolrank applies none on it.
 - Serve it under a name with the version in it: toolrank's embedding cache is keyed by the served
   name, and a new version must not meet the old one's vectors.

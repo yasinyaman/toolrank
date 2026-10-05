@@ -2,7 +2,8 @@
 """Run a tool through toolrank: call.py NAME '{"arg": "value"}' [--search-id ID].
 
 The arguments are a JSON object, or ``-`` to read it from stdin. Prints the tool's output; exits 1
-when the tool reported an error, 2 when toolrank refused the call or could not be reached.
+when the call did not succeed (the tool's error, or toolrank's write policy), 2 when toolrank
+rejected the request or could not be reached.
 """
 
 from __future__ import annotations

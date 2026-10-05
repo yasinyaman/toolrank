@@ -66,7 +66,8 @@ sequenceDiagram
   in-flight call never resent) or to OpenAPI operations over HTTP (GET and HEAD unless allowed,
   credentials only to their own base URL, no redirects).
 - **Usage log.** Each search and call is appended to a daily JSONL file with a single write. Each
-  call is linked to a search, first by `search_id`, then by the latest search of its session.
+  call is linked to a search, first by `search_id`, then by the latest search of its session, then
+  by the same client's latest (HTTP clients have no session id).
   Requests and arguments are stored as keyed digests.
 
 ## Evaluation

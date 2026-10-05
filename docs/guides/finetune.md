@@ -9,6 +9,9 @@ pip install "toolrank[clm]"           # torch, for training only; the result run
 toolrank finetune --data pairs.jsonl --dev dev/ --eval test/ --out heads.pt --npz heads.npz
 ```
 
+It embeds with the base Qwen3-Embedding-8B served as `qwen3-emb` on port 8091 (`--emb-url`,
+`--emb-model`), and the heads it trains belong on that backbone; their cfg records it.
+
 - `pairs.jsonl` holds requests with the tools that serve them (`toolrank data pull toolret-train`
   writes one; the format is in `toolrank.datasets.jsonl`).
 - `--dev` is a benchmark-format set (`tools.jsonl` + `queries.jsonl`) that picks the epoch and is
@@ -30,7 +33,9 @@ toolrank finetune --data pairs.jsonl --dev dev/ --eval test/ --out heads.pt --np
    heads worse than it started with.
 5. Saves `heads.pt` (and `--npz heads.npz`) with their serving settings (backbone, text formats,
    truncation, instruction) and the dev result that chose them. `toolrank search --clm-ckpt
-   heads.npz` and `serve` need no other flag.
+   heads.npz --emb-model qwen3-emb` and `serve` with the same flags take the rest from the file. Heads
+   put on a backbone their cfg does not name stop search and serve when `--emb-model` was left to its
+   default, and get a warning otherwise.
 
 `--init-ckpt default` continues from the packaged heads instead of the identity.
 

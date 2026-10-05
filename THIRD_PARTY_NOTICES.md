@@ -56,11 +56,16 @@ Installed only when asked for (`pip install "toolrank[<extra>]"`), never in the 
 | `pgvector` | psycopg[binary], pgvector | LGPL-3.0-only (psycopg; used as a separate, replaceable library), MIT |
 | `anthropic`, `openai` | anthropic, openai | MIT, Apache-2.0 |
 | `langgraph`, `llamaindex` | langchain-core, llama-index-core | MIT, MIT |
+| `langchain` | langchain | MIT |
 
 ## Models
 
-- **Qwen/Qwen3-Embedding-8B** (Apache-2.0): the embedding backbone. vLLM downloads it at run time;
-  no image or package includes its weights.
+- **yasinyaman/toolrank-emb-8b** v0.2 (Apache-2.0): the default embedding backbone, Qwen3-Embedding-8B
+  with a merged LoRA trained on ToolRet-Training-20w, whose dataset card states no license; see
+  `docs/backbone/MODEL_CARD.md`. vLLM downloads it at run time; no image or package includes its
+  weights.
+- **Qwen/Qwen3-Embedding-8B** (Apache-2.0): its base model, and the backbone of the v0.1 heads.
+  Downloaded the same way.
 - **toolrank heads v0.1** (`toolrank-heads-qwen3-emb-8b-v0.1.npz`, Apache-2.0): trained on
   ToolRet-Training-20w, whose dataset card states no license; see `docs/heads/MODEL_CARD.md`.
   Images built with the heads (`--build-context heads=...`) include the file.

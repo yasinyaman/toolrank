@@ -24,8 +24,9 @@ tool fits, search again in other words.
 
 The arguments are one JSON object that matches the tool's `inputSchema` (or `-` to read it from
 stdin). Pass the `search_id` of the search that found the tool. The tool's output is printed. Exit
-status 1 means the tool reported an error (read the output); 2 means toolrank refused the call or
-could not be reached (read stderr).
+status 1 means the call did not succeed: the tool reported an error, or toolrank's write policy
+refused it (read the output); 2 means toolrank rejected the request or could not be reached (read
+stderr).
 
 A tool without `"readOnlyHint": true` in its `annotations`, or with an HTTP `method` other than GET,
 can change things: ask the user before calling it unless they asked for exactly that.

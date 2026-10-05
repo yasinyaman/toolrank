@@ -21,7 +21,7 @@ one for requests and one for tools (29.9M parameters together). Each is `x + MLP
 the identity, so it can only move the backbone's vectors where training showed it helps. The
 packaged heads (v0.1) were trained on ToolRet's training pairs; they run in numpy, without torch,
 and ship as a 60 MB `.npz` ([model card](heads/MODEL_CARD.md)). toolrank applies them only on the
-base model they were trained on: on the LoRA backbone they cost 1–2 points, and heads trained on
+base model they were trained on: on the LoRA backbone they cost 0.2–3.9 points, and heads trained on
 top of it learn nothing. `toolrank finetune` and `toolrank learn` train your own.
 
 The backbone reads an **instruction** in front of each request

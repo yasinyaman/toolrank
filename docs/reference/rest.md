@@ -5,8 +5,9 @@
 
 ## Authentication
 
-On a non-loopback address every `/v1` request needs `Authorization: Bearer <key>` (`--api-key`,
-`TOOLRANK_API_KEY`, or a named key from `--api-keys`). `/healthz` and `/openapi.json` need no key.
+When a key is set (`--api-key`, `TOOLRANK_API_KEY`, or named keys from `--api-keys`), every `/v1`
+and `/mcp` request needs `Authorization: Bearer <key>`, on loopback too; `serve` refuses to listen
+on a non-loopback address without one. `/healthz` and `/openapi.json` need no key.
 Requests must come with an allowed `Host` header and, from a browser, an allowed `Origin`; bodies are
 limited to 1 MiB. `X-Session-Id` groups one conversation's searches and calls in the usage log.
 
@@ -22,8 +23,10 @@ Searches the catalogue. `k` fixes the number of tools (default: adaptive K); `in
 the serving instruction; `full_schemas` returns every hit's full input schema (default: the first
 three, the rest shortened). The answer has `search_id`, `mode` (`semantic`, or `lexical` while the
 first index builds), `took_ms`, `rule` and `tools`. Each tool has `name` (its id), `api_name`,
-`server`, `kind` (`mcp` or `openapi`), `score`, `description` and `inputSchema`; a tool appended by
-`serve --co-use` also has `used_with`, the returned tool it is called together with.
+`server`, `kind` (`mcp` or `openapi`), `score`, `description` and `inputSchema`, with
+`inputSchemaShrunk` when the schema was shortened; `annotations` when the tool has some, `method`
+for OpenAPI operations; a tool appended by `serve --co-use` also has `used_with`, the returned tool
+it is called together with.
 
 ### `POST /v1/rank`
 
@@ -42,7 +45,8 @@ ids (`tool_ids`), best first; each result has the tool's `index` in the request 
 ```
 
 Runs a catalogue tool exactly as MCP `call_tool` does, with the same write policy. The answer has
-`outcome` (`ok`, `error` or `refused`), `isError`, `content` (MCP content blocks) and, for OpenAPI
+`outcome` (`ok`, `tool_error`, `protocol_error`, `timeout` or `refused`), `isError`, `content` (MCP
+content blocks) and, for OpenAPI
 operations, `http_status`. A tool that fails is still a 200 with `isError: true`. JSON bodies only.
 
 ### `GET /v1/tools`, `GET /v1/tools/{id}`
@@ -69,7 +73,7 @@ Errors are JSON `{"error": "..."}`:
 | --- | --- |
 | 400 | bad input |
 | 401 | missing or wrong key |
-| 403 | a browser origin that is not allowed |
+| 403 | a browser origin that is not allowed; `/v1/metrics` for a key limited to some sources |
 | 404 | unknown tool |
 | 413 | body over 1 MiB |
 | 415 | a call that is not JSON |

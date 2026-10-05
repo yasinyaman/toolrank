@@ -102,7 +102,7 @@ Make a selection set that shares no query with a benchmark: sample tools evenly 
 | `--n N` | `600` | tools sampled, one request each |
 | `--seed SEED` |  |  |
 | `--styles STYLES` | `task,step,goal` | request styles, used in turn: task, step, goal, situation (a problem stated without the operation: harder to match) |
-| `--exclude DIR` |  | a benchmark dir whose queries the set must not repeat (repeatable) (repeatable) |
+| `--exclude DIR` |  | a benchmark dir whose queries the set must not repeat (repeatable) |
 | `--tools-per-request K` | `1` | 2-4: tasks that need K related tools of one source, all of them gold (much harder; --styles is not used) |
 | `--gen-url GEN_URL` | `http://127.0.0.1:8093/v1` | OpenAI-compatible chat endpoint |
 | `--gen-model GEN_MODEL` | `qwen3-8b-chat` | the model that writes the requests |
@@ -192,7 +192,7 @@ Rank the tools of an ingest dir for one request. Defaults: the toolrank backbone
 | `--instruction INSTRUCTION` |  | default: the heads' instruction |
 | `--k K` |  | a fixed top-k instead of adaptive K |
 | `--no-cut` |  | plain top --cut-max |
-| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone) |
+| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (no packaged heads; learned DATA/heads ones still serve) |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--index INDEX` | `numpy` | numpy \| faiss \| pgvector |
@@ -239,7 +239,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--instruction INSTRUCTION` |  | default: the heads' instruction |
 | `--k K` |  | a fixed top-k instead of adaptive K |
 | `--no-cut` |  | plain top --cut-max |
-| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone) |
+| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (no packaged heads; learned DATA/heads ones still serve) |
 | `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
 | `--query-format {plain,concat,instruct_query,clm}` |  |  |
 | `--index INDEX` | `numpy` | numpy \| faiss \| pgvector |
@@ -293,13 +293,13 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 
 ## `toolrank finetune`
 
-Embed the pairs once (only what the cache lacks), train heads on the frozen backbone's vectors, pick the epoch on --dev (a benchmark-format set that is not reported), then run toolrank eval with the saved heads on --dev and every --eval set. Defaults: the setting of the released heads (skip heads, lr 1e-5, batch 512, 5 epochs, in-batch negatives only) and the serving encoder (qwen3-emb on 8091, documentation + instruct_query, truncate 8192).
+Embed the pairs once (only what the cache lacks), train heads on the frozen backbone's vectors, pick the epoch on --dev (a benchmark-format set that is not reported), then run toolrank eval with the saved heads on --dev and every --eval set. Defaults: the setting of the released heads (skip heads, lr 1e-5, batch 512, 5 epochs, in-batch negatives only) and the encoder of the released heads (the base model as qwen3-emb on 8091, documentation + instruct_query, truncate 8192), whose heads search and serve take with --emb-model qwen3-emb.
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `--data DATA` | required | pairs.jsonl (data pull toolret-train, or your own) |
 | `--dev DEV` | required | benchmark-format dir the epoch is picked on; not reported |
-| `--eval EVAL` |  | benchmark-format dir to evaluate (repeatable) (repeatable) |
+| `--eval EVAL` |  | benchmark-format dir to evaluate (repeatable) |
 | `--out OUT` | required | the heads, a torch .pt |
 | `--npz NPZ` |  | also export the packaged fp16 .npz |
 | `--init-ckpt INIT_CKPT` |  | .pt, .npz or 'default' (the packaged heads); default: fresh skip heads |
@@ -411,7 +411,7 @@ a torch .pt checkpoint -> the .npz that runs without torch
 
 ## `toolrank heads pull`
 
-download the packaged heads into the cache (sha256-checked); search and serve then use them
+download the packaged heads into the cache (sha256-checked); search and serve use them on the backbone they were trained on (--emb-model qwen3-emb or qwen3-emb-fp8)
 
 | Argument | Default | Description |
 | --- | --- | --- |

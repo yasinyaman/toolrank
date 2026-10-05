@@ -1,12 +1,21 @@
 # DGX Spark — vLLM pooling servers
 
-Embedding servers, all OpenAI-compatible (`/v1/embeddings`, `/v1/models`):
+The benchmark host's servers, all OpenAI-compatible (`/v1/embeddings`, `/v1/models`; the rerankers
+vLLM's `/score`). Port 8091 here serves the base model as `qwen3-emb`: toolrank's default since 0.2.0,
+`toolrank-emb-v0.2`, is the LoRA backbone on 8097, so name it with `--emb-model` (and `--emb-url`)
+when you point search or serve at this host. The Docker images serve the default themselves.
 
-| Port | Model | Purpose | Notes |
+| Port | Model (served name) | Purpose | Notes |
 | --- | --- | --- | --- |
-| 8090 | `Qwen/Qwen3-8B` | CLM backbone (last-token pooling) | `--max-model-len 2048` is the CLM reference; raise to 8192 for long conversation states (the `deepswe-clm-heads-8k` head was trained that way) |
-| 8091 | `Qwen/Qwen3-Embedding-8B` | the serving backbone | `--max-model-len 8192` (the model allows 32k); instruction on the query side (`instruct_query` format) |
-| 8094 | `Qwen/Qwen3-Embedding-8B`, FP8 | the same, quantized at load (profile `fp8`) | served as `qwen3-emb-fp8` |
+| 8090 | `Qwen/Qwen3-8B` (`qwen3-8b`) | CLM backbone (last-token pooling) | `--max-model-len 2048` is the CLM reference; raise to 8192 for long conversation states (the `deepswe-clm-heads-8k` head was trained that way) |
+| 8091 | `Qwen/Qwen3-Embedding-8B` (`qwen3-emb`) | the base embedding model, the v0.1 heads' backbone | `--max-model-len 8192` (the model allows 32k); instruction on the query side (`instruct_query` format) |
+| 8092 | `Qwen/Qwen3-8B`, FP8 (`qwen3-8b-fp8`) | profile `fp8` | |
+| 8093 | `Qwen/Qwen3-8B` chat (`qwen3-8b-chat`) | writes MCP-Zero's queries and `data gen-queries` sets (profile `gen`) | stop it afterwards |
+| 8094 | `Qwen/Qwen3-Embedding-8B`, FP8 (`qwen3-emb-fp8`) | the same, quantized at load (profile `fp8`) | |
+| 8095 | `Qwen/Qwen3-Reranker-8B` (`qwen3-reranker`) | second stage, `--rerank cross` (profile `rerank`) | vLLM score API |
+| 8096 | `BAAI/bge-reranker-v2-gemma` (`bge-reranker`) | second stage, measured and dropped (profile `rerank`) | |
+| 8097 | a merged LoRA backbone (`$TOOLRANK_LORA_NAME`, default `qwen3-emb-lora`) | the v0.2 backbone or a new LoRA run (profile `lora`) | `TOOLRANK_LORA` names the merged weights |
+| 8098 | the same in FP8 (`<name>-fp8`) | profile `lora-fp8` | |
 
 ## Install
 
@@ -49,8 +58,8 @@ cut batch-1 latency from 86 to 49 ms.
 
 The same profile has an FP8 copy of the embedding model, `qwen3-embedding-8b-fp8`, on 8094 as
 `qwen3-emb-fp8`. On all three benchmarks it is within a query or two of bf16 (with and without the
-heads), at 7.6 GiB of weights and 55 ms batch-1 latency instead of 99; the Docker images serve
-it by default. Keep the two served names apart: the embedding cache is keyed by the name, not the
+heads), at 7.6 GiB of weights and 55 ms batch-1 latency instead of 99. The Docker images serve the
+v0.2 backbone in FP8 by default (`toolrank-emb-v0.2-fp8`). Keep the two served names apart: the embedding cache is keyed by the name, not the
 dtype.
 
 A chat copy of the backbone (the default generate runner, same weights) writes MCP-Zero's queries

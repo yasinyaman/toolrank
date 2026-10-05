@@ -39,7 +39,7 @@ embedding:
     models:  # the downloaded weights (16 GB), kept across restarts
       size: 40Gi
       storageClass: ""
-    hfTokenSecret: {name: "", key: ""}  # Qwen3-Embedding-8B is public: only needed behind a mirror
+    hfTokenSecret: {name: "", key: ""}  # the default backbone (yasinyaman/toolrank-emb-8b) is public: only needed behind a mirror
     nodeSelector: {}
     tolerations: []
   bundled:

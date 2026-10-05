@@ -939,7 +939,8 @@ def _add_retrieval_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--clm-ckpt",
         default=None,
-        help="heads: .npz / .pt path, 'default' (downloads) or 'none' (the backbone alone)",
+        help="heads: .npz / .pt path, 'default' (downloads) or 'none' (no packaged heads; learned "
+        "DATA/heads ones still serve)",
     )
     p.add_argument("--tool-format", choices=list(TOOL_FORMATS), default=None)
     p.add_argument("--query-format", choices=list(QUERY_FORMATS), default=None)
@@ -1202,7 +1203,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="DIR",
-        help="a benchmark dir whose queries the set must not repeat (repeatable)",
+        help="a benchmark dir whose queries the set must not repeat",
     )
     gq.add_argument(
         "--tools-per-request",
@@ -1331,14 +1332,13 @@ def build_parser() -> argparse.ArgumentParser:
         "backbone's vectors, pick the epoch on --dev (a benchmark-format set that is not reported), "
         "then run toolrank eval with the saved heads on --dev and every --eval set. Defaults: the "
         "setting of the released heads (skip heads, lr 1e-5, batch 512, 5 epochs, in-batch negatives "
-        "only) and the serving encoder (qwen3-emb on 8091, documentation + instruct_query, truncate "
-        "8192).",
+        "only) and the encoder of the released heads (the base model as qwen3-emb on 8091, "
+        "documentation + instruct_query, truncate 8192), whose heads search and serve take with "
+        "--emb-model qwen3-emb.",
     )
     ft.add_argument("--data", required=True, help="pairs.jsonl (data pull toolret-train, or your own)")
     ft.add_argument("--dev", required=True, help="benchmark-format dir the epoch is picked on; not reported")
-    ft.add_argument(
-        "--eval", action="append", default=[], help="benchmark-format dir to evaluate (repeatable)"
-    )
+    ft.add_argument("--eval", action="append", default=[], help="benchmark-format dir to evaluate")
     ft.add_argument("--out", required=True, help="the heads, a torch .pt")
     ft.add_argument("--npz", default=None, help="also export the packaged fp16 .npz")
     ft.add_argument(
@@ -1498,7 +1498,8 @@ def build_parser() -> argparse.ArgumentParser:
     ex.set_defaults(fn=cmd_heads_export)
     hp = hds.add_parser(
         "pull",
-        help="download the packaged heads into the cache (sha256-checked); search and serve then use them",
+        help="download the packaged heads into the cache (sha256-checked); search and serve use them on "
+        "the backbone they were trained on (--emb-model qwen3-emb or qwen3-emb-fp8)",
     )
     hp.add_argument(
         "--url", default=None, help="a mirror of the file (default: TOOLRANK_HEADS_URL, then the release)"

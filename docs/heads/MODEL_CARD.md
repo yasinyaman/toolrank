@@ -72,12 +72,14 @@ All numbers are w/ inst, and each set is scored under its own protocol
 ## Use
 
 ```bash
-toolrank search --data data/mytools "create an invoice for this customer" --clm-ckpt default
+toolrank search --data data/mytools "create an invoice for this customer" --clm-ckpt default --emb-model qwen3-emb
 toolrank eval --data data/toolret --scorer clm --clm-ckpt path/to/toolrank-heads-qwen3-emb-8b-v0.1.npz \
   --emb-url http://127.0.0.1:8091/v1 --emb-model qwen3-emb --with-inst
 ```
 
-`--clm-ckpt default` reads `TOOLRANK_HEADS`, else `~/.cache/toolrank/heads/`, else downloads the file
+`--emb-model` names the served Qwen3-Embedding-8B. Without it, search and serve would use the default
+backbone (`toolrank-emb-v0.2`), which these heads do not fit: they stop and say so (a backbone named with
+`--emb-model`, and eval, get a warning). `--clm-ckpt default` reads `TOOLRANK_HEADS`, else `~/.cache/toolrank/heads/`, else downloads the file
 and checks its sha256. The file is downloaded from https://huggingface.co/yasinyaman/toolrank-heads-qwen3-emb-8b/resolve/v0.1/toolrank-heads-qwen3-emb-8b-v0.1.npz.
 `TOOLRANK_HEADS_URL` points the download at a mirror; the sha256 is checked all the same.
 
@@ -85,6 +87,6 @@ and checks its sha256. The file is downloaded from https://huggingface.co/yasiny
 
 - English requests and tool texts only.
 - Trained on ToolRet's task mix. The gain is mostly on large ToolRet tasks and small elsewhere
-  (+2 to +3 points out of domain).
+  (out of domain +2.2 LiveMCPBench Recall@5, +1.7 MCP-Zero top-1, +0.2 LiveMCPBench NDCG@10).
 - The ToolRet gate threshold (50 cat-macro) is not reached.
 - The heads only fit Qwen3-Embedding-8B vectors. Another backbone needs its own heads.
