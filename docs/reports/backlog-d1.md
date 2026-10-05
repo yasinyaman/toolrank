@@ -1,12 +1,14 @@
 # Backlog — Dalga 1 raporu (3 Ekim 2026–)
 
-Dalga 1, Faz 1 kapısından (11 Kasım) önce benimsenmeyi artırmak için öne alınan backlog maddeleri:
-60k LoRA kararı (D1.1), küçük backbone'lar (D1.2), GGUF ile GPU'suz yol (D1.3), LangChain 1.x middleware'i
-(D1.4), toolrank skill'i (D1.5) ve 0.3.0 (D1.6). Bu rapor maddeler bittikçe büyüyor.
+Dalga 1, Faz 1 kapısından önce benimsenmeyi artırmak için öne alınan backlog maddeleri: 60k LoRA kararı
+(D1.1), küçük backbone'lar (D1.2), GGUF ile GPU'suz yol (D1.3), LangChain 1.x middleware'i (D1.4), toolrank
+skill'i (D1.5), 0.3.0 (D1.6), Jev koltuğu ve öğrenme düzeltmeleri (D1.7–D1.9, D1.12), eşli testler (D1.10)
+ve Strands rehberi (D1.11). Bu rapor maddeler bittikçe büyüyor.
 
 ## Sonuç (tek cümle)
 
-D1.3, D1.4 ve D1.5 bitti; D1.2'nin dizüstü kısmı bitti, MCP-Zero ve dev setleri GB10'u bekliyor, D1.1 de.
+D1.3, D1.4, D1.5, D1.7–D1.9, D1.11, D1.12 ve D1.10'un kodu bitti; D1.2'nin dizüstü kısmı bitti, MCP-Zero ve
+dev setleri GB10'u bekliyor, D1.1 de (60k koşusu yarıda kaldı, aşağıda).
 Varsayılan backbone'un Q4_K_M GGUF'u, 4 GB'lık bir dizüstü GPU'sunda Ollama'yla vLLM'deki bf16 kadar iyi: ToolRet
 NDCG@10 59,50'ye karşı 58,90, LiveMCPBench 55,75'e karşı 55,74. Bu dizüstünde yeni bir arama 0,6–0,7 sn sürüyor;
 Qwen3-Embedding 0.6B ve 4B 2–14 kat hızlı ama 6–11 puan geride. `ToolrankToolSelector`, LangChain 1.x'in
@@ -195,6 +197,34 @@ veriyor. Görevlerden biri senkron, öbürü asenkron koşuldu.
 - Geçersiz saat diliminde tool'un hatası ve sunucunun şema ipucu çıktıya geldi (çıkış 1); `--search-id`
   verilmediği için günlükte `link: client`.
 
+## D1.7–D1.12 — Jev koltuğu, öğrenme ve eşli testler (kod)
+
+Ölçüm değil kod maddeleri; davranışı testler sabitliyor, sayılar GB10'daki koşularla gelecek.
+
+- **D1.12, `learn` varsayılan (v0.2) backbone'da.** Uyan head yoksa başlangıç kimlik (identity) head'leri:
+  epoch 0 backbone'un kendi skoru. Kullanım günlüğü aramayı sunan modeli yazıyor, `learn` yalnız o modelin
+  isteklerini kullanıyor (diğerleri sayılıp atlanıyor). Başlangıç bir sunucunun sunacağı head: önce
+  `DATA/heads/current.npz` (`--tenant` ile kiracınınki), sonra uyan paketli head, yoksa kimlik. `/v1/rank`
+  da aramanın head'leriyle sıralıyor.
+- **D1.7, Jev koltuğu sağlayıcıya göre.** `TYPESAFE_API_KEY` yalnız `api.typesafe.ai`'ye gidiyor; başka bir
+  `/systemone` ucu anahtarsız soruluyor, cevapları kendi `jev-<host>.sqlite` dosyasında (URL anahtarda).
+  TypeSafe'in önbellek anahtarları değişmedi.
+- **D1.8, Jev'in cevapladığı aramalar** ne `learn`'e, ne `ab` kararına, ne birlikte-kullanım tablosuna giriyor
+  (MCA 2.3(b)); her biri atladığını sayıyor.
+- **D1.9, `--replay`** dosyanın tamamından seed'li bir örnek (reservoir), yalnız pozitifler, `--dev`
+  isteklerine dokunan çiftler atılmış.
+- **D1.10, eşli testler.** `toolrank eval --runs-out` sorgu başına satır yazıyor, `toolrank compare --paired`
+  iki koşuyu sorgu sorgu sınıyor (P@1 ve hit@5 için kesin işaret testi, NDCG@10 için eşli permütasyon testi).
+  `finetune`, `learn` ve `scripts/lora_train.py` veri seed'ini eğitim seed'inden ayırıyor (`--data-seed`).
+  D1.1–D1.3 satırlarının p değerleri GB10 koşularını bekliyor.
+- **D1.11:** framework rehberinde Strands Agents bölümü (MCP üzerinden, adapter'sız).
+
+5 Ekim'deki kod incelemesinin ölçümleri bozabilecek bulguları da bu dalgada kapandı:
+- çalışan bir sunucu, aynı adla yeniden yazılan head dosyasını görmüyordu (önbellekteki hash yola göreydi);
+- `scripts/learn_sim.sh` head'siz (`HEADS=none`) koşuda öğrenilen head'leri hiç puanlamıyordu;
+- iki backbone da 4096 boyutlu olduğu için bir backbone'un head'leri sessizce ötekine takılabiliyordu;
+- ikinci aşamalı aramalar günlüğe `model: null` yazıyor, `learn`'ün model filtresinden geçiyordu.
+
 ## Komutlar
 
 ```bash
@@ -245,8 +275,11 @@ $UV run python scripts/latency.py --data data/livemcpbench_server --emb-url $EMB
 
 ## Sapmalar ve açıklamalar
 
-- **D1.1 ertelendi.** GB10'a 3 Ekim'de ne SSH ne 8091 üzerinden ulaşılabiliyor (zaman aşımı). 60k koşusunun
-  durumu bilinmiyor; erişim gelince ilk iş `data/logs/lora_60k.log`. Karar kuralı aynı kalıyor.
+- **D1.1 ertelendi.** GB10'a 3 Ekim'de ne SSH ne 8091 üzerinden ulaşılabiliyordu (zaman aşımı); 5 Ekim
+  akşamı döndü. 60k koşusu makine düştüğünde, 3 Ekim 02:11'de, 1.875 adımın 690'ında durmuş; 300. ve 600.
+  adımın adaptörleri var, merge ve değerlendirme zinciri hiç çalışmadı. 600. adım yaklaşık 19.200 çift
+  görmüş, 20k koşusunun 625 adımı kadar: "daha çok veri" sorusunu cevaplamıyor. Koşu kaldığı yerden devam
+  edemiyor; ya baştan (yaklaşık 25 saat) ya da 0.3.0 `v0.2` ile.
 - **GPU'lu maddeler.** D1.2 ve D1.3 GB10 yerine 4 GB'lık bir dizüstü GPU'sunda (RTX 3050 Ti Laptop, 14 GB RAM)
   yapıldı. D1.3'ün hedef donanımı zaten bu. ToolRet üç modelle koşuldu; MCP-Zero ve dev setleri dizüstünde yok,
   sorguları GB10'da üretildi. İkisi de GB10'u bekliyor.

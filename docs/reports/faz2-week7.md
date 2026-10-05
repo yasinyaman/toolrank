@@ -193,8 +193,8 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
   puan); NDCG@10'da önde (55,74'e karşı 53,95). Hiç görülmemiş MCP setlerindeki asıl kazanç ikinci
   aşamadan geliyor (LoRA + Qwen3-Reranker: 61,24 NDCG@10, `docs/reports/faz2-jev.md`).
 - **MCP-Zero seçim seti:** LoRA'nın kontrol noktası MCP-Zero üzerinde seçildi; o sütun bağımsız değil
-  (model kartında ve README notunda yazılı). backlog'daki "v0.2'den önce ayrı dev seti" maddesi bu
-  ağırlıklar için de geçerli; seçimin etkisi küçük (üç kontrol noktası, 600. ve 625. adım neredeyse aynı).
+  (model kartında ve README notunda yazılı). Ayrı bir seçim seti bu ağırlıklar için de gerekiyor;
+  seçimin etkisi küçük (üç kontrol noktası, 600. ve 625. adım neredeyse aynı).
 - **Adlar:** `yasinyaman/toolrank-emb-8b`, `v0.2`, `toolrank-emb-v0.2` — yayın bunlarla çıktı. Hepsi
   `build.py`'de tek yerde (giriş betiği, compose ve chart aynı değerleri taşıyor; bir test betiği
   `build`'e bağlıyor).
