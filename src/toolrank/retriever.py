@@ -473,7 +473,7 @@ class Retriever:
         else:
             shown = RankedList(fused.query_id, fused.tool_ids[:top], fused.scores[:top])
         took = (time.perf_counter() - t0) * 1000.0
-        fmt = getattr(getattr(st.scorer, "semantic", st.scorer), "query_format", None)
+        fmt = getattr(innermost(st.scorer), "query_format", None)
         emb_key = None
         if self.cache_key is not None and fmt is not None and not st.lexical:
             emb_key = self.cache_key(fmt(q))
@@ -487,7 +487,7 @@ class Retriever:
             for tool, owner in partners(shown.tool_ids, table, self.co_use_extra, reach):
                 hits.append(Hit(st.by_id[tool], known.get(tool, 0.0), used_with=owner))
                 added += 1
-        encoder = getattr(getattr(st.scorer, "semantic", st.scorer), "encoder", None)
+        encoder = getattr(innermost(st.scorer), "encoder", None)  # under a hybrid or a second stage too
         return SearchResult(
             query=query,
             instruction=inst,

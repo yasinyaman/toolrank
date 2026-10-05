@@ -596,6 +596,27 @@ def test_mine_skips_the_requests_another_backbone_answered():
     assert [p.state for p in pairs] == ["A", "B", "C"]
 
 
+def test_mine_tells_the_backbone_of_old_searches_by_their_scorer_name():
+    """Logs from before the model field (0.1.x, all of qwen3-emb's) and second-stage searches logged
+    with model null still name the first stage's encoder in the scorer: emb/<served name>/."""
+    names = {
+        "s1": "clm[default]/emb/qwen3-emb/documentation/instruct_query",
+        "s2": "dense/emb/toolrank-emb-v0.2/documentation/instruct_query",
+        "s3": "rerank[cross[qwen3-reranker,qwen3]/documentation<3000,d20]/dense/emb/qwen3-emb/documentation/x",
+        "s4": "rerank[dense/emb/qwen3-emb/documentation/plain,d20]/hybrid[rrf60,d100]/dense/emb/"
+        "toolrank-emb-v0.2/documentation/instruct_query+bm25/documentation/plain",
+        "s5": "bm25/documentation/plain",  # no encoder named: nothing to tell
+    }
+    events = []
+    for sid, name in names.items():
+        events += [
+            {**_search(sid, sid.upper(), ["t1"], 1, "2026-09-30T10:00:00"), "scorer": name},
+            _call("t1", sid),
+        ]
+    pairs, counts = mine(events, model="toolrank-emb-v0.2")
+    assert [p.state for p in pairs] == ["S2", "S4", "S5"] and counts["searches_of_other_models"] == 2
+
+
 def test_mine_and_judge_skip_searches_a_jev_second_stage_answered():
     """MCA 2.3(b): an order TypeSafe's model gave trains and promotes nothing of toolrank's."""
     from collections import Counter

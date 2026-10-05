@@ -93,6 +93,28 @@ class LogPair:
     tenants: tuple[str, ...]
 
 
+_WRAPPERS = ("rerank[", "jev[", "hybrid[")  # names of scorers around a first stage: <kind>[...]/<first stage>
+
+
+def _served_by_other(e: dict[str, Any], model: str) -> bool:
+    """Whether a backbone other than ``model`` served this search: its ``model`` field, else (logs
+    before the field, or a second stage's before it was filled) the first stage's ``emb/<model>/``
+    in the scorer's name; a name without one (keywords) says nothing."""
+    if e.get("model") is not None:
+        return bool(e["model"] != model)
+    name = str(e.get("scorer") or "")
+    while name.startswith(_WRAPPERS):  # skip the bracket, with the brackets inside it
+        depth, end = 0, len(name)
+        for n, ch in enumerate(name):
+            depth += (ch == "[") - (ch == "]")
+            if ch == "]" and depth == 0:
+                end = n
+                break
+        name = name[end + 2 :]
+    at = name.find("emb/")
+    return at >= 0 and not name[at + 4 :].startswith(model + "/")
+
+
 def mine(
     events: Iterable[dict[str, Any]],
     *,
@@ -105,7 +127,7 @@ def mine(
     what was used and what was passed over (``since``: an ISO date or timestamp, searches from it
     on; ``tenant``: one API key's searches; ``model``: only searches this backbone served — a log
     can hold requests another model answered, and their vectors do not belong with its tools).
-    Searches logged before the ``model`` field existed carry none and are kept."""
+    Searches logged without the ``model`` field are told by their scorer's name."""
     counts: Counter[str] = Counter()
     searches: dict[str, dict[str, Any]] = {}
     calls: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -119,7 +141,7 @@ def mine(
                 counts["searches_before_since"] += 1
             elif tenant and e.get("tenant") != tenant:
                 counts["searches_of_other_tenants"] += 1
-            elif model and e.get("model") is not None and e.get("model") != model:
+            elif model and _served_by_other(e, model):
                 counts["searches_of_other_models"] += 1
             elif not may_learn_from(e.get("scorer")):
                 counts["searches_with_jev"] += 1  # the provider's terms keep them out of training

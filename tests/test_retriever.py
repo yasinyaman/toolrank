@@ -317,3 +317,26 @@ def test_a_broken_heads_file_or_an_explicit_checkpoint_leaves_the_base_in_place(
     )
     plain = Retriever(_dir(tmp_path / "x"), _make)  # no heads dir: nothing to pick
     assert plain.search("tool 3").arm == "base" and "heads" not in plain.status()
+
+
+def test_a_second_stage_search_logs_the_first_stages_model(tmp_path):
+    """learn keeps only the served backbone's requests: a search behind a second stage (and a hybrid)
+    must still name the model that embedded the request, and keep its embedding-cache key."""
+    from toolrank.adapters.rerank import ScorerReranker
+
+    class _First(_HashEncoder):
+        model = "first"
+
+    class _Second(_HashEncoder):
+        model = "second"
+
+    def make():
+        first = HybridScorer(
+            DenseScorer(_First(), "name_desc", "instruct_query"), BM25Scorer("name_desc", "plain")
+        )
+        return ScorerReranker(first, DenseScorer(_Second(), "name_desc", "instruct_query"), depth=5)
+
+    r = Retriever(_dir(tmp_path), make, fixed_k=3, cache_key=lambda t: "k:" + t)
+    res = r.search("tool 3")
+    assert res.scorer.startswith("rerank[") and res.model == "first" and res.emb_key.startswith("k:")
+    assert r.status()["sync"]["embedded"] == 12  # the first stage's index sync, under both wrappers
