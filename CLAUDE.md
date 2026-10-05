@@ -2,13 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**toolrank** — tool retrieval for LLM agents with hundreds of tools. Phase 0 (Oct 2026) is a
-benchmark harness whose only job is a fair number per scorer (BM25, Qwen3-Embedding-8B, CLM
-heads) on ToolRet, then MCP-Zero and LiveMCPBench, to decide the core model. Decided on
-29 Sep 2026 (`docs/reports/faz0-gate.md`): the gate did not hold; the core adapter became
-Qwen3-Embedding-8B + our own skip heads, and since 0.2.0 the default is the toolrank backbone
-(Qwen3-Embedding-8B + a LoRA on ToolRet pairs), served headless as `toolrank-emb-v0.2` on port
-8091 — the v0.1 heads cost it 1–2 points. CLM stays as a benchmark adapter. Plans and gates live in `docs/plan/` (Turkish): a separate,
+**toolrank** — tool retrieval for LLM agents with hundreds of tools. It began (Phase 0, Sep 2026) as
+a benchmark harness whose job was a fair number per scorer (BM25, Qwen3-Embedding-8B, CLM heads) on
+ToolRet, then MCP-Zero and LiveMCPBench, to decide the core model. Decided on 29 Sep 2026
+(`docs/reports/faz0-gate.md`): the gate did not hold; the core adapter became Qwen3-Embedding-8B +
+our own skip heads, and since 0.2.0 the default is the toolrank backbone (Qwen3-Embedding-8B + a
+LoRA on ToolRet pairs), served headless as `toolrank-emb-v0.2` — the v0.1 heads cost it 0.2–3.9
+points. Search and serve expect it on port 8091 (the images serve it there); on the GB10, 8091 is
+the base model as `qwen3-emb` and the LoRA backbone is the `lora` profile on 8097. CLM stays as a
+benchmark adapter. Plans and gates live in `docs/plan/` (Turkish): a separate,
 private git repository checked out in place and ignored here, so public clones do not have it; never
 copy its content into tracked files. The product/market plan lives outside the repo.
 
@@ -36,7 +38,10 @@ copy its content into tracked files. The product/market plan lives outside the r
 - Heavy dependencies stay optional and are imported inside functions: `torch` → `[clm]`,
   `datasets` → `[data]`, `PyStemmer` → `[stem]`, `mcp` → `[mcp]`, `pyyaml` → `[openapi]`,
   `faiss-cpu` → `[faiss]`, `psycopg` + `pgvector` → `[pgvector]`, `langchain-core` → `[langgraph]`,
-  `langchain` → `[langchain]`, `llama-index-core` → `[llamaindex]` (all but torch and datasets also in the `dev` dependency group, which `uv sync` installs; litellm is no
+  `langchain` → `[langchain]`, `llama-index-core` → `[llamaindex]`, the `anthropic` / `openai` SDKs →
+  `[anthropic]` / `[openai]` (the examples; the integrations never import them), and torch +
+  transformers + peft → `[lora]` (`scripts/lora_train.py` only). All but torch, transformers, peft and
+  datasets are also in the `dev` dependency group, which `uv sync` installs; litellm is no
   extra and stays out of the venv, since it pins `openai<3`). `[mcp]` also brings the serve stack (starlette, uvicorn, httpx2, anyio);
   `test_ingest_mcp.py` checks that importing `toolrank.cli` and the serve adapters loads none of them. Packaged heads run
   in numpy (`adapters/heads_np.py`): torch is only for training and `toolrank heads export`. The base install must stay numpy + bm25s. BM25 stems only when PyStemmer is importable (otherwise the run name ends in
@@ -115,7 +120,7 @@ tmux new -d -s matrix 'bash scripts/run_matrix.sh 2>&1 | tee -a data/logs/matrix
 toolrank data pull toolret-train                               # -> data/toolret_train/pairs.jsonl (3.3 GB)
 toolrank finetune --data data/toolret_train/pairs.jsonl --embed-only --dev data/mcp_zero_server   # fill the cache, no torch
 toolrank finetune --data data/toolret_train/pairs.jsonl --n-train 60000 --dev data/mcp_zero_server \
-  --eval data/toolret --eval data/livemcpbench_server --out data/heads/<name>.pt [--npz dist/heads/<name>.npz] [--init-ckpt default]
+  --eval data/toolret --eval data/livemcpbench_server --out data/heads/<name>.pt [--npz dist/heads/<name>.npz] [--init-ckpt default] [--data-seed N]
 # week-4 held-out sets: LiveMCPBench from GitHub; MCP-Zero ships no queries, a chat model writes them
 toolrank data pull livemcpbench                                # -> data/livemcpbench (525 tools, 94 queries)
 docker compose -f deploy/spark/compose.yaml --profile gen up -d qwen3-8b-chat   # port 8093; stop it afterwards
@@ -126,6 +131,8 @@ toolrank data gen-queries --data data/devcat --out data/dev_w3 --n 1000 --exclud
 toolrank data gen-queries --data data/devcat --out data/dev_w3_multi2 --n 800 --tools-per-request 2   # tasks: all tools gold
 
 toolrank compare results/toolret_*.json                        # on the Mac: markdown table for the report
+toolrank eval ... --runs-out results/a_runs.jsonl              # one row per query (top-20 ids, P@1, hit@5, NDCG@10)
+toolrank compare --paired results/a_runs.jsonl results/b_runs.jsonl   # sign test (P@1, hit@5), permutation test (NDCG@10)
 PYTHONUNBUFFERED=1 nohup bash scripts/readme_results.sh > data/logs/readme_results.log 2>&1 &   # GB10: the README's runs
 uv run python scripts/readme_table.py --write                  # Mac, after scp 'gb10:toolrank/results/readme_*.json' docs/results/
 
@@ -137,12 +144,14 @@ toolrank ingest drop stripe --out data/mytools
 # + --emb-url http://127.0.0.1:8091/v1 (the URL serve will use): embed new/changed tools into DIR/cache now
 
 # Faz 1 week 2: search an ingest dir (defaults: toolrank-emb-v0.2 on 8091, no heads,
-# adaptive K margin 0.2 / max 10, persistent index in DIR/index; --json for machines)
+# adaptive K margin 0.2 / max 10, persistent index in DIR/index; --json for machines;
+# against the GB10 name what it serves: --emb-model qwen3-emb on 8091, or 8097's TOOLRANK_LORA_NAME)
 # (the v0.1 heads sit on qwen3-emb, so a run with them names the base model:)
 TOOLRANK_HEADS=dist/heads/toolrank-heads-qwen3-emb-8b-v0.1.npz toolrank search --emb-model qwen3-emb --data data/mytools "refund this payment"
 toolrank eval --data data/toolret --scorer clm ... --index faiss|pgvector --hybrid --cut-margin 0.2 --instruction "..."
 toolrank eval --data data/toolret --scorer clm ... --rerank jev --rerank-depth 100   # TypeSafe AI's Jev over the top K
-# (key in TYPESAFE_API_KEY, answers cached in .cache/toolrank/jev.sqlite); --scorer jev = Jev alone, chunked, MCP sets only.
+# (key in TYPESAFE_API_KEY, sent to api.typesafe.ai only; answers cached in .cache/toolrank/jev.sqlite, another
+# --jev-url /systemone endpoint is asked without a key into jev-<host>.sqlite); --scorer jev = Jev alone, chunked, MCP sets only.
 # GB10, key exported in the shell: LIMIT=50 TAG=jevsmoke bash scripts/jev_compare.sh, then the full run under nohup
 toolrank eval ... --rerank clm|dense|cross --rerank-depth 20 --rerank-emb-url ... --rerank-tool-format documentation \
   --rerank-max-chars 3000 [--rerank-template qwen3|bge]   # a local second scorer over the shortlist (scripts/clm_rerank.sh, cross_rerank.sh)
@@ -232,7 +241,8 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   into `ssh gb10 'bash -s'` that also has a heredoc: zsh (MULTIOS) feeds both to stdin and the
   piped bytes run as shell commands. Sync with the one-liner above, run scripts in a separate call.
 - vLLM pooling servers: port 8090 = `Qwen/Qwen3-8B` (`--runner pooling --max-model-len 2048`,
-  last-token pooling; this is the CLM backbone), port 8091 = `Qwen/Qwen3-Embedding-8B`. The GB10
+  last-token pooling; this is the CLM backbone), port 8091 = `Qwen/Qwen3-Embedding-8B` as `qwen3-emb` (not
+  toolrank's default `toolrank-emb-v0.2`: search and serve against it need `--emb-model qwen3-emb`). The GB10
   has no host vLLM: they run from the NGC image via `deploy/spark/compose.yaml` (the systemd
   units are for hosts with one). `--emb-model` is the served name (`qwen3-8b`, `qwen3-emb`),
   not the HF repo id. Keep `--no-enable-chunked-prefill --max-num-batched-tokens 8192`: on vLLM
@@ -369,18 +379,25 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   stay complete. `--scorer jev` is Jev alone: chunks of `--jev-chunk` tools, the chunk winners
   re-ranked once (feasible for the MCP sets, not ToolRet's 44k). State = `{"request"}`, the
   benchmark instruction leads the question, option text = `--jev-tool-format` cut to
-  `--jev-max-chars` (32k tokens for state + longest question). Key `TYPESAFE_API_KEY` only, pinned
+  `--jev-max-chars` (32k tokens for state + longest question). `TYPESAFE_API_KEY` goes to `api.typesafe.ai`
+  only (`jev.is_typesafe`); any other `--jev-url` (a self-hosted `/systemone`) is asked without a key and
+  cached in its own `jev-<host>.sqlite` with the URL in the key (the cross-encoder's cache keys the URL too).
+  Pinned
   `jev-1.13.0` (aliases move), answers cached by request body so a rerun ranks the same for free;
   the report's `config["jev"]` has calls, cached hits, billed tokens and per-call p50. MCA 2.3(b)
   forbids training on its output or building a competing product with it: eval and an optional
-  adapter only, never a training signal. The same seat for local models: `--rerank dense|clm|cross`
+  adapter only, never a training signal (`usage.may_learn_from`: learn, ab and co-use skip and count
+  Jev-served searches). The same seat for local models: `--rerank dense|clm|cross`
   (`adapters/rerank.py`, the second scorer's own `--rerank-*` flags, `--rerank-max-chars` = Jev's
   text cut) and `adapters/cross_encoder.py` (vLLM `/score`; the request is in every pair, so it is
   cut to `--rerank-query-chars` and the rerankers serve an 8192-token window). CLM in that seat
   breaks the list (ToolRet 54 → 15); the cross-encoders are the real local candidates.
 - **Packaged heads**: `NumpyHeads` reads `.npz` checkpoints (`allow_pickle=False`) and runs
   `make_head`'s forward in numpy; the `.npz` `cfg` carries serving defaults (backbone, formats,
-  truncate, instruction) that `build.py` applies. `--clm-ckpt` takes `.pt`, `.npz`, `default` or (search / serve) `none`, the backbone alone
+  truncate, instruction) that `build.py` applies; `build.heads_mismatch` compares the cfg's backbone with
+  the served name's (same width, so nothing else notices): search and serve stop when `--emb-model` was
+  defaulted, warn when it was named, eval warns. `--clm-ckpt` takes `.pt`, `.npz`, `default` or (search / serve)
+  `none`, which drops the packaged heads only (a learned `DATA/heads/current.npz` and the candidate still serve)
   (`TOOLRANK_HEADS`, `~/.cache/toolrank/heads/`, else a sha256-checked download from `HEADS_URL`). The artifact and its model card: `dist/heads/` (gitignored),
   `docs/heads/MODEL_CARD.md` (training data has no license; the maintainers accepted that).
 - **Serving** (Faz 1 week 3, `toolrank serve`): `retriever.Retriever` holds one immutable state
@@ -454,8 +471,10 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   cached `COPY --from=heads` across builds with and without it). `Dockerfile.vllm` (`toolrank-vllm`,
   22.6 GB, not published: it does not fit two platforms on a free runner; compose.bundle.yaml builds
   it, and without a heads context the build runs `toolrank heads pull`): the same in a
-  venv of its own on `vllm/vllm-openai:v0.30.0`; `entrypoint-vllm.sh` starts vLLM on loopback (FP8 as
-  `qwen3-emb-fp8` by default, bf16 as `qwen3-emb`: the cache is keyed by the name, not the dtype),
+  venv of its own on `vllm/vllm-openai:v0.30.0`; `entrypoint-vllm.sh` starts vLLM on loopback
+  (`yasinyaman/toolrank-emb-8b@v0.2` in FP8 as `toolrank-emb-v0.2-fp8` by default, bf16 as
+  `toolrank-emb-v0.2`; `TOOLRANK_BACKBONE=Qwen/Qwen3-Embedding-8B` gives `qwen3-emb[-fp8]`: the cache is keyed
+  by the name, not the dtype),
   waits, runs toolrank, and exits when either does. vLLM stays root; `toolrank` on that image's PATH is
   `as-toolrank.sh` around the real command, so toolrank (and the npx/uvx MCP servers it starts) never
   runs as root, from the entrypoint or from `docker exec`: it runs as the owner of the directory the
@@ -478,13 +497,19 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `tool_error` → weak positive unless `--strict`, shown-but-never-called → hard negative; other outcomes say
   nothing; the same request merges), `learn.state_vectors` finds each request's backbone vector by digesting
   the embedding cache's keys with `DATA/usage/.key` and matching `emb_hmac`, and the tools' vectors come from
-  `tools.jsonl` through the same cache. Training is `finetune.train_heads` from the served heads (lr 1e-5,
-  5 shown negatives, `neg_filter` 0.95); the newest 20% of requests are the dev set (`log.Recall@5`: the called
+  `tools.jsonl` through the same cache. `mine` keeps only the served model's searches (the log's `model`,
+  else the first stage's `emb/<model>/` in the scorer name; others counted as `searches_of_other_models`) and
+  no Jev-served ones (`usage.may_learn_from`). Training is `finetune.train_heads` (lr 1e-5,
+  5 shown negatives, `neg_filter` 0.95) from `resolve_init("default")`: what a server would serve —
+  `DATA/heads/current.npz` (the tenant's own with `--tenant`) if its cfg names this backbone, else the
+  packaged heads where they fit, else fresh skip heads (identity: epoch 0 is the backbone alone, the v0.2
+  case); the newest 20% of requests are the dev set (`log.Recall@5`: the called
   tool in the catalogue's top 5), an optional `--dev` benchmark set is a guard, and the heads are written
   (`DATA/heads/candidate.npz`, `tenants/<name>/` with `--tenant`) only when epoch > 0 beats the start on the
   log without losing more than `--max-drop` NDCG@10 points on the benchmark; `--dry-run` mines without torch;
-  `--replay pairs.jsonl` mixes general pairs into the batches against forgetting (selection stays on the
-  log). `serve --mask-pii` (with `--log-text`) tags e-mail, phone, card and IBAN numbers before they are written.
+  `--replay pairs.jsonl` mixes general pairs into the batches against forgetting: a seeded reservoir sample of
+  the whole file (`--replay-n`, 1000; `--data-seed`), positives only, requests a `--dev` set asks about dropped
+  (selection stays on the log; not in the nightly command until learn_sim measures it on v0.2). `serve --mask-pii` (with `--log-text`) tags e-mail, phone, card and IBAN numbers before they are written.
 - **Heads that change while serving** (Faz 2 week 3): `Retriever.pick` answers a request with a variant, a
   state built from a heads file under `DATA/heads` by `build_retriever`'s `variant` factory (same encoder
   flags, index snapshot under `index/variants/<name>`): `current.npz` replaces the flags' heads (not when
@@ -543,21 +568,24 @@ src/toolrank/ingest/              text.py (the indexed text), mcp.py (server con
 src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py (pull + task→category map); toolret_train.py;
                                   livemcpbench.py; mcp_zero.py (download + LLM-written queries); synthetic.py;
                                   genqueries.py (data gen-queries: sample tools over sources, LLM-written requests in styles)
-src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_eval, summarize, format_table, save_report);
+src/toolrank/eval/metrics.py      trec_eval-compatible metrics; runner.py (run_eval, summarize, format_table, save_report, --runs-out rows);
+                                  paired.py (compare --paired: exact sign test, paired permutation test);
                                   table.py (the README's results table: render, splice, the protocol checks)
 src/toolrank/finetune.py          toolrank finetune: Job/run, EvalSet (dev curves), train_heads(select=), load_checkpoint
 src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids), state_vectors (emb_hmac -> cache), split, run;
                                   toolrank ab: judge, decide, apply (candidate -> current | rejected), heads_home
 src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint; BACKBONES
 src/toolrank/cut.py               AdaptiveK (+ defaults), cutter
-src/toolrank/cli.py               eval | compare | data (pull, server-names, synth) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | ab | heads (export, pull) | formats
-docs/plan/                        private repo (ignored here): faz-0..3.md, backlog.md, acik-cekirdek.md, claude-code-handoff.md, lansman-kiti.md
+src/toolrank/cli.py               eval | compare | data (pull, server-names, synth, gen-queries) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | ab | heads (export, pull) | formats
+docs/plan/                        private repo (ignored here): README.md ("Şu an"), faz-0..3.md, backlog.md, claude-code-handoff.md,
+                                  and the decision, launch and review notes
 docs/reports/                     weekly numbers; TEMPLATE.md
 docs/results.toml, docs/results/  the README's results table: its rows and the curated eval reports behind them
 docs/heads/MODEL_CARD.md          the packaged heads' card (sha256, serving, data license, numbers)
 docs/backbone/MODEL_CARD.md       the default backbone's card (LoRA recipe, selection set, serving, data license, numbers; publish_backbone.py stages it)
 deploy/spark/                     vLLM servers: systemd units, compose.yaml (NGC image, GB10; fp8 (8092 CLM, 8094 embedding), gen and pg profiles;
-                                  rerank: Qwen3-Reranker-8B 8095 + bge-reranker-v2-gemma 8096 as vLLM score models; lora: the merged LoRA backbone 8097)
+                                  rerank: Qwen3-Reranker-8B 8095 + bge-reranker-v2-gemma 8096 as vLLM score models; lora: the merged LoRA backbone 8097,
+                                  served as $TOOLRANK_LORA_NAME; lora-fp8: the same in FP8 on 8098)
 deploy/helm/toolrank/             the Helm chart (embedding.mode vllm | external | bundled, profile fp8 | bf16; one replica, Recreate)
 deploy/docker/                    Dockerfile (toolrank), Dockerfile.vllm + entrypoint-vllm.sh + as-toolrank.sh (toolrank-vllm), compose.yaml,
                                   compose.bundle.yaml, toolrank.json, .env.example
@@ -580,7 +608,7 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   publish_backbone.py (the LoRA-merged backbone to the Hub, tagged; dry run by default);
                                   gguf_matrix.sh (GGUF builds and small backbones through Ollama, the README's eval flags)
 examples/                         anthropic_tool_reference.py, openai_client_tool_search.py, litellm/config.yaml;
-                                  skills/toolrank/ (SKILL.md + stdlib search.py / call.py over REST; tests/test_skill.py runs them
+                                  skills/toolrank/ (SKILL.md + stdlib search.py / call.py / _toolrank.py over REST; tests/test_skill.py runs them
                                   as processes against the served app behind a real HTTP server)
 ```
 
@@ -731,7 +759,7 @@ examples/                         anthropic_tool_reference.py, openai_client_too
 
 ## Where we are
 
-`docs/plan/README.md` → "Durum" (maintainers' checkout). Faz 2's code boxes are ticked (weeks 1–6, reports
-`faz2-week1.md` … `faz2-week6.md`, `faz2-jev.md`); what is left is the pilots (weeks 7–8, not code), the gate
-report, Faz 1's launch posts and leaderboard submission, and `docs/plan/backlog.md`. The session-by-session
-plan with paste-ready prompts is in `docs/plan/claude-code-handoff.md`.
+`docs/plan/README.md` → "Şu an" (maintainers' checkout). 0.2.0 is out (2 Oct 2026); backlog wave 1 aims at
+0.3.0: D1.3–D1.5, D1.7–D1.12 and the 5 Oct review's fixes (`docs/plan/yapilacaklar-5-eki.md`) are done, D1.1 (the 60k LoRA run stopped at step 690 on 3 Oct) and the GPU
+parts of D1.2/D1.3 wait for the GB10, the GGUF upload for a public step. Faz 2's pilots and gate report remain,
+and the review's multi-tenant findings are a wave of their own. Session prompts: `docs/plan/claude-code-handoff.md`.
