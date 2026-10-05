@@ -1,7 +1,8 @@
-"""The tables of docs/reports/faz2-jev.md, from the result files: what a second stage (Jev, CLM,
+"""The tables of docs/reports/faz2-rerank.md, from the result files: what a second stage (CLM,
 cross-encoders) and a LoRA-trained backbone do to the packaged heads' rankings on ToolRet,
 LiveMCPBench and MCP-Zero. Base rows come from docs/results/ (the README's), the rest from
-results/ (fetched from the GB10: jev_*, clm_*, clmj_*, cross_*, crosslora_*, lora_*).
+results/ (fetched from the GB10: clm_*, clmj_*, cross_*, crosslora_*, lora_*). A hosted second
+stage was measured too; its provider's terms keep its results out of the published report.
 
     uv run python scripts/rerank_report.py            # print the summary and the tables
     uv run python scripts/rerank_report.py --write    # splice them into the report, between the markers
@@ -19,26 +20,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REPORT = ROOT / "docs" / "reports" / "faz2-jev.md"
-# no fee column: Jev's price is the provider's confidential information (MCA §14.1); tokens stay
+REPORT = ROOT / "docs" / "reports" / "faz2-rerank.md"
 SETS = [("toolret", "ToolRet"), ("livemcpbench_server", "LiveMCPBench"), ("mcp_zero_server", "MCP-Zero")]
 ROWS = [
     ("BM25 (w/ inst)", "readme_{s}_bm25_inst"),
-    ("BM25 → Jev, ilk 30", "jev_{s}_bm25_jev30"),
     ("Qwen3-Embedding-8B", "readme_{s}_qwen3emb"),
     ("heads", "readme_{s}_heads"),
-    ("heads → Jev, ilk 100", "jev_{s}_heads_jev100"),
-    ("heads → Jev, ilk 20, documentation", "jev_{s}_heads_jev20doc"),
-    ("Jev tek başına", "jev_{s}_jev"),
-    ("Qwen3-Emb → Jev, ilk 100", "jev_{s}_qwen3emb_jev100"),
-    ("Qwen3-Emb → Jev, ilk 20, documentation", "jev_{s}_qwen3emb_jev20doc"),
     ("heads → CLM-8B, ilk 100", "clm_{s}_heads_clm100"),
     ("heads → CLM-8B, ilk 20", "clm_{s}_heads_clm20"),
     ("heads → CLM fine-tune, ilk 100", "clm_{s}_heads_clmft100"),
     ("BM25 → CLM-8B, ilk 30", "clm_{s}_bm25_clm30"),
-    ("heads → CLM-8B, Jev'in metni, ilk 100", "clmj_{s}_heads_clm100"),
-    ("heads → CLM-8B, Jev'in metni, ilk 20, documentation", "clmj_{s}_heads_clm20doc"),
-    ("BM25 → CLM-8B, Jev'in metni, ilk 30", "clmj_{s}_bm25_clm30"),
+    ("heads → CLM-8B, kesilmiş metin, ilk 100", "clmj_{s}_heads_clm100"),
+    ("heads → CLM-8B, kesilmiş metin, ilk 20, documentation", "clmj_{s}_heads_clm20doc"),
+    ("BM25 → CLM-8B, kesilmiş metin, ilk 30", "clmj_{s}_bm25_clm30"),
     ("heads → Qwen3-Reranker-8B, ilk 20, documentation", "cross_{s}_qwen3_heads_x20doc"),
     ("heads → Qwen3-Reranker-8B, ilk 100", "cross_{s}_qwen3_heads_x100"),
     ("BM25 → Qwen3-Reranker-8B, ilk 30", "cross_{s}_qwen3_bm25_x30"),
@@ -55,17 +49,15 @@ ROWS = [
 SUMMARY = [
     ("heads (Qwen3-Embedding-8B + v0.1 head'leri), tek aşama", "readme_{s}_heads", "~1 ms, yerel"),
     ("Qwen3-Embedding-8B + LoRA, tek aşama", "lora_{s}_lora", "~1 ms, yerel; MCP-Zero seçim seti"),
-    ("heads → Jev, ilk 20 + dokümantasyon", "jev_{s}_heads_jev20doc", "+0.3 s, dış API"),
-    ("heads → Jev, ilk 100", "jev_{s}_heads_jev100", "+0.3 s, dış API"),
     (
         "heads → Qwen3-Reranker-8B, ilk 20 + dokümantasyon",
         "cross_{s}_qwen3_heads_x20doc",
-        "+0.3–0.6 s, yerel, +16 GB",
+        "+1.7–2.5 s (yük altında), yerel, +16 GB",
     ),
     (
         "LoRA → Qwen3-Reranker-8B, ilk 20 + dokümantasyon",
         "crosslora_{s}_qwen3_heads_x20doc",
-        "+0.3–0.6 s, yerel, +16 GB",
+        "+1.7–2.5 s (yük altında), yerel, +16 GB",
     ),
     (
         "heads → bge-reranker-v2-gemma, ilk 20 + dokümantasyon",
@@ -73,8 +65,6 @@ SUMMARY = [
         "+0.1 s, yerel, +5 GB",
     ),
     ("heads → CLM-8B, ilk 20", "clm_{s}_heads_clm20", "+2 ms, yerel"),
-    ("zero-shot Qwen3-Emb → Jev, ilk 20 + dokümantasyon", "jev_{s}_qwen3emb_jev20doc", "+0.3 s, dış API"),
-    ("Jev tek başına, parçalı", "jev_{s}_jev", "0.3–0.6 s, 41–91k token/sorgu, dış API"),
 ]
 
 
@@ -98,9 +88,7 @@ def set_table(s: str, title: str) -> list[str]:
     cat = s == "toolret"
     heads = [f"{m} ↑ %" for m in ms] + (["cat-macro ↑ %"] if cat else [])
     out = [f"### {title} (w/ inst, n={base['n_queries']})", ""]
-    out.append(
-        "| Satır | " + " | ".join(heads) + " | sorgu p50 ↓ ms | çağrı p50 ↓ ms | token ya da çift / sorgu ↓ |"
-    )
+    out.append("| Satır | " + " | ".join(heads) + " | sorgu p50 ↓ ms | çağrı p50 ↓ ms | çift / sorgu ↓ |")
     out.append("|---|" + "---:|" * (len(heads) + 3))
     for label, key in ROWS:
         d = load(key.format(s=s))
@@ -110,13 +98,8 @@ def set_table(s: str, title: str) -> list[str]:
         if cat:
             cells.append(pct(d["category_macro"]["NDCG@10"]))
         cells.append(f"{d['latency_ms']['per_query_p50']:.1f}")
-        j, x, n = d["config"].get("jev"), d["config"].get("cross"), d["n_queries"]
-        if j:
-            tok = (
-                j["input_tokens"] / max(1, j["calls"]) * (j["calls"] + j["cached"])
-            )  # cached calls were billed earlier
-            cells += [f"{j['call_ms_p50']:.0f}", f"{tok / n:,.0f} token"]
-        elif x:
+        x, n = d["config"].get("cross"), d["n_queries"]
+        if x:
             p50 = f"{x['call_ms_p50']:.0f}" if x.get("call_ms_p50") else "önbellek"
             cells += [p50, f"{(x['pairs'] + x['cached_pairs']) / n:,.0f} çift"]
         else:
@@ -150,7 +133,6 @@ def tables() -> str:
     out: list[str] = []
     for s, title in SETS:
         out += set_table(s, title)
-    out += moves("readme_toolret_heads", "jev_toolret_heads_jev100", "heads", "heads + Jev 100")
     out += moves("readme_toolret_heads", "lora_toolret_lora", "heads", "LoRA")
     return "\n".join(out).rstrip() + "\n"
 

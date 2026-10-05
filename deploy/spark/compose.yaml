@@ -72,7 +72,7 @@ services:
         --max-model-len 8192 --dtype bfloat16
         --gpu-memory-utilization 0.15 --host 0.0.0.0 --port 8000
 
-  # Cross-encoders in Jev's role (Faz 2, `docs/reports/faz2-jev.md`): vLLM's score API over the
+  # Cross-encoders as the second stage (Faz 2, `docs/reports/faz2-rerank.md`): vLLM's score API over the
   # original rerankers, loaded as sequence classifiers (the recipes in vLLM's supported-models
   # page). The shares are of the GB10's unified memory (0.15 is 18 GB; bge-gemma failed to find
   # room for its cache blocks at 0.1). 8192 tokens per pair: the request is in every pair and one

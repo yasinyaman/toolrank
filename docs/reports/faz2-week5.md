@@ -168,7 +168,7 @@ uv run python scripts/learn_sim.py traffic --queries data/sim/toolret/heldout/qu
   varsayılan eşik yok; `--cut-threshold T --cut-min 0` ile açılıyor, boş sonuçta ajan "uygun tool yok"
   notunu görüyor, günlük o aramanın göstereceklerini tutmaya devam ediyor (kalibrasyon için).
   "Yanıtlanamaz" tanımı sert: sunucusu çıkarılan tool'un bir benzeri başka sunucuda kalmış olabilir.
-  İsteği adaylarla birlikte okuyan ikinci aşama (`docs/reports/faz2-jev.md`) bu karar için daha doğru
+  İsteği adaylarla birlikte okuyan ikinci aşama (`docs/reports/faz2-rerank.md`) bu karar için daha doğru
   yer; backlog'a yazıldı.
 - **Birlikte-kullanım küçük ama ucuz:** eklenen tool başına tamlık kazancı, listeyi uzatmanın yedi
   katı (0,05 tool için +0,58; en çok 12'ye uzatmak 1,32 tool için +2,05). Mutlak kazanç küçük çünkü

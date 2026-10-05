@@ -63,12 +63,16 @@ change behaviour.
 - `release_check.py` now also refuses a release whose Helm chart `appVersion` names the previous
   one (the chart's image tag defaults to it), and `docs/guides/local.md` pins the GGUF download to
   `--revision v0.2`.
+- The second-stage report is `docs/reports/faz2-rerank.md` (was `faz2-jev.md`) and, like the serve
+  guide and CLAUDE.md, no longer publishes Jev's results: the provider's terms do not allow it. The
+  local rerankers', CLM's and the LoRA backbone's numbers stay; `scripts/rerank_report.py` leaves the
+  Jev rows out.
 - Jev's price and the dollar figures leave the tracked documents — they are the provider's
   confidential information (MCA §14.1). The token counts stay; `scripts/rerank_report.py` no longer
   prints a fee column.
 - Stale sentences in the reports: the phase-1 gate report's "no GPU-less path" and "47.13 < 50"
   (the GGUF guide and the v0.2 backbone settled both), the 0.2.0 release week's "weights not on
-  the Hub yet" and "names proposed", the Jev report's "60K pairs" heads (206K), its bge-gemma
+  the Hub yet" and "names proposed", the second-stage report's "60K pairs" heads (206K), its bge-gemma
   number (the ToolRet paper's, not measured) and its per-query token range and spend note, the
   backbone card's two em-dashes (LiveMCPBench NDCG@10 of the base model, ToolRet of this model +
   v0.1 heads), benchmarks.md's parity range (it spans Recall@5 and Precision@1, not NDCG), and

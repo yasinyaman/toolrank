@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Cross-encoders in Jev's role (`docs/reports/faz2-jev.md`): Qwen3-Reranker-8B (8095) and
+# Cross-encoders as the second stage (`docs/reports/faz2-rerank.md`): Qwen3-Reranker-8B (8095) and
 # bge-reranker-v2-gemma (8096), served by vLLM's score API (compose profile rerank), reorder the
 # packaged heads' top 20 (documentation cut to 3000) and top 100 (name_desc cut to 1000) and BM25's
-# top 30: exactly the texts the Jev rows read. On LiveMCPBench the cross-encoder also runs alone
+# top 30, the same cut texts as the CLM rows. On LiveMCPBench the cross-encoder also runs alone
 # (every pair). Scores are cached in .cache/toolrank/scores.sqlite. Restartable. On the GB10:
 #
 #   docker compose -f deploy/spark/compose.yaml --profile rerank up -d qwen3-reranker bge-reranker

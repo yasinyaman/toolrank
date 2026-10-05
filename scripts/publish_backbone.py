@@ -65,7 +65,7 @@ def check_model(model: Path) -> list[str]:
         cfg = json.loads(config.read_text())
         if cfg.get("hidden_size") != 4096:
             out.append(f"config.json: hidden_size {cfg.get('hidden_size')}, Qwen3-Embedding-8B has 4096")
-        # vLLM's transformers 4.x misreads 5.x's list-valued fields (docs/reports/faz2-jev.md)
+        # vLLM's transformers 4.x misreads 5.x's list-valued fields (docs/reports/faz2-rerank.md)
         for key in ("rope_parameters", "extra_special_tokens"):
             if isinstance(cfg.get(key), list):
                 out.append(f"config.json: {key} is a list (a transformers 5 rewrite; restore the original)")

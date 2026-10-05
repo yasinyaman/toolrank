@@ -831,7 +831,7 @@ def _add_jev_args(p: argparse.ArgumentParser) -> None:
 
 def _add_serve_rerank_args(p: argparse.ArgumentParser) -> None:
     """``search`` / ``serve``: an optional second stage over the first stage's top tools, with the
-    setting that measured best (``docs/reports/faz2-jev.md``): the top 20, each tool's full
+    setting that measured best (``docs/reports/faz2-rerank.md``): the top 20, each tool's full
     documentation cut to 3,000 characters. Off unless ``--rerank`` is given."""
     g = p.add_argument_group("second stage (off by default): rerank the top tools with the request")
     g.add_argument(

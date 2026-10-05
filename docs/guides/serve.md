@@ -142,15 +142,14 @@ documentation (cut to 3,000 characters) and reorders them. How many tools a sear
 comes from the first stage's cosines (adaptive K); the order comes from the second stage. It is
 the largest single gain on catalogues the models never saw. Over the default v0.2 backbone, with the
 local reranker: LiveMCPBench NDCG@10 55.7 → 61.2, MCP-Zero top-1 88.6 → 91.9, ToolRet 58.9 → 59.4.
-Over the base model with the v0.1 heads: LiveMCPBench 54.0 → 62.7 with the local reranker, 64.0
-with Jev; MCP-Zero top-1 79.9 → 91.3 / 92.3; ToolRet 54.0 → 58.1 / 57.7
-([the comparison](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz2-jev.md)).
+Over the base model with the v0.1 heads: LiveMCPBench 54.0 → 62.7, MCP-Zero top-1 79.9 → 91.3,
+ToolRet 54.0 → 58.1 ([the comparison](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz2-rerank.md)).
 
 - `--rerank cross --rerank-emb-url http://HOST:PORT/v1`: Qwen3-Reranker-8B behind vLLM's score API
   (about 16 GB more GPU memory). One search is one call of 20 pairs: 1.7–2.5 s at p50 on a GB10
   shared with three other vLLM servers (0.3–0.6 s a query at 8 requests in flight; not measured on
   an idle GPU). `deploy/spark/compose.yaml`'s `rerank` profile shows the vLLM flags.
-- `--rerank jev`: TypeSafe AI's hosted Jev, with `TYPESAFE_API_KEY` set (about 0.3 s per search), or
+- `--rerank jev`: TypeSafe AI's hosted Jev, with `TYPESAFE_API_KEY` set, or
   another `/systemone` endpoint named with `--jev-url` (asked without the key).
   **The request text and the top tools' text are sent to TypeSafe**; the server says so when it
   starts. Answers are cached in `DATA/cache`.

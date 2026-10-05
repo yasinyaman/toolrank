@@ -601,7 +601,7 @@ scripts/                          run_matrix.sh; toolret_paper_avg.py; truncatio
                                   publish_heads.py (the Hub, pinned to a tag), leaderboard_table.py (ToolRet leaderboard sheets),
                                   launch_metrics.py (the Faz 1 gate's numbers);
                                   jev_compare.sh, clm_rerank.sh, cross_rerank.sh (second-stage rows: Jev, CLM, cross-encoders),
-                                  lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-jev.md's tables, --write);
+                                  lora_train.py (LoRA on the embedding backbone, [lora] extra), rerank_report.py (faz2-rerank.md's tables, --write);
                                   learn_sim.py (split a benchmark, play its queries as logged traffic), learn_sim.sh (learn + eval per traffic size);
                                   routing_sweep.py (server -> tool rules and the no-tool gate), couse_sweep.py (co-use partners on a log);
                                   helm_smoke.py (the chart on a cluster without a GPU: fake embeddings, install, upgrade, uninstall);
@@ -692,16 +692,13 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   heads (47.13) and Qwen3-Embedding-8B (46.54) would lead w/ inst over jina-reranker-v2 (45.73); w/o inst
   NV-Embed-v1 leads (35.50). Submissions go in as issues on mangopy/tool-retrieval-benchmark.
 
-- Faz 2 week 1, second stage and LoRA (`docs/reports/faz2-jev.md`, tables from `scripts/rerank_report.py`;
+- Faz 2 week 1, second stage and LoRA (`docs/reports/faz2-rerank.md`, tables from `scripts/rerank_report.py`;
   w/ inst): a second stage that reads the request with each candidate gains on every set, a bi-encoder
   in that seat does not. Heads' top 20 with the documentation cut to 3000 characters: ToolRet NDCG@10
-  54.03 → Jev 57.69 / Qwen3-Reranker-8B 58.05 (cat-macro 52.71 / 52.93), LiveMCPBench 53.95 → 64.03 /
-  62.68, MCP-Zero top-1 79.87 → 92.34 / 91.26; Jev over the top 100 gives LiveMCPBench 66.25;
-  bge-reranker-v2-gemma 53.96 on ToolRet and breaks the MCP lists (36.19, 48.24); CLM_v0.1-8B in the
-  seat 15.36 / 28.94 (top 100 / top 20), fine-tuned 34.20. Jev alone (chunked): LiveMCPBench 65.05,
-  MCP-Zero top-1 90.04 at 41–91k tokens a query; the 17 Jev rows' spend is not published (the
-  provider's terms). Under Jev the heads' fine-tune
-  is worth +1.7 at depth 20 and nothing at depth 100 (zero-shot → Jev 55.98 / 54.59). **LoRA on the
+  54.03 → Qwen3-Reranker-8B 58.05 (cat-macro 52.93), LiveMCPBench 53.95 → 62.68, MCP-Zero top-1 79.87 →
+  91.26; bge-reranker-v2-gemma 53.96 on ToolRet and breaks the MCP lists (36.19, 48.24); CLM_v0.1-8B in
+  the seat 15.36 / 28.94 (top 100 / top 20), fine-tuned 34.20. Jev was measured in the same seat; its
+  results stay out of every tracked file (the provider's terms; removed 5 Oct 2026). **LoRA on the
   backbone** (`scripts/lora_train.py`: rank 16, 20k ToolRet-train pairs, in-batch InfoNCE, 625 steps,
   8.6 h on the GB10, picked on MCP-Zero `_server`): ToolRet 58.90 / cat-macro 54.36 in one stage (the
   Faz 0 gate's 50, StackOne v2's 54.4), Recall@20 75.25 (heads 72.51), LiveMCPBench 55.74 (+2, held
@@ -710,7 +707,7 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   row, +0.5 over LoRA alone), LiveMCPBench 61.24, MCP-Zero top-1 91.94. For the cross-encoder, top 100
   with name_desc is worse than top 20 with the documentation on every set (ToolRet 54.55 vs 58.05), and
   alone (every pair, LiveMCPBench) it gives 55.25 at 32 s a query: pointwise scoring needs a good
-  shortlist, Jev's listwise Choice does not (65.05).
+  shortlist.
   The merged weights live in `~/toolrank/data/lora/qwen3-emb-lora-20k/merged` on the GB10 and must
   carry the original repo's config, tokenizer and `1_Pooling` files: transformers 5.x writes a
   list-valued `extra_special_tokens` and `rope_parameters`, which the NGC image's 4.51 crashes on or

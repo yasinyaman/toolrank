@@ -191,7 +191,7 @@ GB10, NGC vLLM 26.01 (0.13), FP8 `--quantization fp8` yüklemede; ağırlıklar
   kullanıcının kararıyla durduruldu.
 - **LiveMCPBench Recall@5'te LoRA bir sorgu geride** (52,06'ya karşı 53,03; 94 sorguda bir sorgu ≈ 1
   puan); NDCG@10'da önde (55,74'e karşı 53,95). Hiç görülmemiş MCP setlerindeki asıl kazanç ikinci
-  aşamadan geliyor (LoRA + Qwen3-Reranker: 61,24 NDCG@10, `docs/reports/faz2-jev.md`).
+  aşamadan geliyor (LoRA + Qwen3-Reranker: 61,24 NDCG@10, `docs/reports/faz2-rerank.md`).
 - **MCP-Zero seçim seti:** LoRA'nın kontrol noktası MCP-Zero üzerinde seçildi; o sütun bağımsız değil
   (model kartında ve README notunda yazılı). Ayrı bir seçim seti bu ağırlıklar için de gerekiyor;
   seçimin etkisi küçük (üç kontrol noktası, 600. ve 625. adım neredeyse aynı).
