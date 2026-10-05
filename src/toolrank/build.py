@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import sys
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -45,6 +46,7 @@ BACKBONES: dict[str, dict[str, Any]] = {
     "qwen3-emb-4b-q4_k_m": {"repo": "Qwen/Qwen3-Embedding-4B-GGUF", "heads": False},
     "qwen3-embedding:0.6b": {"repo": "Qwen/Qwen3-Embedding-0.6B", "heads": False},
     "qwen3-embedding:4b": {"repo": "Qwen/Qwen3-Embedding-4B", "heads": False},
+    "qwen3-8b": {"repo": "Qwen/Qwen3-8B", "heads": False},  # the CLM backbone (eval's default, 8090)
 }
 # toolrank search's and serve's product defaults: the served backbone, its texts and the
 # instruction that did best on the MCP sets
@@ -60,6 +62,18 @@ def packaged_heads_fit(emb_model: str | None) -> bool:
 def backbone_repo(emb_model: str | None) -> str:
     """What a served name is, for the cfg of heads trained on it (the name itself when unknown)."""
     return str(BACKBONES.get(emb_model or "", {}).get("repo") or emb_model or "")
+
+
+def heads_mismatch(trained_on: str | None, emb_model: str | None) -> str | None:
+    """Heads trained on one known backbone, put on another: the widths match (4096), so nothing
+    else notices; -> what to say, else None. Unknown served names and heads that name no backbone
+    pass, and a GGUF build counts as its weights."""
+    if not trained_on or (emb_model or "") not in BACKBONES:
+        return None
+    served = backbone_repo(emb_model)
+    if served.removesuffix("-GGUF") == trained_on.removesuffix("-GGUF"):
+        return None
+    return f"heads trained on {trained_on}, served on {emb_model} ({served})"
 
 
 DEFAULT_SERVING = {
@@ -285,6 +299,14 @@ def _base_factory(
         ck = heads_path(a)
         heads = load_heads(ck, device=a.device)
         serving = dict(getattr(heads, "cfg", {}) or {})  # a packaged .npz says how it is served
+        mismatch = heads_mismatch(serving.get("backbone"), a.emb_model)
+        if mismatch and getattr(a, "emb_model_defaulted", False):
+            raise ValueError(
+                f"{Path(ck).name}: {mismatch}; pass --emb-model with the served name of the model they were "
+                "trained on (or name this one with --emb-model to rank with them anyway)"
+            )
+        if mismatch:
+            print(f"warning: {Path(ck).name}: {mismatch}", file=sys.stderr)
     if a.truncate is None and serving.get("truncate"):
         a.truncate = int(serving["truncate"])
 
@@ -435,6 +457,7 @@ def search_defaults(a: Any) -> None:
     from toolrank.adapters.heads_np import default_heads
 
     a.emb_url = a.emb_url or os.environ.get("TOOLRANK_EMB_URL") or DEFAULT_EMB_URL
+    a.emb_model_defaulted = not (a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL"))  # heads may not fit it
     a.emb_model = a.emb_model or os.environ.get("TOOLRANK_EMB_MODEL") or DEFAULT_EMB_MODEL
     if a.clm_ckpt == "none":
         a.clm_ckpt = None

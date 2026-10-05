@@ -313,7 +313,7 @@ Embed the pairs once (only what the cache lacks), train heads on the frozen back
 | `--query-format {plain,concat,instruct_query,clm}` | `instruct_query` |  |
 | `--instruction INSTRUCTION` |  | for pairs without one (default: the serving one) |
 | `--keep-bare` |  | leave pairs without an instruction bare |
-| `--backbone BACKBONE` | `Qwen/Qwen3-Embedding-8B` | recorded in the heads' cfg |
+| `--backbone BACKBONE` |  | recorded in the heads' cfg (default: what --emb-model names) |
 | `--n-train N_TRAIN` |  | training pairs (0 = all) |
 | `--n-val N_VAL` |  | held-out training pairs: a diagnostic, never selected on |
 | `--seed SEED` |  |  |

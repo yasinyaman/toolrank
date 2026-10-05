@@ -239,3 +239,28 @@ def test_heads_replaced_under_the_same_name_reproject_the_persistent_index(
     again = build_retriever(build_parser().parse_args(args))
     assert [h.id for h in again.search("send an email").hits] == [h.id for h in res.hits]
     assert again.status()["sync"]["kept"] == 3  # unchanged heads: nothing to re-project
+
+
+def test_heads_go_only_on_the_backbone_they_name(ingest_dir, tmp_path, fake_endpoint, capsys):
+    """Heads trained on Qwen3-Embedding-8B and the v0.2 backbone are both 4096 wide: the width check
+    passes, so the heads' cfg decides. A defaulted --emb-model stops; one given by name is a warning."""
+    from test_retriever import _npz_heads
+    from toolrank.build import build_retriever, heads_mismatch
+    from toolrank.cli import build_parser
+
+    assert heads_mismatch("Qwen/Qwen3-Embedding-8B", "toolrank-emb-v0.2")
+    assert not heads_mismatch("Qwen/Qwen3-Embedding-8B", "qwen3-emb-fp8")
+    assert not heads_mismatch("yasinyaman/toolrank-emb-8b", "toolrank-emb-v0.2-q4_k_m")  # its GGUF build
+    assert not heads_mismatch("Qwen/Qwen3-Embedding-8B", "my-own-name") and not heads_mismatch(
+        None, "qwen3-emb"
+    )
+    heads = tmp_path / "h.npz"
+    _npz_heads(heads, seed=1, backbone="Qwen/Qwen3-Embedding-8B")
+    parse = build_parser().parse_args
+    with pytest.raises(ValueError, match="trained on Qwen/Qwen3-Embedding-8B, served on toolrank-emb-v0.2"):
+        build_retriever(parse(_args(ingest_dir, tmp_path, "--clm-ckpt", str(heads))))
+    build_retriever(parse(_args(ingest_dir, tmp_path, "--clm-ckpt", str(heads), "--emb-model", "qwen3-emb")))
+    assert "warning" not in capsys.readouterr().err
+    named = _args(ingest_dir, tmp_path, "--clm-ckpt", str(heads), "--emb-model", "toolrank-emb-v0.2")
+    build_retriever(parse(named))
+    assert "warning: h.npz: heads trained on Qwen/Qwen3-Embedding-8B" in capsys.readouterr().err

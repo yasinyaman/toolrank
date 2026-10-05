@@ -267,6 +267,23 @@ class Job:
     )
 
 
+def _fits(path: Path, emb_model: str | None) -> bool:
+    """Whether heads promoted under an older default (the cfg names their backbone) belong on
+    ``emb_model``; a file whose cfg cannot be read is left to the loader to report."""
+    import json
+
+    import numpy as np
+
+    from toolrank.build import heads_mismatch
+
+    try:
+        with np.load(path, allow_pickle=False) as z:
+            trained_on = json.loads(str(z["cfg"])).get("backbone")
+    except (OSError, ValueError, KeyError):
+        return True
+    return heads_mismatch(trained_on, emb_model) is None
+
+
 def resolve_init(
     init: str | None,
     emb_model: str | None = None,
@@ -274,7 +291,8 @@ def resolve_init(
     tenant: str | None = None,
 ) -> str | None:
     """``default`` -> the heads a server would serve on ``emb_model``: the promoted ones
-    (``DATA/heads/current.npz``, or the tenant's own) when there are some, else the packaged (or
+    (``DATA/heads/current.npz``, or the tenant's own) when there are some and they were trained on
+    that backbone, else the packaged (or
     ``TOOLRANK_HEADS``) ones, or none on a backbone they do not belong on; a path as is; None ->
     fresh skip heads (identity at the start, so epoch 0 is the backbone alone)."""
     if init == "default":
@@ -289,7 +307,7 @@ def resolve_init(
             homes.append(heads_home(Path(data)))
             for home in homes:
                 current = home / CURRENT
-                if current.exists():
+                if current.exists() and _fits(current, emb_model):
                     return str(current)
         if not packaged_heads_fit(emb_model) and not os.environ.get("TOOLRANK_HEADS"):
             return None

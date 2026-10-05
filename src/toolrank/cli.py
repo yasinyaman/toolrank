@@ -503,7 +503,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
 
 
 def cmd_finetune(a: argparse.Namespace) -> int:
-    from toolrank.build import DEFAULT_EMB_URL, DEFAULT_SERVING
+    from toolrank.build import DEFAULT_EMB_URL, DEFAULT_SERVING, backbone_repo
     from toolrank.finetune import Job, TrainConfig, run
 
     if a.init_ckpt and (a.width is not None or a.depth is not None or a.no_skip):
@@ -533,7 +533,7 @@ def cmd_finetune(a: argparse.Namespace) -> int:
         tool_format=a.tool_format,
         query_format=a.query_format,
         instruction="" if a.keep_bare else (a.instruction or DEFAULT_SERVING["instruction"]),
-        backbone=a.backbone,
+        backbone=a.backbone or backbone_repo(a.emb_model or "qwen3-emb"),
         n_train=a.n_train,
         n_val=a.n_val,
         # the split takes the data seed; training takes --seed (same split across training seeds)
@@ -1358,7 +1358,9 @@ def build_parser() -> argparse.ArgumentParser:
     ft.add_argument("--query-format", choices=list(QUERY_FORMATS), default="instruct_query")
     ft.add_argument("--instruction", default=None, help="for pairs without one (default: the serving one)")
     ft.add_argument("--keep-bare", action="store_true", help="leave pairs without an instruction bare")
-    ft.add_argument("--backbone", default="Qwen/Qwen3-Embedding-8B", help="recorded in the heads' cfg")
+    ft.add_argument(
+        "--backbone", default=None, help="recorded in the heads' cfg (default: what --emb-model names)"
+    )
     ft.add_argument("--n-train", type=int, default=0, help="training pairs (0 = all)")
     ft.add_argument(
         "--n-val", type=int, default=0, help="held-out training pairs: a diagnostic, never selected on"

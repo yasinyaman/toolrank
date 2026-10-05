@@ -547,6 +547,22 @@ def test_learn_starts_from_the_heads_a_server_would_serve(tmp_path, monkeypatch)
     assert resolve_init("default", "qwen3-emb", data=data, tenant="other") == str(current)
 
 
+def test_learn_does_not_continue_from_heads_promoted_on_another_backbone(tmp_path, monkeypatch):
+    """A current.npz promoted under 0.1.x (trained on Qwen3-Embedding-8B) has the v0.2 backbone's width:
+    on v0.2 learn starts from identity instead; on the backbone it names, it continues from it."""
+    from test_retriever import _npz_heads
+    from toolrank.learn import resolve_init
+
+    monkeypatch.delenv("TOOLRANK_HEADS", raising=False)
+    data = tmp_path / "data"
+    current = heads_home(data) / "current.npz"
+    _npz_heads(current, seed=1, backbone="Qwen/Qwen3-Embedding-8B")
+    assert resolve_init("default", "toolrank-emb-v0.2", data=data) is None
+    assert resolve_init("default", "qwen3-emb", data=data) == str(current)
+    _npz_heads(current, seed=1, backbone="yasinyaman/toolrank-emb-8b")  # learned on v0.2 itself
+    assert resolve_init("default", "toolrank-emb-v0.2-fp8", data=data) == str(current)
+
+
 def test_replay_sampling_covers_the_whole_file(tmp_path):
     from toolrank.datasets.jsonl import iter_pairs, write_pairs
     from toolrank.domain import TrainPair

@@ -202,12 +202,14 @@ def test_keyword_stand_in_until_the_index_is_built_and_a_failed_build_is_retried
     assert sorted(kinds[:2]) == ["index build failed", "keyword index ready"] and kinds[2:] == ["index ready"]
 
 
-def _npz_heads(path, seed, hidden=16, width=8):
+def _npz_heads(path, seed, hidden=16, width=8, backbone=None):
     """Skip heads NumpyHeads can load, without torch: random weights, so each file ranks differently."""
     import json as _json
 
     rng = np.random.default_rng(seed)
     cfg = {"width": width, "depth": 2, "hidden_size": hidden, "projection_dim": hidden, "skip": True}
+    if backbone:
+        cfg["backbone"] = backbone
     arrays = {"cfg": np.array(_json.dumps(cfg)), "logit_scale": np.zeros(1, np.float32)}
     for head in ("state_head", "action_head"):
         arrays[f"{head}/inp.weight"] = rng.standard_normal((width, hidden)).astype(np.float32)
