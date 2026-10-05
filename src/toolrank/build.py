@@ -70,8 +70,15 @@ DEFAULT_SERVING = {
 }
 
 
-@lru_cache(maxsize=8)
 def file_sha256(path: str) -> str:
+    """A file's sha256, cached by its path and identity (inode, size, mtime): learn and ab replace
+    ``DATA/heads`` files under the same name while a server runs."""
+    st = os.stat(path)
+    return _sha256(path, st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+@lru_cache(maxsize=16)
+def _sha256(path: str, _ino: int, _size: int, _mtime_ns: int) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for block in iter(lambda: f.read(1 << 20), b""):
@@ -79,10 +86,14 @@ def file_sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def fingerprint(a: Any, tool_format: str, heads_path: str | Path | None = None) -> str:
+def fingerprint(
+    a: Any, tool_format: str, heads_path: str | Path | None = None, heads_sha: str | None = None
+) -> str:
     """What a stored tool vector depends on besides the tool text: endpoint, model, truncation,
-    tool format and the heads file (by content)."""
-    heads = file_sha256(str(heads_path))[:16] if heads_path else "-"
+    tool format and the heads (by content: ``heads_sha`` of the bytes loaded, else the file's)."""
+    if heads_sha is None and heads_path:
+        heads_sha = file_sha256(str(heads_path))
+    heads = heads_sha[:16] if heads_sha else "-"
     return f"{a.emb_url}|{a.emb_model}|trunc={a.truncate}|{tool_format}|heads={heads}"
 
 
@@ -293,7 +304,7 @@ def _base_factory(
         qf = a.query_format or ("instruct_query" if a.with_inst else "plain")
     else:
         qf = a.query_format or ((serving.get("query_format") or "clm") if a.with_inst else "plain")
-    fp = fingerprint(a, tf, ck)
+    fp = fingerprint(a, tf, ck, getattr(heads, "sha256", None))
 
     route = float(getattr(a, "server_weight", 0.0) or 0.0)
 

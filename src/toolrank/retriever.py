@@ -125,6 +125,16 @@ class _Variant:
     error: str | None = None
 
 
+def innermost(scorer: Any) -> Any:
+    """The first stage under the wrappers: a hybrid's ``semantic`` scorer, a second stage's ``base``."""
+    for _ in range(4):
+        inner = getattr(scorer, "semantic", None) or getattr(scorer, "base", None)
+        if inner is None:
+            break
+        scorer = inner
+    return scorer
+
+
 def bucket(key: str | None, share: float) -> bool:
     """Whether ``key`` falls in the first ``share`` of a stable hash: the same session or client
     keeps getting the same arm."""
@@ -220,7 +230,7 @@ class Retriever:
         t0 = time.perf_counter()
         scorer = make()
         scorer.index(tools)
-        sync = dict(getattr(getattr(scorer, "semantic", scorer), "last_sync", {}) or {})
+        sync = dict(getattr(innermost(scorer), "last_sync", {}) or {})
         by_id = {t.id: t for t in tools}
         return _State(stamp, tools, by_id, scorer, catalog, time.perf_counter() - t0, sync, lexical)
 
@@ -376,7 +386,9 @@ class Retriever:
         assert self.make_variant is not None
         try:
             state = self._build(self.make_variant(v.path, v.name))
-            sha = hashlib.sha256(v.path.read_bytes()).hexdigest()[:16]
+            # the bytes the heads were loaded from: the file may have been replaced since
+            sha = getattr(getattr(innermost(state.scorer), "heads", None), "sha256", None)
+            sha = (sha or hashlib.sha256(v.path.read_bytes()).hexdigest())[:16]
         except Exception as e:  # the file may be half-written, or not heads at all
             with self._variants_lock:
                 v.error, v.stamp, v.building = f"{type(e).__name__}: {e}", stamp, False

@@ -211,3 +211,31 @@ def test_clm_ckpt_none_drops_only_the_packaged_heads(ingest_dir, tmp_path, fake_
         time.sleep(0.02)
         res = r.search("send an email")
     assert res.arm == "current" and res.scorer.startswith("clm[current]")
+
+
+def test_heads_replaced_under_the_same_name_reproject_the_persistent_index(
+    ingest_dir, tmp_path, fake_endpoint
+):
+    """learn rewrites candidate.npz and ab renames it to current.npz while a server runs: new bytes
+    under an old path must give a new fingerprint, or the index keeps tool rows of the old heads."""
+    from test_retriever import _npz_heads
+    from toolrank.build import build_retriever, file_sha256
+    from toolrank.cli import build_parser
+
+    heads = tmp_path / "h" / "candidate.npz"
+    _npz_heads(heads, seed=1)
+    args = _args(
+        ingest_dir, tmp_path, "--clm-ckpt", str(heads), "--k", "3", "--index-dir", str(tmp_path / "ix")
+    )
+    first = build_retriever(build_parser().parse_args(args))
+    first.search("send an email")
+    assert first.status()["sync"]["embedded"] == 3
+    old = file_sha256(str(heads))
+    _npz_heads(heads, seed=2)  # same name, same size
+    assert file_sha256(str(heads)) != old
+    second = build_retriever(build_parser().parse_args(args))
+    res = second.search("send an email")
+    assert second.status()["sync"] == {"embedded": 3, "removed": 0, "kept": 0}
+    again = build_retriever(build_parser().parse_args(args))
+    assert [h.id for h in again.search("send an email").hits] == [h.id for h in res.hits]
+    assert again.status()["sync"]["kept"] == 3  # unchanged heads: nothing to re-project

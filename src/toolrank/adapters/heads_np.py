@@ -19,6 +19,7 @@ file; ``TOOLRANK_HEADS_URL`` points the download at another copy, still checked 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
@@ -67,7 +68,9 @@ class NumpyHeads:
 
     def __init__(self, path: str | Path, batch: int = 4096):
         self.path, self.batch = Path(path), batch
-        with np.load(self.path, allow_pickle=False) as z:
+        data = self.path.read_bytes()  # one read: learn and ab replace heads files under the same name
+        self.sha256 = hashlib.sha256(data).hexdigest()  # of the bytes these heads were loaded from
+        with np.load(io.BytesIO(data), allow_pickle=False) as z:
             self.cfg: dict[str, Any] = json.loads(str(z["cfg"]))
             arrays = {k: np.asarray(z[k], dtype=np.float32) for k in z.files if k != "cfg"}
         self.heads: dict[str, dict[str, np.ndarray]] = {}
