@@ -239,6 +239,24 @@ def test_eval_cli_refuses_to_start_without_a_key(monkeypatch, tmp_path):
         main(["eval", "--data", str(tmp_path), "--scorer", "bm25", "--rerank", "jev"])
 
 
+def test_search_and_serve_ask_for_the_key_only_for_typesafe(monkeypatch, tmp_path):
+    from toolrank.cli import _check_rerank, build_parser
+
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    for cmd in ("search", "serve"):
+        args = [
+            cmd,
+            *(["send an email"] if cmd == "search" else []),
+            "--data",
+            str(tmp_path),
+            "--rerank",
+            "jev",
+        ]
+        with pytest.raises(SystemExit, match="TYPESAFE_API_KEY"):
+            _check_rerank(build_parser().parse_args(args))
+        _check_rerank(build_parser().parse_args([*args, "--jev-url", "http://127.0.0.1:8093/v1"]))  # no exit
+
+
 def test_the_key_goes_to_typesafe_alone(monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "secret")
     assert JevClient("m", "https://api.typesafe.ai/v1").api_key == "secret"

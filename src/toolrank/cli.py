@@ -880,8 +880,10 @@ def _check_rerank(a: argparse.Namespace) -> None:
             "--rerank cross needs --rerank-emb-url: the reranker's /v1 endpoint (vLLM serving Qwen3-Reranker-8B)"
         )
     if a.rerank == "jev":
-        if not os.environ.get("TYPESAFE_API_KEY"):
-            sys.exit("--rerank jev needs TYPESAFE_API_KEY")
+        from toolrank.adapters.jev import is_typesafe
+
+        if is_typesafe(a.jev_url) and not os.environ.get("TYPESAFE_API_KEY"):
+            sys.exit("--rerank jev needs TYPESAFE_API_KEY for TypeSafe (a local --jev-url needs none)")
         a.jev_tool_format, a.jev_max_chars = a.rerank_tool_format, a.rerank_max_chars
     if not 2 <= a.rerank_depth <= 255:
         sys.exit("--rerank-depth: from 2 to 255")
