@@ -48,7 +48,13 @@ from toolrank.integrations import openai as tr
 result = tr.run(OpenAI(), ToolrankClient(), "What time is it in Tokyo?", model="gpt-5.5")
 ```
 
-Loaded definitions are sent again on every later turn: broad searches over large schemas add up.
+Loaded definitions are sent again on every later turn, so broad searches over large schemas add
+up. As MCP's `search_tools` does, each search loads its first three tools with full input schemas
+and the rest with schemas cut to 1,500 characters. The description says when a schema was cut, and
+a call that fails returns the tool's full schema. On the Stripe refund search in
+[the week-4 setup](https://github.com/yasinyaman/toolrank/blob/main/docs/reports/faz1-week4.md)
+this loads 16.7 KB instead of 20.7 KB, and no later tool can bring in one of Stripe's 50 KB
+schemas. `Toolbox(client, shrink=False)` loads every schema in full.
 
 `Toolbox(client, namespaces=True)` (the example's `--namespaces`) loads the found tools grouped by
 server: one `namespace` per server, with each tool under its own name (`issues__create` in

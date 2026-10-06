@@ -302,6 +302,24 @@ def test_gpt_gets_the_found_tools_in_one_namespace_per_server(tmp_path):
     assert gpt.own_name({"name": "other", "server": "github", "api_name": "other"}) == "other"
 
 
+def test_gpt_loads_later_hits_with_shortened_schemas_unless_told_not_to():
+    asked = []
+
+    class _Found:
+        def search(self, query, **kw):
+            asked.append(kw["full_schemas"])
+            return {"search_id": "s-1", "tools": [
+                {"name": "st/a", "api_name": "st__a", "server": "st", "description": "A.", "inputSchema": {"type": "object"}},
+                {"name": "st/b", "api_name": "st__b", "server": "st", "description": "B.", "inputSchema": {"type": "object"}, "inputSchemaShrunk": True},
+            ]}  # fmt: skip
+
+    out = gpt.Toolbox(_Found())._search(_search_call("c1", "refund"))
+    a, b = out["tools"]
+    assert a["description"] == "A." and b["description"] == "B." + gpt.SHRUNK_NOTE and asked == [False]
+    gpt.Toolbox(_Found(), shrink=False)._search(_search_call("c2", "refund"))
+    assert asked == [False, True]
+
+
 def test_gpt_bad_calls_are_outputs_and_incomplete_runs_nothing(tmp_path):
     script = _Script(
         _response("completed", _search_call("call_s1", "things")),

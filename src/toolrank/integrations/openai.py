@@ -18,6 +18,13 @@ The loop keeps the API's rules:
   order; a ``failed`` response raises, an ``incomplete`` one ends the run without running anything;
 - function names are toolrank's api names, which match the API's ``^[a-zA-Z0-9_-]+$``.
 
+Loaded definitions travel with every later request, so broad searches over large APIs add up (18
+Stripe operations reached 34.5k tokens a request, ``docs/reports/faz1-week4.md``). As MCP's
+``search_tools`` does, each search loads its first three tools with their full input schemas and
+the rest with schemas shortened to 1,500 characters, saying so in the description; a call that
+fails returns the tool's full schema (``/v1/call``), so the model can try again.
+``Toolbox(shrink=False)`` loads every schema in full.
+
 With ``Toolbox(namespaces=True)`` the found tools come grouped by server instead: one
 ``namespace`` per server (its api name, a one-line description) holding the server's tools under
 their own names (``github__issues__create`` becomes ``issues__create`` in ``github``), and the
@@ -74,16 +81,22 @@ def search_tool() -> dict[str, Any]:
     }
 
 
+SHRUNK_NOTE = " (Input schema shortened: a failed call returns the full one.)"
+
+
 def function_tool(hit: dict[str, Any], name: str | None = None) -> dict[str, Any]:
-    """A toolrank search hit (``full_schemas``) as a deferred ``function`` tool, named ``name``
-    (default: its api name)."""
+    """A toolrank search hit as a deferred ``function`` tool, named ``name`` (default: its api
+    name); a shortened schema (``inputSchemaShrunk``) says so in the description."""
     parameters = dict(hit.get("inputSchema") or {})
     parameters.pop("$schema", None)
     parameters.setdefault("type", "object")
+    description = hit.get("description") or ""
+    if hit.get("inputSchemaShrunk"):
+        description += SHRUNK_NOTE
     return {
         "type": "function",
         "name": name or hit["api_name"],
-        "description": hit.get("description") or "",
+        "description": description,
         "parameters": parameters,
         "strict": False,
         "defer_loading": True,
@@ -119,7 +132,8 @@ class Toolbox:
 
     ``respond(response)`` answers a response's tool searches and calls; ``approve(entry,
     arguments)`` may veto a call; ``on_event(kind, details)`` sees every search, call and turn;
-    ``namespaces`` groups the found tools by server (see the module's docstring)."""
+    ``namespaces`` groups the found tools by server and ``shrink=False`` loads every input schema
+    in full (see the module's docstring)."""
 
     def __init__(
         self,
@@ -129,8 +143,9 @@ class Toolbox:
         on_event: OnEvent | None = None,
         session: str | None = None,
         namespaces: bool = False,
+        shrink: bool = True,
     ):
-        self.toolrank, self.approve, self.namespaces = toolrank, approve, namespaces
+        self.toolrank, self.approve, self.namespaces, self.shrink = toolrank, approve, namespaces, shrink
         self.on_event: OnEvent = on_event or (lambda kind, details: None)
         self.session = session or f"openai-{uuid.uuid4().hex[:12]}"
         self.tools: list[dict[str, Any]] = [search_tool()]
@@ -169,7 +184,7 @@ class Toolbox:
         new: list[dict[str, Any]] = []
         t0 = time.perf_counter()
         try:
-            found = self.toolrank.search(query, k=k, full_schemas=True, session=self.session)
+            found = self.toolrank.search(query, k=k, full_schemas=not self.shrink, session=self.session)
         except ToolrankError as e:  # the output item has no error channel: nothing is loaded
             self.on_event("search", {"query": query, "error": e.message})
         else:

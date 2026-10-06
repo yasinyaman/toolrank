@@ -53,6 +53,12 @@ change behaviour.
 
 ### Changed
 
+- The OpenAI integration loads a search's first three tools with full input schemas and the rest
+  with schemas cut to 1,500 characters, as MCP `search_tools` does. The description says when a
+  schema was cut, and a failed call returns the full one. Loaded definitions travel with every
+  later request: on the Stripe refund search of the week-4 setup this loads 16.7 KB instead of
+  20.7 KB, and no later hit brings in one of Stripe's 50 KB schemas. `Toolbox(shrink=False)` keeps
+  the old behaviour.
 - `search` / `serve` tidy a request (and a request's own instruction) before it is embedded,
   cached and logged: Unicode NFC, runs of spaces and tabs as one space, at most one blank line in a
   row, no surrounding whitespace. Requests that differ only in whitespace now share one cache entry

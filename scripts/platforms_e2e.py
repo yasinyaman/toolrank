@@ -174,13 +174,16 @@ def offline(tr: ToolrankClient) -> dict[str, Any]:
         found = tr.search(task, full_schemas=True)
         hits = found["tools"]
         loaded = [gpt.function_tool(h) for h in hits]
+        # what the toolbox loads by default: the first three schemas in full, the rest shortened
+        shrunk = [gpt.function_tool(h) for h in tr.search(task)["tools"]]
         searches.append(
             {
                 "task": task,
                 "took_ms": found["took_ms"],
                 "tools": [h["name"] for h in hits],
                 "anthropic_references": [h["api_name"] for h in hits if h["api_name"] in box.entries][:10],
-                "openai_loaded_bytes": len(json.dumps(loaded).encode()),
+                "openai_loaded_bytes": len(json.dumps(shrunk).encode()),
+                "openai_loaded_bytes_full": len(json.dumps(loaded).encode()),
             }
         )
     out["searches"] = searches
