@@ -65,7 +65,7 @@ watches `DATA/heads` while it runs:
 | File | What the server does |
 | --- | --- |
 | `current.npz` | serves these heads instead of the packaged ones (unless `--clm-ckpt` names some) |
-| `candidate.npz` | answers `--candidate-share` (10%) of the requests with it, the same session or client always on the same side |
+| `candidate.npz` | answers `--candidate-share` (10%) of the requests with it, a session always on the same side (requests without one are split one by one) |
 | `tenants/<name>/current.npz`, `candidate.npz` | the same, for the requests of one API key (`--api-keys`) |
 
 A key with heads files of its own runs its own experiment (`learn --tenant`, `ab --tenant`). Every
@@ -82,14 +82,18 @@ toolrank ab --data data/mytools            # since the candidate appeared; --dry
 ```
 
 It prints one row per arm (the control and the candidate): its searches, how many led to a call, the
-share whose called tool stood first, and `mrr`.
+share whose called tool stood first, `mrr` with its standard error, and K (the tools a search handed
+over).
 
 `mrr` is the mean of 1/rank of the tool the agent called, over all of the arm's searches (a search
 nobody acted on counts 0): it rises when the right tool stands higher and when more searches lead
-to a call. With `--min-searches` (100) on both sides, a candidate `--margin` (0.01) above the control
-becomes `current.npz` (the heads it replaces are kept as `previous-<stamp>.npz`), one that much below
-is set aside as `rejected-<stamp>.npz`, and anything in between keeps running. `--promote` and
-`--rollback` decide by hand.
+to a call. With `--min-searches` (100) on both sides, the difference has to clear the noise: more
+than one standard error of the difference (the arms answer different requests) and more than
+`--margin` (0.01). A candidate that far above the control becomes `current.npz` (the heads it
+replaces are kept as `previous-<stamp>.npz`), and one that far below is set aside as
+`rejected-<stamp>.npz`. A tie within the noise is promoted only when the candidate hands over fewer
+tools: its mean K lower by more than K's own standard error and a tenth of a tool. Any other tie
+keeps running. `--promote` and `--rollback` decide by hand.
 
 Run the two every night and the loop closes: yesterday's candidate is judged, then a new one is
 learned. While a candidate is still being judged, `learn` leaves it alone (`--replace-candidate`

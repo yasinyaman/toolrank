@@ -196,7 +196,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         session, client, tenant = identity(request)
         try:
             res = await in_thread(
-                retriever.search, query, k=k, instruction=inst, arm_key=session or client, tenant=tenant
+                retriever.search, query, k=k, instruction=inst, arm_key=session, tenant=tenant
             )
         except IndexNotReady:
             raise
@@ -251,7 +251,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
                 query,
                 tools,
                 instruction=inst,
-                arm_key=session or client,
+                arm_key=session,
                 tenant=tenant,
                 own_slots=True,
             )

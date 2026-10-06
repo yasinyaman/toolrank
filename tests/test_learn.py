@@ -291,8 +291,9 @@ def test_learn_needs_a_log_and_matching_vectors(tmp_path):
         run(Job(data=tmp_path, out=tmp_path / "x.npz", dry_run=True), log=lambda _: None)
 
 
-def _arm_search(sid, arm, ts, tenant=None):
-    return {"v": 3, "event": "search", "id": sid, "ts": ts, "arm": arm, "tenant": tenant}
+def _arm_search(sid, arm, ts, tenant=None, shown=None):
+    e = {"v": 3, "event": "search", "id": sid, "ts": ts, "arm": arm, "tenant": tenant}
+    return e if shown is None else {**e, "shown": shown}
 
 
 def _ranked_call(sid, rank, outcome="ok"):
@@ -301,9 +302,11 @@ def _ranked_call(sid, rank, outcome="ok"):
 
 def test_judge_compares_the_arms_on_what_the_agents_called():
     events = [
-        _arm_search("a1", "current", "2026-10-01T10:00:00"),
+        _arm_search("a1", "current", "2026-10-01T10:00:00", shown=3),
         _ranked_call("a1", 2),
-        _arm_search("a2", "base", "2026-10-01T10:01:00"),  # the control is whatever is not the candidate
+        _arm_search(
+            "a2", "base", "2026-10-01T10:01:00", shown=5
+        ),  # the control: whatever is not the candidate
         _arm_search("a3", "current", "2026-10-01T10:02:00"),
         _ranked_call("a3", 4, "refused"),  # says nothing
         _arm_search("b1", "candidate", "2026-10-01T10:03:00"),
@@ -318,8 +321,14 @@ def test_judge_compares_the_arms_on_what_the_agents_called():
         _arm_search("t2", "tenant:acme", "2026-10-01T10:06:00", tenant="acme"),
     ]
     stats = judge(events, since="2026-10-01")
-    assert stats["control"] == {"searches": 3, "called": 1, "top1": 0.0, "mrr": pytest.approx(0.5 / 3)}
-    assert stats["candidate"] == {"searches": 2, "called": 2, "top1": 0.5, "mrr": pytest.approx(0.75)}
+    assert stats["control"] == {
+        "searches": 3, "called": 1, "top1": 0.0, "mrr": pytest.approx(0.5 / 3),
+        "mrr_se": pytest.approx(1 / 6), "k": 4.0, "k_se": 1.0,  # K of the searches that say what they showed
+    }  # fmt: skip
+    assert stats["candidate"] == {
+        "searches": 2, "called": 2, "top1": 0.5, "mrr": pytest.approx(0.75),
+        "mrr_se": pytest.approx(0.25),  # no search said what it showed: no K, never "cheaper"
+    }  # fmt: skip
     acme = judge(events, since="2026-10-01", tenant="acme")
     assert (acme["control"]["searches"], acme["candidate"]["searches"], acme["candidate"]["mrr"]) == (
         1,
@@ -334,6 +343,19 @@ def test_judge_compares_the_arms_on_what_the_agents_called():
     assert decide({"control": row(100, 0.50), "candidate": row(100, 0.505)}) == "wait"  # inside the margin
     assert decide({"control": row(100, 0.50), "candidate": row(99, 0.90)}) == "wait"  # too few searches yet
     assert decide({"control": row(20, 0.5), "candidate": row(20, 0.9)}, min_searches=20) == "promote"
+
+    # with the noise: one standard error of the difference (unpaired), then the cost breaks a tie
+    def arm(mrr, se=0.05, k=None, k_se=0.1):
+        return {**row(400, mrr), "mrr_se": se, **({"k": k, "k_se": k_se} if k is not None else {})}
+
+    assert decide({"control": arm(0.50), "candidate": arm(0.58)}) == "promote"  # 0.08 > 0.071
+    assert decide({"control": arm(0.50), "candidate": arm(0.40)}) == "rollback"
+    assert decide({"control": arm(0.50), "candidate": arm(0.55)}) == "wait"  # within the noise
+    assert (
+        decide({"control": arm(0.50, k=5.0), "candidate": arm(0.47, k=4.0)}) == "promote"
+    )  # as good, cheaper
+    assert decide({"control": arm(0.50, k=5.0), "candidate": arm(0.55, k=4.95)}) == "wait"  # a hair cheaper
+    assert decide({"control": arm(0.50, k=5.0, k_se=0.6), "candidate": arm(0.52, k=4.5, k_se=0.6)}) == "wait"
 
 
 def test_apply_moves_the_files_a_running_server_follows(tmp_path):
@@ -391,7 +413,8 @@ def test_ab_cli_reports_and_moves_only_when_decided(tmp_path, capsys):
     args = ["ab", "--data", str(tmp_path), "--results", str(tmp_path / "res"), "--since", "2000-01-01"]
     assert main(args) == 0  # six searches a side: nothing is decided yet
     out = capsys.readouterr().out
-    assert "| candidate | 6 | 6 | 1.000 | 1.000 |" in out and "| control | 6 | 6 | 0.000 | 0.500 |" in out
+    assert "| candidate | 6 | 6 | 1.000 | 1.000 ± 0.000 | 2.00 |" in out
+    assert "| control | 6 | 6 | 0.000 | 0.500 ± 0.000 | 2.00 |" in out
     assert "wait: nothing moved" in out and (tmp_path / "heads" / "candidate.npz").exists()
     assert main([*args, "--min-searches", "5", "--dry-run"]) == 0
     assert "promote: dry run" in capsys.readouterr().out and (tmp_path / "heads" / "candidate.npz").exists()

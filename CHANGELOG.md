@@ -53,6 +53,12 @@ change behaviour.
 
 ### Changed
 
+- `toolrank ab` weighs the noise. A candidate is promoted or rolled back only when its `mrr`
+  differs from the control's by more than one standard error of the difference (unpaired) and more
+  than `--margin`. A tie within that is promoted only when the candidate hands over fewer tools:
+  its mean K lower by more than K's standard error and 0.1. The table shows `mrr ± se` and K. A
+  request without a session now draws its arm on its own, instead of following its client: a
+  client without sessions had gone wholly to one arm.
 - The OpenAI integration loads a search's first three tools with full input schemas and the rest
   with schemas cut to 1,500 characters, as MCP `search_tools` does. The description says when a
   schema was cut, and a failed call returns the full one. Loaded definitions travel with every

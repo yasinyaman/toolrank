@@ -288,6 +288,23 @@ def test_a_schema_an_api_would_refuse_reaches_platform_clients_as_a_plain_object
     assert full["fx/add"]["inputSchema"] == ADD_SCHEMA and "inputSchemaProblem" not in found["fx/add"]
 
 
+def test_requests_without_a_session_are_split_one_by_one(tmp_path):
+    """A client without sessions must not land wholly in one arm of an A/B: no session, no stickiness."""
+    app, retriever = _app(tmp_path)
+    keys = []
+    search = retriever.search
+
+    def spy(query, **kw):
+        keys.append(kw["arm_key"])
+        return search(query, **kw)
+
+    retriever.search = spy
+    with TestClient(app, base_url=BASE) as c:
+        c.post("/v1/search", json={"query": "add"})
+        c.post("/v1/search", json={"query": "add"}, headers={"X-Session-Id": "conv-1"})
+    assert keys == [None, "rest:conv-1"]
+
+
 def test_metrics_say_where_the_second_stages_scores_came_from(tmp_path):
     class _Second:
         def scored(self):

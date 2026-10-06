@@ -342,7 +342,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--timeout TIMEOUT` | `60.0` | seconds per backend call and connection |
 | `--usage-log USAGE_LOG` |  | usage log directory (default: DATA/usage) |
 | `--no-usage-log` |  |  |
-| `--candidate-share CANDIDATE_SHARE` | `0.1` | share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session) |
+| `--candidate-share CANDIDATE_SHARE` | `0.1` | share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session; requests without one are split one by one) |
 | `--log-text` |  | also log request and error text |
 | `--mask-pii` |  | with --log-text: mask e-mail, phone, card and IBAN numbers |
 

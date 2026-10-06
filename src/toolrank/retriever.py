@@ -16,8 +16,9 @@ one line per index event (keyword index up, index ready, build failed).
 
 Heads can change while the server runs (``toolrank learn`` writes them). With ``heads_dir`` (serve
 and search: ``DATA/heads``), ``current.npz`` there replaces the heads the flags chose, ``candidate.npz``
-answers a sticky ``candidate_share`` of the requests (by ``arm_key``: the session, else the client)
-next to it, and ``tenants/<name>/current.npz`` / ``candidate.npz`` do the same for one API key's
+next to it answers a ``candidate_share`` of the requests (sticky per ``arm_key``, the session; a
+request without one is placed on its own, so a client without sessions is split request by
+request), and ``tenants/<name>/current.npz`` / ``candidate.npz`` do the same for one API key's
 requests. Each is a variant: its own scorer over the same tools, built in the background when the
 file appears or changes and dropped when it goes, its index snapshot under ``index/variants/<name>``.
 Until a variant is built, requests get the one before it. ``SearchResult.arm`` and ``heads`` say
@@ -174,8 +175,8 @@ def innermost(scorer: Any) -> Any:
 
 
 def bucket(key: str | None, share: float) -> bool:
-    """Whether ``key`` falls in the first ``share`` of a stable hash: the same session or client
-    keeps getting the same arm."""
+    """Whether ``key`` falls in the first ``share`` of a stable hash: the same session keeps getting
+    the same arm; ``None`` (no session) is a fresh draw."""
     if share <= 0:
         return False
     if key is None:

@@ -33,14 +33,18 @@ A/B (``judge``, ``decide``, ``apply``; ``toolrank ab``): published heads go to
 them a sticky share of the requests (``retriever.Retriever.pick``) and logs which arm answered. The
 log then says how each arm did: of its searches, how many led to a call that ended ``ok`` or
 ``tool_error``, and how high the called tool stood (``mrr``: the mean of 1/rank over all the arm's
-searches, 0 for a search nobody acted on). The candidate is promoted to ``current.npz`` when its
-``mrr`` beats the control's by ``margin`` with ``min_searches`` on both sides, rolled back when it is
-that much worse, and left running otherwise. Both moves are file renames the server picks up.
+searches, 0 for a search nobody acted on). With ``min_searches`` on both sides the candidate is
+promoted to ``current.npz`` when its ``mrr`` is higher by more than one standard error of the
+difference (unpaired: the arms answer different requests) and by ``margin``, rolled back when it is
+that much lower; a tie within that noise is promoted only when the candidate hands over fewer
+tools (mean K lower by more than its own standard error and ``K_MARGIN``), else it keeps running:
+Context Language Models' acceptance rule. Both moves are file renames the server picks up.
 """
 
 from __future__ import annotations
 
 import hmac
+import math
 import os
 import random
 import sqlite3
@@ -59,6 +63,7 @@ from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, reca
 from toolrank.usage import may_learn_from, read_events, read_key
 
 POSITIVE, WEAK = "ok", "tool_error"
+K_MARGIN = 0.1  # tools handed over per search: a smaller saving is no saving
 K = 5  # the log's own metric: the called tool among the top K of the catalogue
 SCHEMA = 3  # the first log schema with emb_hmac
 
@@ -570,7 +575,7 @@ def judge(
     counts: Counter[str] | None = None,
 ) -> dict[str, dict[str, float]]:
     """How the control and the candidate did since ``since`` -> {"control" | "candidate": {searches,
-    called, top1, mrr}}. A search belongs to the candidate when its ``arm`` ends in ``candidate``.
+    called, top1, mrr, mrr_se[, k, k_se]}} (``k``: tools handed over, a search's ``shown``). A search belongs to the candidate when its ``arm`` ends in ``candidate``.
     Without ``tenant`` this is the shared experiment: the searches of keys that run their own (their
     heads files show in ``arm`` as ``tenant:<name>``) stay out, both arms of them. With ``tenant``
     only that key's own experiment counts. A search counts as called when a linked call ended ``ok``
@@ -583,6 +588,7 @@ def judge(
         if e.get("event") == "search" and str(e.get("arm") or "").startswith("tenant:")
     }
     arms: dict[str, str] = {}
+    shown: dict[str, int] = {}  # tools a search handed over: what a candidate costs
     for e in events:
         if e.get("event") != "search" or (since and str(e.get("ts", "")) < since):
             continue
@@ -598,6 +604,8 @@ def judge(
                 counts["searches_with_jev"] += 1
             continue
         arms[e["id"]] = "candidate" if arm.endswith("candidate") else "control"
+        if isinstance(e.get("shown"), int) and not isinstance(e.get("shown"), bool):
+            shown[e["id"]] = e["shown"]
     best: dict[str, int] = {}
     for e in events:
         sid = e.get("search_id")
@@ -613,23 +621,55 @@ def judge(
         ids = [sid for sid, arm in arms.items() if arm == name]
         ranks = [best[sid] for sid in ids if sid in best]
         n = len(ids)
+        mrr, mrr_se = _mean_se([1.0 / best[sid] if sid in best else 0.0 for sid in ids])
+        sizes = [float(shown[sid]) for sid in ids if sid in shown]
         out[name] = {
             "searches": n,
             "called": len(ranks),
             "top1": sum(r == 1 for r in ranks) / n if n else 0.0,
-            "mrr": sum(1.0 / r for r in ranks) / n if n else 0.0,
+            "mrr": mrr,
+            "mrr_se": mrr_se,
         }
+        if sizes:  # an arm whose searches never said what they showed costs nothing known
+            out[name]["k"], out[name]["k_se"] = _mean_se(sizes)
     return out
+
+
+def _mean_se(values: list[float]) -> tuple[float, float]:
+    """The mean and its standard error (0 for fewer than two values)."""
+    n = len(values)
+    if n == 0:
+        return 0.0, 0.0
+    mean = sum(values) / n
+    if n < 2:
+        return mean, 0.0
+    return mean, math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1) / n)
 
 
 def decide(stats: dict[str, dict[str, float]], *, min_searches: int = 100, margin: float = 0.01) -> str:
     """``promote``, ``rollback`` or ``wait``: nothing is decided before both arms have
-    ``min_searches``, and the candidate's ``mrr`` has to differ from the control's by ``margin``."""
+    ``min_searches``; then the candidate's ``mrr`` has to differ from the control's by more than
+    ``margin`` and one standard error of the difference, and a tie within that is promoted only
+    when the candidate hands over fewer tools (``_cheaper``). Rows without ``mrr_se`` / ``k`` (made by
+    hand) count as noiseless and as costing the same."""
     control, candidate = stats["control"], stats["candidate"]
     if min(control["searches"], candidate["searches"]) < min_searches:
         return "wait"
     diff = candidate["mrr"] - control["mrr"]
-    return "promote" if diff > margin else "rollback" if diff < -margin else "wait"
+    noise = max(margin, math.hypot(control.get("mrr_se", 0.0), candidate.get("mrr_se", 0.0)))
+    if diff > noise:
+        return "promote"
+    if diff < -noise:
+        return "rollback"
+    return "promote" if _cheaper(control, candidate) else "wait"
+
+
+def _cheaper(control: dict[str, float], candidate: dict[str, float]) -> bool:
+    """Whether the candidate's mean K (tools handed over) is lower beyond the noise."""
+    if "k" not in control or "k" not in candidate:
+        return False
+    saved = control["k"] - candidate["k"]
+    return saved > max(K_MARGIN, math.hypot(control.get("k_se", 0.0), candidate.get("k_se", 0.0)))
 
 
 def apply(home: Path, decision: str, *, stamp: str | None = None) -> dict[str, str]:

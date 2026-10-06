@@ -783,10 +783,12 @@ def cmd_ab(a: argparse.Namespace) -> int:
             f"{counts['searches_with_jev']} Jev-served searches decide nothing "
             "(the provider's terms keep them out)"
         )
-    print("| arm | searches | called | top-1 | mrr |\n| --- | ---: | ---: | ---: | ---: |")
+    print("| arm | searches | called | top-1 | mrr ± se | K |\n| --- | ---: | ---: | ---: | ---: | ---: |")
     for name in ("control", "candidate"):
         r = stats[name]
-        print(f"| {name} | {r['searches']} | {r['called']} | {r['top1']:.3f} | {r['mrr']:.3f} |")
+        k = f"{r['k']:.2f}" if "k" in r else "—"
+        mrr = f"{r['mrr']:.3f} ± {r['mrr_se']:.3f}"
+        print(f"| {name} | {r['searches']} | {r['called']} | {r['top1']:.3f} | {mrr} | {k} |")
     moved = {} if a.dry_run else apply(home, decision)
     report = {"data": str(data), "tenant": a.tenant, "since": since, "stats": stats, "decision": decision}
     report.update(moved=moved, forced=bool(a.force), min_searches=a.min_searches, margin=a.margin)
@@ -1455,7 +1457,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidate-share",
         type=float,
         default=0.1,
-        help="share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session)",
+        help="share of requests answered with DATA/heads/candidate.npz when there is one (sticky per session; "
+        "requests without one are split one by one)",
     )
     sv.add_argument("--log-text", action="store_true", help="also log request and error text")
     sv.add_argument(

@@ -536,14 +536,15 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
 - **Heads that change while serving** (Faz 2 week 3): `Retriever.pick` answers a request with a variant, a
   state built from a heads file under `DATA/heads` by `build_retriever`'s `variant` factory (same encoder
   flags, index snapshot under `index/variants/<name>`): `current.npz` replaces the flags' heads (not when
-  `--clm-ckpt` named some), `candidate.npz` takes a sticky `--candidate-share` (`retriever.bucket` of the
-  session, else the client), `tenants/<name>/` does both for one API key. Variants build in the background
+  `--clm-ckpt` named some), `candidate.npz` takes a `--candidate-share` (`retriever.bucket` of the session;
+  a request without one draws on its own, so a sessionless client is split, not 0/100), `tenants/<name>/` does both for one API key. Variants build in the background
   when the file appears or changes (mtime + size + the tools stamp), a request never waits for one, a file
   that cannot be loaded leaves an `error` in `status()["heads"]`. `SearchResult.arm` / `heads` go to the
   log. `toolrank ab` (`learn.judge`, `decide`, `apply`): per arm since the candidate appeared, searches,
   called, top-1 and `mrr` (mean 1/rank of the called tool over all the arm's searches); promote
   (`candidate` → `current`, the old one kept as `previous-<stamp>`), roll back (`rejected-<stamp>`) or wait
-  (`--min-searches` 100 a side, `--margin` 0.01); renames only, which the running server follows.
+  (`--min-searches` 100 a side; the `mrr` difference beyond max(`--margin` 0.01, its unpaired SE), else a tie
+  that only a lower mean K beyond its SE and `K_MARGIN` 0.1 promotes); renames only, which the running server follows.
 - **Head fine-tuning** (`toolrank finetune` → `finetune.run`): the backbone stays frozen and training
   reads only cached vectors (one command embeds what the cache lacks, then trains). Training requests
   equal to a dev or eval query are dropped (counted per source); `split_pairs` takes a seeded

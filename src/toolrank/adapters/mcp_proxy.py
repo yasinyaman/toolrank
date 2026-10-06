@@ -242,7 +242,7 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
             return error_result("k must be an integer from 1 to 50")
         session, client, tenant = who
         try:
-            res = await in_thread(retriever.search, query, k=k, arm_key=session or client, tenant=tenant)
+            res = await in_thread(retriever.search, query, k=k, arm_key=session, tenant=tenant)
         except IndexNotReady as e:
             return error_result(str(e))
         except Exception as e:  # the embedding endpoint is down, ...
