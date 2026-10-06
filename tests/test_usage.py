@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import stat
 import threading
 from hashlib import sha256
@@ -190,7 +191,8 @@ def test_unknown_tool_names_are_request_text_and_the_key_is_never_short(tmp_path
     )
     (plain,) = [e["tool"] for e in read_events(tmp_path / "plain")]
     (masked,) = [e["tool"] for e in read_events(tmp_path / "text")]
-    assert plain.startswith("unknown:") and "ada" not in plain and "ada@example.com" not in masked
+    # a digest: hex after the prefix, so no trace of the name ("ada" itself is hex, so it may show up)
+    assert re.fullmatch(r"unknown:[0-9a-f]{16}", plain) and "ada@example.com" not in masked
     assert len(read_key(tmp_path / "plain" / ".key")) == 32 and not list((tmp_path / "plain").glob(".key.*"))
     (tmp_path / "cut").mkdir()
     (tmp_path / "cut" / ".key").write_bytes(b"")

@@ -8,6 +8,9 @@ change behaviour.
 
 ### Added
 
+- `toolrank.integrations.openai.Toolbox(namespaces=True)` (and the example's `--namespaces`):
+  the found tools load grouped by server, one Responses API `namespace` per server, each tool under
+  its own name inside it. Checked against the SDK's types; not yet run against the live API.
 - `toolrank calibrate` and a `confidence` on every search. Requests that `toolrank data
   gen-queries` writes for the catalogue's own tools are ranked the way the server ranks, and their
   best scores go to `DATA/calibration.json`. A search's `confidence` is the share of those
@@ -78,6 +81,8 @@ change behaviour.
 
 ### Fixed
 
+- `examples/openai_client_tool_search.py` printed "None tools" at start since `/healthz` answers
+  only `{ready, mode}`; it prints the mode.
 - `toolrank learn --replay`: the sample now covers the whole pairs file (a seeded reservoir; before,
   the first `max(4N, 1000)` rows in file order stood in for it), replay rows bring their positives
   only (the mined negatives such files carry cost more than they taught in Phase 0), and pairs a

@@ -50,6 +50,11 @@ result = tr.run(OpenAI(), ToolrankClient(), "What time is it in Tokyo?", model="
 
 Loaded definitions are sent again on every later turn: broad searches over large schemas add up.
 
+`Toolbox(client, namespaces=True)` (the example's `--namespaces`) loads the found tools grouped by
+server: one `namespace` per server, with each tool under its own name (`issues__create` in
+`github`), so long ids keep readable names. It matches the SDK's types; it has not been run
+against the live API yet.
+
 ## On both
 
 - The calls go through `POST /v1/call`, with the same write policy, usage log and error hints as

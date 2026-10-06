@@ -18,6 +18,13 @@ The loop keeps the API's rules:
   order; a ``failed`` response raises, an ``incomplete`` one ends the run without running anything;
 - function names are toolrank's api names, which match the API's ``^[a-zA-Z0-9_-]+$``.
 
+With ``Toolbox(namespaces=True)`` the found tools come grouped by server instead: one
+``namespace`` per server (its api name, a one-line description) holding the server's tools under
+their own names (``github__issues__create`` becomes ``issues__create`` in ``github``), and the
+model's ``function_call`` names both. A later search that finds more of a loaded server's tools
+sends that namespace again with only the new ones. Checked against the SDK's types, not yet
+against the live API.
+
     import openai
     from toolrank.client import ToolrankClient
     from toolrank.integrations import openai as tr
@@ -36,6 +43,7 @@ from typing import Any
 
 from toolrank.client import ToolrankClient, ToolrankError
 from toolrank.integrations._common import Approve, OnEvent, as_text, get
+from toolrank.names import api_name
 
 MAX_TOOLS = 10  # per search
 
@@ -66,14 +74,15 @@ def search_tool() -> dict[str, Any]:
     }
 
 
-def function_tool(hit: dict[str, Any]) -> dict[str, Any]:
-    """A toolrank search hit (``full_schemas``) as a deferred ``function`` tool."""
+def function_tool(hit: dict[str, Any], name: str | None = None) -> dict[str, Any]:
+    """A toolrank search hit (``full_schemas``) as a deferred ``function`` tool, named ``name``
+    (default: its api name)."""
     parameters = dict(hit.get("inputSchema") or {})
     parameters.pop("$schema", None)
     parameters.setdefault("type", "object")
     return {
         "type": "function",
-        "name": hit["api_name"],
+        "name": name or hit["api_name"],
         "description": hit.get("description") or "",
         "parameters": parameters,
         "strict": False,
@@ -81,11 +90,36 @@ def function_tool(hit: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def own_name(hit: dict[str, Any]) -> str:
+    """A hit's name inside its server's namespace: its id without ``<server>/``, as an api name."""
+    server, tool_id = hit.get("server") or "", hit["name"]
+    if server and tool_id.startswith(server + "/") and len(tool_id) > len(server) + 1:
+        return api_name(tool_id[len(server) + 1 :])
+    return hit["api_name"]
+
+
+def namespace(server: str, kind: str | None, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """A server's tools as one ``namespace`` tool."""
+    what = {"openapi": "an HTTP API", "mcp": "an MCP server"}.get(kind or "", "a tool server")
+    return {
+        "type": "namespace",
+        "name": api_name(server or "tools"),
+        "description": f"Tools of {server or 'this catalogue'} ({what}).",
+        "tools": tools,
+    }
+
+
+def _key(space: str | None, name: str) -> str:
+    """A loaded tool's key: its name, ``<namespace>/<name>`` inside one (no api name has a ``/``)."""
+    return f"{space}/{name}" if space else name
+
+
 class Toolbox:
     """One conversation's tools: what toolrank found and loaded, and the calls it ran.
 
     ``respond(response)`` answers a response's tool searches and calls; ``approve(entry,
-    arguments)`` may veto a call; ``on_event(kind, details)`` sees every search, call and turn."""
+    arguments)`` may veto a call; ``on_event(kind, details)`` sees every search, call and turn;
+    ``namespaces`` groups the found tools by server (see the module's docstring)."""
 
     def __init__(
         self,
@@ -94,13 +128,14 @@ class Toolbox:
         approve: Approve | None = None,
         on_event: OnEvent | None = None,
         session: str | None = None,
+        namespaces: bool = False,
     ):
-        self.toolrank, self.approve = toolrank, approve
+        self.toolrank, self.approve, self.namespaces = toolrank, approve, namespaces
         self.on_event: OnEvent = on_event or (lambda kind, details: None)
         self.session = session or f"openai-{uuid.uuid4().hex[:12]}"
         self.tools: list[dict[str, Any]] = [search_tool()]
-        self.loaded: dict[str, dict[str, Any]] = {}  # api name -> the search hit sent for it
-        self.found: dict[str, str] = {}  # api name -> the latest search that returned it
+        self.loaded: dict[str, dict[str, Any]] = {}  # ``_key`` -> the search hit sent for it
+        self.found: dict[str, str] = {}  # ``_key`` -> the latest search that returned it
 
     def respond(self, response: Any) -> list[dict[str, Any]]:
         """The items that answer ``response``'s tool searches and calls, in order; [] when it asks
@@ -138,12 +173,23 @@ class Toolbox:
         except ToolrankError as e:  # the output item has no error channel: nothing is loaded
             self.on_event("search", {"query": query, "error": e.message})
         else:
+            spaces: dict[str, dict[str, Any]] = {}  # server -> its namespace in this output
             for hit in found.get("tools", [])[:MAX_TOOLS]:
-                name = hit["api_name"]
-                self.found[name] = found["search_id"]
-                if name not in self.loaded:
-                    self.loaded[name] = hit
+                server = hit.get("server") or ""
+                space = api_name(server or "tools") if self.namespaces else None
+                name = own_name(hit) if self.namespaces else hit["api_name"]
+                key = _key(space, name)
+                self.found[key] = found["search_id"]
+                if key in self.loaded:
+                    continue
+                self.loaded[key] = hit
+                if not self.namespaces:
                     new.append(function_tool(hit))
+                    continue
+                if server not in spaces:
+                    spaces[server] = namespace(server, hit.get("kind"), [])
+                    new.append(spaces[server])
+                spaces[server]["tools"].append(function_tool(hit, name))
             self.on_event(
                 "search",
                 {
@@ -163,10 +209,12 @@ class Toolbox:
         }
 
     def _call(self, item: Any) -> dict[str, Any]:
-        call_id, name = get(item, "call_id"), get(item, "name")
-        entry = self.loaded.get(name)
+        call_id, name, space = get(item, "call_id"), get(item, "name"), get(item, "namespace")
+        key = _key(space, name)
+        entry = self.loaded.get(key)
         if entry is None:
-            return _output(call_id, f"Error: no loaded tool is named {name!r}; search for it first.")
+            where = f" in {space!r}" if space else ""
+            return _output(call_id, f"Error: no loaded tool is named {name!r}{where}; search for it first.")
         raw = get(item, "arguments") or "{}"
         try:
             args = json.loads(raw) if isinstance(raw, str) else raw
@@ -179,9 +227,7 @@ class Toolbox:
             return _output(call_id, "Error: the user declined this call.")
         t0 = time.perf_counter()
         try:
-            out = self.toolrank.call(
-                entry["name"], args, search_id=self.found.get(name), session=self.session
-            )
+            out = self.toolrank.call(entry["name"], args, search_id=self.found.get(key), session=self.session)
         except ToolrankError as e:
             self.on_event("call", {"tool": entry["name"], "outcome": "error", "error": e.message})
             return _output(call_id, f"Error: toolrank could not run {entry['name']}: {e.message}")

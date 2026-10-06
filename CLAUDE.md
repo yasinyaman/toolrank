@@ -459,7 +459,8 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `pause_turn` resent; `builtin="bm25"` uses the API's own search. `integrations/openai.py`:
   only `tool_search` (`execution: "client"`) declared, each `tool_search_call` answered with the new
   tools' full `function` definitions, stateless (`store=False` + encrypted reasoning, all items
-  resent). Neither imports the SDKs; tests run the real SDKs over `httpx2.MockTransport` against
+  resent); `Toolbox(namespaces=True)`: one `namespace` per server, tools under `own_name` (a call names
+  both; untested live). Neither imports the SDKs; tests run the real SDKs over `httpx2.MockTransport` against
   toolrank in process. Examples ask before non-read-only calls unless `--yes`.
 - **Framework adapters** (Faz 1 week 5, `integrations/`): `langgraph.Toolbox` = the catalogue as
   LangChain `BaseTool`s whose `_run(**arguments)` takes nothing else (LangChain injects `config` /

@@ -42,6 +42,7 @@ def main() -> int:
     p.add_argument("--model", default="gpt-5.5")
     p.add_argument("--max-turns", type=int, default=12)
     p.add_argument("--yes", action="store_true", help="run every call without asking")
+    p.add_argument("--namespaces", action="store_true", help="load the found tools grouped by server")
     a = p.parse_args()
     load_env()
 
@@ -70,8 +71,8 @@ def main() -> int:
             print(f"  call {d['tool']}: {d.get('outcome')}" + (f" ({d['ms']} ms)" if "ms" in d else ""))
 
     tr = ToolrankClient(a.toolrank, api_key=os.environ.get("TOOLRANK_API_KEY"))
-    box = gpt.Toolbox(tr, approve=approve, on_event=show)
-    print(f"toolrank at {a.toolrank}: {tr.health().get('tools')} tools; model {a.model}")
+    box = gpt.Toolbox(tr, approve=approve, on_event=show, namespaces=a.namespaces)
+    print(f"toolrank at {a.toolrank} ({tr.health().get('mode')}); model {a.model}")
     try:
         result = gpt.run(openai.OpenAI(), box, a.task, model=a.model, max_turns=a.max_turns)
     except openai.APIError as e:

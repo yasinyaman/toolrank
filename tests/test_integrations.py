@@ -269,6 +269,39 @@ def test_gpt_searches_loads_tools_and_calls_through_toolrank(tmp_path):
     TypeAdapter(openai.types.responses.ResponseToolSearchOutputItemParamParam).validate_python(output)
 
 
+def test_gpt_gets_the_found_tools_in_one_namespace_per_server(tmp_path):
+    script = _Script(
+        _response("completed", _search_call("call_s1", "add two integers")),
+        _response("completed", {**_function_call("call_f1", "add", '{"a": 2, "b": 3}'), "namespace": "fx"}),
+        _response("completed", _function_call("call_f2", "fx__add", "{}")),  # the flat name is not loaded
+        _response("completed", _said("5")),
+    )
+    with _toolrank(tmp_path) as tr:
+        result = gpt.run(_gpt(script), gpt.Toolbox(tr, namespaces=True), "What is 2 + 3?", model="gpt-test")
+    assert result.text == "5"
+    output = script.sent[1]["input"][-1]
+    spaces = {ns["name"]: ns for ns in output["tools"]}
+    assert set(spaces) == {"fx", "api"} and all(ns["type"] == "namespace" for ns in spaces.values())
+    assert [t["name"] for t in spaces["fx"]["tools"]] == ["add"]
+    assert sorted(t["name"] for t in spaces["api"]["tools"]) == ["createThing", "getThing"]
+    assert spaces["fx"]["description"] == "Tools of fx (an MCP server)."
+    assert spaces["api"]["description"] == "Tools of api (an HTTP API)."
+    assert script.sent[2]["input"][-1] == {
+        "type": "function_call_output",
+        "call_id": "call_f1",
+        "output": "5",
+    }
+    assert "no loaded tool is named 'fx__add'" in script.sent[3]["input"][-1]["output"]
+    assert [(c["tool"], c["link"]) for c in _calls(tmp_path)] == [("fx/add", "search_id")]
+    TypeAdapter(openai.types.responses.NamespaceToolParam).validate_python(spaces["api"])
+    TypeAdapter(openai.types.responses.ResponseToolSearchOutputItemParamParam).validate_python(output)
+    assert (
+        gpt.own_name({"name": "github/issues/create", "server": "github", "api_name": "x"})
+        == "issues__create"
+    )
+    assert gpt.own_name({"name": "other", "server": "github", "api_name": "other"}) == "other"
+
+
 def test_gpt_bad_calls_are_outputs_and_incomplete_runs_nothing(tmp_path):
     script = _Script(
         _response("completed", _search_call("call_s1", "things")),
