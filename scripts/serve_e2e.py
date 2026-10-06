@@ -313,6 +313,7 @@ async def http_phase(
         str(port),
         "--api-keys",
         str(logdir / "keys.json"),
+        *(["--clm-ckpt", "none"] if a.heads_none else []),
     ]
     (logdir / "keys.json").write_text(json.dumps({"e2e": key}))
     before = backend_pids()
@@ -384,7 +385,7 @@ async def http_phase(
 async def stdio_phase(a: argparse.Namespace, env: dict[str, str], cfg_path: Path) -> dict:
     exe = str(Path(sys.executable).with_name("toolrank"))
     args = ("serve", "--stdio", "--data", a.data, "--config", str(cfg_path), "--emb-url", a.emb_url)
-    args += ("--emb-model", a.emb_model)
+    args += ("--emb-model", a.emb_model, *(("--clm-ckpt", "none") if a.heads_none else ()))
     cfg = ServerConfig("toolrank", "stdio", command=exe, args=args, env=env, cwd="/")  # like Claude Desktop
     before = backend_pids()
     out: dict[str, Any] = {}
@@ -460,7 +461,11 @@ def main() -> None:
         default="qwen3-emb",
         help="served name at --emb-url; 8091 serves qwen3-emb, the base the v0.1 heads belong to",
     )
-    p.add_argument("--heads", default=None, help="packaged heads (.npz); default: $TOOLRANK_HEADS")
+    p.add_argument(
+        "--heads",
+        default=None,
+        help="packaged heads (.npz), or none (the backbone alone); default: $TOOLRANK_HEADS",
+    )
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--skip-stdio", action="store_true")
     p.add_argument("--out", default=None, help="write the summary JSON here")
@@ -471,7 +476,8 @@ def main() -> None:
     stand_in = petstore(pet_key)
     env = {"PETSTORE_KEY": pet_key}
     heads = a.heads or os.environ.get("TOOLRANK_HEADS")
-    if heads:
+    a.heads_none = heads == "none"  # serve --clm-ckpt none: a backbone the packaged heads do not fit
+    if heads and not a.heads_none:
         env["TOOLRANK_HEADS"] = str(Path(heads).resolve())
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = write_config(Path(tmp), stand_in.server_address[1])

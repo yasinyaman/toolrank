@@ -174,6 +174,8 @@ change behaviour.
   before, a candidate's rows overwrote the control arm's in the one table. `eval --pg-table` defaults
   to `toolrank_eval`, so an eval no longer deletes a served catalogue's rows, and a search skips ids a
   shared table holds that the catalogue does not (it ended in a `KeyError`).
+- `scripts/serve_e2e.py --heads none` serves the backbone alone (`--clm-ckpt none`), as the other two
+  e2e scripts already did; it had set `TOOLRANK_HEADS` to a file named `none`.
 - `scripts/serve_e2e.py`, `platforms_e2e.py` and `frameworks_e2e.py` pass `--emb-model` (default
   `qwen3-emb`) to the server they start; since 0.2.0 the server's own default is the LoRA backbone's
   name, which port 8091 does not serve.
