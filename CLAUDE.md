@@ -357,8 +357,9 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   stage's cosine list) that writes no shared state (`last_base` is eval's), so the retriever's adaptive cut
   counts on the cosines and shows the reranked order. Jev in serve sends request text out: logged at start.
 - **Tenants** (Faz 2 week 6, `tenants.py`): `--api-keys` entries are a key string or `{key, sources, headers,
-  env}`. One shared catalogue, index and cache; `Retriever(allowed={tenant: sources})` filters searches (ranking
-  deeper, ×4 at a time, until enough of the key's tools are in the list), `get(id, tenant)` and
+  env}`. One shared catalogue and index; `Retriever(allowed={tenant: sources})` sets `ports.visible_ids` and the
+  first-stage scorers rank within it (`within_visible`: deeper, ×4 at a time), so fusion and a second stage see
+  only the key's tools; a named key's request caches are its own (`ports.cache_scope`); `get(id, tenant)` and
   `catalogue(tenant)`, so a tool outside a key's sources is indistinguishable from a missing one (REST 404, MCP
   `unknown_tool`, never sent). `Backends(tenants=...)`: a key's headers join the config's on its OpenAPI calls
   (configured `base_url` only), and an MCP server it has headers or env for gets a connection of the key's own

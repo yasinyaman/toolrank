@@ -15,6 +15,7 @@ import numpy as np
 
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter
+from toolrank.ports import within_visible
 
 
 def _stemmer(lang: str = "english"):
@@ -67,12 +68,17 @@ class BM25Scorer:
         if self._bm25 is None:
             raise RuntimeError("call index() before rank()")
         texts = [self.query_format(q) for q in queries]
-        kk = min(k, len(self._ids))
         with self._lock:
             toks = bm25s.tokenize(texts, stopwords=self.stopwords, stemmer=self.stemmer, show_progress=False)
-            docs, scores = self._bm25.retrieve(toks, k=kk, show_progress=False, n_threads=1)
-        docs, scores = np.asarray(docs), np.asarray(scores, dtype=np.float32)
-        return [
-            RankedList(q.id, [self._ids[int(j)] for j in docs[i]], [float(s) for s in scores[i]])
-            for i, q in enumerate(queries)
-        ]
+
+        def search(depth: int) -> tuple[list[list[str]], list[list[float]]]:
+            kk = min(depth, len(self._ids))
+            with self._lock:
+                docs, scores = self._bm25.retrieve(toks, k=kk, show_progress=False, n_threads=1)
+            docs, scores = np.asarray(docs), np.asarray(scores, dtype=np.float32)
+            return [[self._ids[int(j)] for j in row] for row in docs], [
+                [float(s) for s in row] for row in scores
+            ]
+
+        ids, scores = within_visible(search, min(k, len(self._ids)))
+        return [RankedList(q.id, ids[i], scores[i]) for i, q in enumerate(queries)]

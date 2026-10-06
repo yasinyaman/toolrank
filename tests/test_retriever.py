@@ -378,3 +378,43 @@ def test_rank_scores_supplied_tools_with_the_heads_a_search_would_use(tmp_path):
     acme = r.rank("tool 3", supplied, tenant="acme")
     assert len({tuple(s for _, s in x) for x in (base, current, acme)}) == 3
     assert r.rank("tool 3", supplied, tenant="other") == current  # another key: the shared heads
+
+
+def test_a_key_limited_to_some_sources_ranks_as_if_the_catalogue_were_its_own(tmp_path):
+    """Ranking the whole catalogue and filtering afterwards left traces: RRF scores 1/(60 + global
+    rank), a second stage's tail scores counting hidden tools, and hidden tools' text sent to the
+    second stage. Ranked within the key's sources, its results equal those of a catalogue of them."""
+    from toolrank.adapters.rerank import ScorerReranker
+
+    mine = [
+        Tool(id=f"a/t{i}", doc={"name": f"t{i}", "description": f"tool {i}"}, category="a") for i in range(6)
+    ]
+    hidden = [
+        Tool(id=f"b/u{i}", doc={"name": f"u{i}", "description": f"tool {i} too"}, category="b")
+        for i in range(40)
+    ]
+    write_tools(tmp_path / "all" / "tools.jsonl", mine + hidden)
+    write_tools(tmp_path / "own" / "tools.jsonl", mine)
+    seen: list[str] = []
+
+    class _Second(DenseScorer):
+        def score_tools(self, query, tools):
+            seen.extend(t.id for t in tools)
+            return super().score_tools(query, tools)
+
+    def reranked():
+        return ScorerReranker(_make(), _Second(_HashEncoder(), "name_desc", "plain"), depth=4)
+
+    shared = Retriever(tmp_path / "all", reranked, fixed_k=5, allowed={"acme": frozenset({"a"})})
+    own = Retriever(tmp_path / "own", reranked, fixed_k=5)
+    got, want = shared.search("tool 3", tenant="acme"), own.search("tool 3")
+    assert [(h.id, h.score) for h in got.hits] == [(h.id, h.score) for h in want.hits]
+    assert seen and all(t.startswith("a/") for t in seen)  # no hidden tool's text reached the second stage
+
+    def hybrid():
+        return HybridScorer(_make(), BM25Scorer("name_desc", "plain"))
+
+    fused = Retriever(tmp_path / "all", hybrid, fixed_k=6, allowed={"acme": frozenset({"a"})}).search(
+        "tool 3", tenant="acme"
+    )
+    assert len(fused.hits) == 6 and min(h.score for h in fused.hits) >= 1 / (60 + 6)  # ranks among its 6

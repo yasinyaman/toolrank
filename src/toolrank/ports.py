@@ -6,7 +6,7 @@ runner, the CLI or the datasets - the whole point of the Phase 0 go/no-go on CLM
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from typing import Protocol, runtime_checkable
 
@@ -19,6 +19,33 @@ from toolrank.domain import Query, RankedList, Tool
 # answer comes tells one key nothing about another key's requests. The shared catalogue is indexed
 # outside any scope.
 cache_scope: ContextVar[str | None] = ContextVar("toolrank_cache_scope", default=None)
+
+
+# The tool ids a key limited to some sources may see while a request runs, or None for all. The
+# first-stage scorers rank within them, so fusion and a second stage only ever see those tools:
+# their scores carry no trace of where hidden tools ranked, and no hidden tool's text is sent out.
+visible_ids: ContextVar[frozenset[str] | None] = ContextVar("toolrank_visible_ids", default=None)
+
+
+def within_visible(
+    search: Callable[[int], tuple[list[list[str]], list[list[float]]]], k: int
+) -> tuple[list[list[str]], list[list[float]]]:
+    """``search(depth)`` (ids and scores per query, best first) cut to ``visible_ids``: deeper, four
+    times at a time, until every query has ``k`` visible ids or the index has no more."""
+    allowed = visible_ids.get()
+    if allowed is None:
+        return search(k)
+    depth = k
+    while True:
+        ids, scores = search(depth)
+        kept = [
+            [(t, s) for t, s in zip(i, sc, strict=True) if t in allowed]
+            for i, sc in zip(ids, scores, strict=True)
+        ]
+        if all(len(r) >= k for r in kept) or all(len(i) < depth for i in ids):
+            break
+        depth *= 4
+    return [[t for t, _ in r][:k] for r in kept], [[s for _, s in r][:k] for r in kept]
 
 
 def scoped(key_text: str) -> str:

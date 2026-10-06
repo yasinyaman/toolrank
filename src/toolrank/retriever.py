@@ -40,7 +40,7 @@ from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
 from toolrank.domain import Query, RankedList, Tool
-from toolrank.ports import cache_scope
+from toolrank.ports import cache_scope, visible_ids
 
 LOG_TOP = 20  # ranked tools kept for the usage log, whatever the cut returns
 SETTLE_S = 0.05  # a tools.jsonl modified more recently than this may still be being written
@@ -443,6 +443,25 @@ class Retriever:
             return f"top {fixed}"
         return f"adaptive K ({self.rule.describe()})" if self.rule else f"top {self.depth}"
 
+    def _ranked(
+        self, st: _State, q: Query, depth: int, want: int, visible: frozenset[str] | None
+    ) -> tuple[RankedList, RankedList | None, int]:
+        """The state's scorer's (fused, first-stage) lists for ``q``, ranked deeper until a key
+        limited to some sources has ``want`` of its tools in them (or there are no more)."""
+        while True:
+            if hasattr(st.scorer, "rank_pairs"):
+                fused, semantic = st.scorer.rank_pairs([q], depth)[0]
+            else:
+                fused, semantic = st.scorer.rank([q], depth)[0], None
+            if visible is None:
+                break
+            # a key limited to some sources: rank deeper until enough of its tools are in the list
+            fused, semantic = _only(fused, visible), (_only(semantic, visible) if semantic else None)
+            if len(fused.tool_ids) >= want or depth >= len(st.tools):
+                break
+            depth = min(len(st.tools), 4 * depth)
+        return fused, semantic, depth
+
     def search(
         self,
         query: str,
@@ -475,19 +494,12 @@ class Retriever:
         t0 = time.perf_counter()
         want = max(top, LOG_TOP)
         visible = self.visible(st, tenant)
-        depth = want if visible is None else min(len(st.tools), 4 * want)
-        while True:
-            if hasattr(st.scorer, "rank_pairs"):
-                fused, semantic = st.scorer.rank_pairs([q], depth)[0]
-            else:
-                fused, semantic = st.scorer.rank([q], depth)[0], None
-            if visible is None:
-                break
-            # a key limited to some sources: rank deeper until enough of its tools are in the list
-            fused, semantic = _only(fused, visible), (_only(semantic, visible) if semantic else None)
-            if len(fused.tool_ids) >= want or depth >= len(st.tools):
-                break
-            depth = min(len(st.tools), 4 * depth)
+        depth = want  # the first-stage scorers go deeper themselves for a key limited to some sources
+        rank_within = visible_ids.set(visible)  # the scorers rank among the key's own tools only
+        try:
+            fused, semantic, depth = self._ranked(st, q, depth, want, visible)
+        finally:
+            visible_ids.reset(rank_within)
         if not all(t in st.by_id for t in fused.tool_ids):  # a shared index (pgvector) holding other rows
             known = frozenset(st.by_id)
             fused, semantic = _only(fused, known), (_only(semantic, known) if semantic else None)

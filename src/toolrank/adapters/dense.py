@@ -30,7 +30,7 @@ from toolrank.adapters.embeddings_api import l2_normalize
 from toolrank.adapters.index_numpy import NumpyIndex, topk_dot
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter, server_summary
-from toolrank.ports import IndexChanged, TextEncoder, VectorIndex
+from toolrank.ports import IndexChanged, TextEncoder, VectorIndex, within_visible
 
 __all__ = ["DenseScorer", "row_hash", "topk_dot"]
 
@@ -142,9 +142,9 @@ class DenseScorer:
             return []
         q = self._vectors([self.query_format(x) for x in queries], "query", self.project_queries)
         if self._servers is None:
-            ids, scores = self.vindex.search(q, k)
+            ids, scores = within_visible(lambda depth: self.vindex.search(q, depth), k)
             return [RankedList(x.id, ids[i], scores[i]) for i, x in enumerate(queries)]
-        ids, scores = self.vindex.search(q, max(k, ROUTE_DEPTH))
+        ids, scores = within_visible(lambda depth: self.vindex.search(q, depth), max(k, ROUTE_DEPTH))
         term = self.server_weight * (q @ self._servers.T)
         out: list[RankedList] = []
         term = np.concatenate([term, np.zeros((len(queries), 1), dtype=term.dtype)], axis=1)

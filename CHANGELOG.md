@@ -130,6 +130,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A key limited to some sources is ranked within them: the first-stage scorers (dense, BM25) go deeper
+  until they have enough of the key's tools, and hybrid fusion and a second stage only see those. Before,
+  the whole catalogue was ranked and filtered afterwards: RRF scores (`1/(60 + rank)`) and a second
+  stage's tail scores gave away where hidden tools ranked, the second stage often reranked none of the
+  key's tools, and hidden tools' text went to the cross-encoder or Jev.
 - Named API keys no longer share request caches: a request another key made before was answered from
   the embedding cache in milliseconds instead of a round trip to the endpoint, which let one key
   confirm another's exact request (and `/v1/rank` confirm a catalogue tool's exact text). A named
