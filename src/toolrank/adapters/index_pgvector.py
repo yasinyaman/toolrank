@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import re
 import threading
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
+
+from toolrank.ports import IndexChanged
 
 
 class PgVectorIndex:
@@ -58,19 +60,37 @@ class PgVectorIndex:
             return dict(self._db().execute(f"SELECT id, hash FROM {self.table}").fetchall())
 
     def apply(
-        self, ids: Sequence[str], hashes: Sequence[str], vectors: np.ndarray, delete: Sequence[str] = ()
+        self,
+        ids: Sequence[str],
+        hashes: Sequence[str],
+        vectors: np.ndarray,
+        delete: Sequence[str] = (),
+        expect: Mapping[str, str] | None = None,
     ) -> None:
         vectors = np.asarray(vectors, dtype=np.float32)
         if len(ids) != len(hashes) or len(ids) != vectors.shape[0]:
             raise ValueError(f"{len(ids)} ids, {len(hashes)} hashes, {vectors.shape[0]} vectors")
         with self._lock:
-            self._apply(ids, hashes, vectors, delete)
+            self._apply(ids, hashes, vectors, delete, expect or {})
 
     def _apply(
-        self, ids: Sequence[str], hashes: Sequence[str], vectors: np.ndarray, delete: Sequence[str]
+        self,
+        ids: Sequence[str],
+        hashes: Sequence[str],
+        vectors: np.ndarray,
+        delete: Sequence[str],
+        expect: Mapping[str, str],
     ) -> None:
         conn = self._db()
         with conn.transaction(), conn.cursor() as cur:
+            if expect:  # the rows this writer keeps, locked and checked before anything changes
+                cur.execute(
+                    f"SELECT id, hash FROM {self.table} WHERE id = ANY(%s) FOR UPDATE", (list(expect),)
+                )
+                stored = dict(cur.fetchall())
+                changed = [i for i, h in expect.items() if stored.get(i) != h]
+                if changed:
+                    raise IndexChanged(changed)
             if delete:
                 cur.execute(f"DELETE FROM {self.table} WHERE id = ANY(%s)", (list(delete),))
             if len(ids):

@@ -6,7 +6,7 @@ runner, the CLI or the datasets - the whole point of the Phase 0 go/no-go on CLM
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -41,13 +41,23 @@ class TextEncoder(Protocol):
     def encode(self, texts: Sequence[str], *, kind: str = "document") -> np.ndarray: ...
 
 
+class IndexChanged(RuntimeError):
+    """Rows a writer meant to keep were rewritten by another process meanwhile (``ids``)."""
+
+    def __init__(self, ids: Sequence[str]):
+        super().__init__(f"{len(ids)} rows changed under this writer, e.g. {list(ids)[:3]}")
+        self.ids = list(ids)
+
+
 @runtime_checkable
 class VectorIndex(Protocol):
     """Unit-length tool vectors by id, searched by inner product.
 
     Every row carries a hash of what produced it (encoder, heads, tool text), so a scorer embeds
     only new or changed tools; ``apply`` is one atomic change (rows replaced or appended, ids
-    dropped). ``search`` returns at most ``k`` ids and scores per query, best first.
+    dropped). ``expect`` (id -> hash) names the rows the writer keeps as it saw them: a shared index
+    raises ``IndexChanged`` instead of applying when another writer changed one of them. ``search``
+    returns at most ``k`` ids and scores per query, best first.
     """
 
     name: str
@@ -55,7 +65,12 @@ class VectorIndex(Protocol):
     def hashes(self) -> dict[str, str]: ...
 
     def apply(
-        self, ids: Sequence[str], hashes: Sequence[str], vectors: np.ndarray, delete: Sequence[str] = ()
+        self,
+        ids: Sequence[str],
+        hashes: Sequence[str],
+        vectors: np.ndarray,
+        delete: Sequence[str] = (),
+        expect: Mapping[str, str] | None = None,
     ) -> None: ...
 
     def search(self, queries: np.ndarray, k: int) -> tuple[list[list[str]], list[list[float]]]: ...

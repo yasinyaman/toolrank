@@ -30,7 +30,7 @@ from toolrank.adapters.embeddings_api import l2_normalize
 from toolrank.adapters.index_numpy import NumpyIndex, topk_dot
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter, server_summary
-from toolrank.ports import TextEncoder, VectorIndex
+from toolrank.ports import IndexChanged, TextEncoder, VectorIndex
 
 __all__ = ["DenseScorer", "row_hash", "topk_dot"]
 
@@ -91,17 +91,27 @@ class DenseScorer:
             raise ValueError(f"duplicate tool ids: {dupes[:5]}")
         texts = [self.tool_format(t) for t in tools]
         hashes = [row_hash(self.fingerprint, x) for x in texts]
-        have = self.vindex.hashes()
-        todo = [n for n, (i, h) in enumerate(zip(ids, hashes, strict=True)) if have.get(i) != h]
         present = set(ids)
-        gone = [i for i in have if i not in present]
-        if todo:
-            vecs = self._vectors([texts[n] for n in todo], "document", self.project_tools)
-        else:
-            vecs = np.zeros((0, 0), dtype=np.float32)
-        if todo or gone:
-            self.vindex.apply([ids[n] for n in todo], [hashes[n] for n in todo], vecs, gone)
-        self.last_sync = {"embedded": len(todo), "removed": len(gone), "kept": len(ids) - len(todo)}
+        embedded = 0
+        for attempt in range(4):  # a persistent index another writer (other flags) changes meanwhile
+            have = self.vindex.hashes()
+            todo = [n for n, (i, h) in enumerate(zip(ids, hashes, strict=True)) if have.get(i) != h]
+            kept = {ids[n]: hashes[n] for n in range(len(ids)) if have.get(ids[n]) == hashes[n]}
+            gone = [i for i in have if i not in present]
+            if todo:
+                vecs = self._vectors([texts[n] for n in todo], "document", self.project_tools)
+            else:
+                vecs = np.zeros((0, 0), dtype=np.float32)
+            embedded += len(todo)
+            if not (todo or gone):
+                break
+            try:
+                self.vindex.apply([ids[n] for n in todo], [hashes[n] for n in todo], vecs, gone, expect=kept)
+                break
+            except IndexChanged:
+                if attempt == 3:
+                    raise
+        self.last_sync = {"embedded": embedded, "removed": len(gone), "kept": len(ids) - len(todo)}
         self._route(tools)
 
     def _route(self, tools: Sequence[Tool]) -> None:

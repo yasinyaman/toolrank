@@ -3,7 +3,7 @@ import hashlib
 import numpy as np
 import pytest
 
-from toolrank.adapters.dense import DenseScorer, topk_dot
+from toolrank.adapters.dense import DenseScorer, row_hash, topk_dot
 from toolrank.adapters.embeddings_api import l2_normalize
 from toolrank.adapters.index_numpy import NumpyIndex
 from toolrank.domain import Query, Tool
@@ -102,3 +102,39 @@ def test_incremental_sync_embeds_only_new_or_changed_tools(tmp_path):
 def test_duplicate_tool_ids_are_rejected():
     with pytest.raises(ValueError, match="duplicate tool ids"):
         DenseScorer(_HashEncoder(), "name_desc").index(_tools(3) + _tools(1))
+
+
+def test_a_writer_with_other_settings_never_leaves_its_rows_kept_as_ours(tmp_path):
+    """Two processes on one DATA/index with different flags: rows the other one rewrote must be
+    embedded again, whether it wrote before our index() or between our look and our write."""
+    path = tmp_path / "index.npz"
+    tools = _tools()
+    mine = DenseScorer(_HashEncoder(), "name_desc", index=NumpyIndex(path), fingerprint="fp1")
+    mine.index(tools)
+    DenseScorer(_HashEncoder(), "name_desc", index=NumpyIndex(path), fingerprint="fp2").index(tools)
+    mine.index(tools)  # the snapshot changed since we read it: reread, not "kept"
+    assert mine.last_sync["embedded"] == 30
+    want = {
+        t.id: h for t, h in zip(tools, [row_hash("fp1", mine.tool_format(t)) for t in tools], strict=True)
+    }
+    assert NumpyIndex(path).hashes() == want
+
+    # the other writer gets in between our look at the hashes and our apply
+    late = DenseScorer(_HashEncoder(), "name_desc", index=NumpyIndex(path), fingerprint="fp1")
+    look = late.vindex.hashes
+    calls = []
+
+    def racing():
+        seen = look()
+        if not calls:
+            DenseScorer(_HashEncoder(), "name_desc", index=NumpyIndex(path), fingerprint="fp2").index(
+                tools[:5]
+            )
+        calls.append(1)
+        return seen
+
+    late.vindex.hashes = racing
+    changed = [*tools[:-1], Tool(id="new", doc={"name": "new", "description": "a new tool"})]
+    late.index(changed)
+    stored = NumpyIndex(path).hashes()
+    assert len(calls) == 2 and all(stored[t.id] == row_hash("fp1", late.tool_format(t)) for t in changed)

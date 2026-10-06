@@ -10,12 +10,14 @@ ingest warm-up and a server) never interleave and a reader never pairs new ids w
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from toolrank.ports import IndexChanged
 
 try:  # POSIX; elsewhere writers are not serialised
     import fcntl
@@ -41,8 +43,16 @@ class NumpyIndex:
         self._ids: list[str] = []
         self._hashes: list[str] = []
         self._m = np.zeros((0, 0), dtype=np.float32)
+        self._seen: tuple[int, int, int] | None = None  # the snapshot file these rows came from
         if self.path is not None and self.path.exists():
             self._load()
+
+    def _stamp(self) -> tuple[int, int, int] | None:
+        try:
+            st = os.stat(self.path) if self.path is not None else None
+        except OSError:
+            return None
+        return (st.st_ino, st.st_size, st.st_mtime_ns) if st else None
 
     # -- storage ----------------------------------------------------------------------------
     def _load(self) -> None:
@@ -53,6 +63,7 @@ class NumpyIndex:
                 raise ValueError(f"{self.path}: {len(ids)} ids, {len(hashes)} hashes, {m.shape[0]} rows")
             self._ids, self._hashes, self._m = ids, hashes, m
             self._load_extra(z)
+        self._seen = self._stamp()
 
     # hooks for subclasses that keep a search structure next to the rows (FaissIndex)
     def _load_extra(self, z: Any) -> None:
@@ -77,6 +88,7 @@ class NumpyIndex:
                 **self._extra_arrays(),
             )
         os.replace(tmp, self.path)
+        self._seen = self._stamp()
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -96,10 +108,19 @@ class NumpyIndex:
         return len(self._ids)
 
     def hashes(self) -> dict[str, str]:
+        """The rows' hashes, reread first when another writer replaced the snapshot."""
+        if self.path is not None and self._stamp() not in (None, self._seen):
+            with self._locked():
+                self._load()
         return dict(zip(self._ids, self._hashes, strict=True))
 
     def apply(
-        self, ids: Sequence[str], hashes: Sequence[str], vectors: np.ndarray, delete: Sequence[str] = ()
+        self,
+        ids: Sequence[str],
+        hashes: Sequence[str],
+        vectors: np.ndarray,
+        delete: Sequence[str] = (),
+        expect: Mapping[str, str] | None = None,
     ) -> None:
         vectors = np.asarray(vectors, dtype=np.float32)
         if len(ids) != len(hashes) or len(ids) != vectors.shape[0]:
@@ -107,6 +128,11 @@ class NumpyIndex:
         with self._locked():
             if self.path is not None and self.path.exists():
                 self._load()  # another writer may have moved on
+            if expect:
+                stored = dict(zip(self._ids, self._hashes, strict=True))
+                changed = [i for i, h in expect.items() if stored.get(i) != h]
+                if changed:
+                    raise IndexChanged(changed)
             drop = set(delete)
             keep = [n for n, i in enumerate(self._ids) if i not in drop]
             out_ids = [self._ids[n] for n in keep]

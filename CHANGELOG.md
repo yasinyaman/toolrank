@@ -128,6 +128,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A persistent vector index shared by two writers with different settings (say `search` with other
+  flags on the same `DATA/index`) no longer keeps the other writer's rows as if they were current:
+  `NumpyIndex` (and FAISS) rereads a snapshot another process replaced, and `apply` takes the rows
+  the writer means to keep (`expect`) and raises `IndexChanged` when one was rewritten meanwhile, so
+  `DenseScorer.index` embeds those rows again (pgvector checks the same under `SELECT … FOR UPDATE`).
 - A usage-log line no version of toolrank writes (a search without an id, a call without a tool) no
   longer stops `serve --co-use` from starting or the table from ever refreshing again (a `KeyError`
   killed the refresh thread), nor fails `learn` and `ab`: such lines are skipped (`learn` counts them
