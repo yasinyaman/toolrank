@@ -4,7 +4,8 @@
 #    ranks relevant to the conversation (Chat Completions, Responses and Anthropic Messages).
 #    Install toolrank into the proxy's environment (no extra needed) and point it at a running
 #    `toolrank serve`: TOOLRANK_URL, TOOLRANK_API_KEY, TOOLRANK_FILTER_MIN_TOOLS (20),
-#    TOOLRANK_FILTER_MAX_TOOLS (10), TOOLRANK_FILTER_MARGIN (0.2), TOOLRANK_FILTER_TIMEOUT (2 s).
+#    TOOLRANK_FILTER_MAX_TOOLS (10), TOOLRANK_FILTER_MARGIN (0.2), TOOLRANK_FILTER_TIMEOUT (2 s),
+#    TOOLRANK_FILTER_WARM (a JSON file of the tool lists to embed when the proxy starts).
 # 2. toolrank behind LiteLLM's MCP gateway: clients of the gateway get toolrank's search_tools
 #    and call_tool instead of every tool of every server.
 #

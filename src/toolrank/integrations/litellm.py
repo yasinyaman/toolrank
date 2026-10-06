@@ -13,7 +13,11 @@ A request stays as it came when it has at most ``min_tools`` function tools, whe
 provider's own tool search (``defer_loading``, ``tool_search``), when it has no user text, and
 when toolrank fails or does not answer within ``timeout_s``: the filter never blocks a request and
 never edits one in place. The first sight of a large tool list may time out while toolrank embeds
-it; the ranking carries on in the background, and later requests are fast. With
+it (120 tools: 11.5 s); the ranking carries on in the background, and later requests are fast.
+Lists known ahead (``warm``, or a JSON file named by ``TOOLRANK_FILTER_WARM``: one tools array or a
+list of them, in any of the three shapes) are ranked once in the background when the filter starts,
+so their first request is fast too; toolrank keeps such tools in memory, so warm again after it
+restarts (``ToolFilter.warm_up``). With
 ``previous_response_id`` the earlier calls are not in the request, so only ``tool_choice`` and the
 calls in ``input`` are kept for sure.
 
@@ -25,7 +29,7 @@ needs nothing but litellm, and litellm pins ``openai<3``):
 
 Configuration comes from the environment: ``TOOLRANK_URL`` (default http://127.0.0.1:8765),
 ``TOOLRANK_API_KEY``, ``TOOLRANK_FILTER_MIN_TOOLS`` (20), ``TOOLRANK_FILTER_MAX_TOOLS`` (10),
-``TOOLRANK_FILTER_MARGIN`` (0.2) and ``TOOLRANK_FILTER_TIMEOUT`` (2 seconds). Tools that LiteLLM's
+``TOOLRANK_FILTER_MARGIN`` (0.2), ``TOOLRANK_FILTER_TIMEOUT`` (2 seconds) and ``TOOLRANK_FILTER_WARM``. Tools that LiteLLM's
 MCP gateway adds itself are added after this hook; for those, put toolrank behind the gateway as
 an MCP server (``examples/litellm/config.yaml`` shows both).
 """
@@ -34,9 +38,12 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import logging
 import os
-from collections.abc import Callable, Mapping
+import threading
+from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from toolrank.client import ToolrankClient
@@ -77,6 +84,23 @@ def _record(shape: str, tool: Any) -> dict[str, Any] | None:
         "description": description if isinstance(description, str) else "",
         "inputSchema": schema if isinstance(schema, dict) else {"type": "object"},
     }
+
+
+def any_record(tool: Any) -> dict[str, Any] | None:
+    """A tool in whichever of the three shapes it is in, as ``/v1/rank`` takes it."""
+    for shape in ("chat", "responses", "messages"):
+        if (record := _record(shape, tool)) is not None:
+            return record
+    return None
+
+
+def load_warm(path: str | Path) -> list[list[dict[str, Any]]]:
+    """``TOOLRANK_FILTER_WARM``'s file: one tools array, or a list of tools arrays."""
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    lists = raw if isinstance(raw, list) and raw and all(isinstance(x, list) for x in raw) else [raw]
+    if not all(isinstance(x, list) for x in lists):
+        raise ValueError(f"{path}: expected a tools array or a list of them")
+    return lists
 
 
 def _text(content: Any) -> str:
@@ -159,6 +183,7 @@ def options_from_env(env: Mapping[str, str] | None = None) -> dict[str, Any]:
         "max_tools": int(env.get("TOOLRANK_FILTER_MAX_TOOLS") or DEFAULT_MAX_K),
         "margin": float(env.get("TOOLRANK_FILTER_MARGIN") or DEFAULT_MARGIN),
         "timeout_s": float(env.get("TOOLRANK_FILTER_TIMEOUT") or 2.0),
+        "warm": load_warm(env["TOOLRANK_FILTER_WARM"]) if env.get("TOOLRANK_FILTER_WARM") else (),
     }
 
 
@@ -177,12 +202,29 @@ class ToolFilter:
         margin: float = DEFAULT_MARGIN,
         timeout_s: float = 2.0,
         on_filter: Callable[[dict[str, Any]], None] | None = None,
+        warm: Sequence[Sequence[Any]] = (),
     ):
         # the client's own timeout is long: a ranking that outlives timeout_s still warms the cache
         self.toolrank = toolrank or ToolrankClient(url, api_key, timeout=60.0)
         self.min_tools, self.timeout_s = min_tools, timeout_s
         self.rule = AdaptiveK(max_k=max_tools, margin=margin)
         self.on_filter = on_filter or (lambda details: None)
+        self.warm = [records for tools in warm if (records := [r for t in tools if (r := any_record(t))])]
+        if self.warm:
+            threading.Thread(target=self.warm_up, name="toolrank-warm", daemon=True).start()
+
+    def warm_up(self) -> int:
+        """Rank each ``warm`` list once, so toolrank has embedded its tools before a request needs
+        them; -> how many lists it took. A failure is logged, never raised: the filter fails open."""
+        done = 0
+        for records in self.warm:
+            try:
+                self.toolrank.rank("warm-up", records)
+                done += 1
+            except Exception as e:  # toolrank not up yet: requests rank them later anyway
+                log.warning("toolrank warm-up of %d tools skipped: %s: %s", len(records), type(e).__name__, e)
+        self.on_filter({"outcome": "warmed", "lists": done, "of": len(self.warm)})
+        return done
 
     async def __call__(self, data: Mapping[str, Any], call_type: str) -> dict[str, Any] | None:
         shape = SHAPES.get(call_type)

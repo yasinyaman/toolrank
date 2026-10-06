@@ -8,6 +8,10 @@ change behaviour.
 
 ### Added
 
+- The LiteLLM tool filter warms known tool lists. `TOOLRANK_FILTER_WARM` (or `ToolFilter(warm=...)`)
+  names the lists, in any of the three request shapes, and they are ranked once in the background
+  when the proxy starts. Their first request no longer goes unfiltered while toolrank embeds the
+  tools (120 tools: 11.5 s).
 - API key scopes: an `--api-keys` entry's `scopes` names what the key may do, among `search`,
   `call` and `feedback` (all three without it). A search-only key's MCP tool list has no `call_tool`,
   and a call it tries anyway is refused (REST 403) and logged as `refused`.

@@ -623,6 +623,34 @@ def test_litellm_filter_leaves_requests_alone_when_it_should_and_fails_open():
     assert out is None and took < 0.4  # slow: sent unfiltered, without waiting for toolrank
 
 
+def test_litellm_filter_warms_the_lists_it_is_given_in_the_background(tmp_path):
+    import json
+    import threading
+
+    from toolrank.client import ToolrankError
+    from toolrank.integrations.litellm import ToolFilter, load_warm, options_from_env
+
+    lists = [req["tools"] for req in _requests().values()]  # all three shapes, provider tools among them
+    path = tmp_path / "warm.json"
+    path.write_text(json.dumps(lists))
+    assert load_warm(path) == lists
+    path.write_text(json.dumps(lists[0]))  # one tools array is one list
+    assert load_warm(path) == [lists[0]]
+    assert options_from_env({"TOOLRANK_FILTER_WARM": str(path)})["warm"] == [lists[0]]
+
+    done = threading.Event()
+    seen = []
+    ranker = _Ranker()
+    ToolFilter(ranker, warm=lists, on_filter=lambda d: (seen.append(d), done.set()))
+    assert done.wait(5)
+    assert [names for _, names in ranker.asked] == [[f"t{n}" for n in range(25)]] * 3  # plain functions only
+    assert seen == [{"outcome": "warmed", "lists": 3, "of": 3}]
+
+    down = ToolFilter(_Ranker(fail=ToolrankError(0, "server unreachable")), warm=lists[:1])
+    assert down.warm_up() == 0  # logged, never raised: the filter fails open
+    assert ToolFilter(_Ranker()).warm == []
+
+
 def test_litellm_filter_ranks_through_a_served_toolrank(tmp_path):
     from toolrank.integrations.litellm import ToolFilter
 

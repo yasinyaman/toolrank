@@ -112,6 +112,12 @@ Settings come from `TOOLRANK_URL`, `TOOLRANK_API_KEY` and `TOOLRANK_FILTER_MIN_T
 `_MARGIN` and `_TIMEOUT`. In our end-to-end run, 120-tool requests reached the model with 3 function
 tools in all three API shapes.
 
+The first request with a new 120-tool list took 11.5 s while toolrank embedded the tools, so it went
+on unfiltered. `TOOLRANK_FILTER_WARM` names a JSON file with the lists you know: one tools array or
+a list of them, in any of the three shapes. The filter ranks each of them once in the background
+when the proxy starts, so their first request is filtered as well. toolrank keeps such tools in
+memory, so after toolrank restarts, restart the proxy too, or call `ToolFilter.warm_up()`.
+
 **toolrank behind LiteLLM's MCP gateway.** List `toolrank serve` as an MCP server; clients of the
 gateway get `toolrank-search_tools` and `toolrank-call_tool`:
 

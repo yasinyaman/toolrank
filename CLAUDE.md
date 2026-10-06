@@ -475,7 +475,8 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   model serving the `inputSchema`, descriptions ≤ 1,024. `litellm.tool_filter` (PEP 562: litellm is
   imported only when the proxy loads it; no extra, litellm pins `openai<3`): a `CustomLogger` whose
   `async_pre_call_hook` must be defined on the class itself (the proxy skips inherited hooks), ranks
-  the request's own function tools with `/v1/rank`, fails open, never edits `data` in place.
+  the request's own function tools with `/v1/rank`, fails open, never edits `data` in place;
+  `TOOLRANK_FILTER_WARM` lists are ranked once in a background thread at start (`warm_up`).
   `langchain.ToolrankToolSelector` (backlog D1.4; PEP 562 like litellm, `Selector` is the work without
   LangChain's class): a LangChain 1.x `AgentMiddleware` whose `wrap_model_call` / `awrap_model_call`
   narrow `request.tools` (`request.override`) for the last human message: the agent's own tools via
