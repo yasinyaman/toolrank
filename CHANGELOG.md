@@ -128,6 +128,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- Ingested tool text: schemas whose models sit in `$defs` / `definitions` (pydantic, FastMCP), and
+  `additionalProperties` / `patternProperties` subschemas, now shrink like `properties` do; before,
+  such a schema never shrank, the description was cut to nothing and the text still went over 6,000
+  characters. When no schema step fits, the schema goes and the description stays. Only tools over
+  the budget get a new text (and one new embedding).
 - pgvector: each heads variant (`current`, `candidate`, a tenant's) keeps its vectors in a table of its
   own (`<--pg-table>_<hash of the variant>`), as its numpy snapshot already did under `index/variants/`;
   before, a candidate's rows overwrote the control arm's in the one table. `eval --pg-table` defaults

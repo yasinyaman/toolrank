@@ -7,7 +7,10 @@ character budget loses schema detail first and description text second, never it
 name, so the text is the same whatever serves the embeddings: vLLM 0.13's
 ``truncate_prompt_tokens`` happens to keep the first tokens (``scripts/truncation_side.py``),
 other endpoints may cut elsewhere or refuse. MCP tools rarely come near the budget (LiveMCPBench:
-p99 3.9K characters); large OpenAPI request bodies do (Stripe: 61 of 612 operations).
+p99 3.9K characters); large OpenAPI request bodies do (Stripe: 61 of 612 operations), and so do
+pydantic-made schemas (FastMCP servers) whose models sit in ``$defs``. When no schema step is small
+enough, the schema goes before the description is cut: what the tool does matters more to retrieval
+than how it is called.
 """
 
 from __future__ import annotations
@@ -18,7 +21,26 @@ from typing import Any
 
 MAX_CHARS = 6000
 _KEEP_TOP = 8  # top-level properties kept when even a flat schema is over budget
-_NESTED = ("anyOf", "oneOf", "allOf")
+_NESTED = ("anyOf", "oneOf", "allOf")  # lists of schemas
+_MAPS = ("properties", "patternProperties", "$defs", "definitions")  # name -> schema
+_ONE = ("items", "additionalProperties")  # a schema (or a list of them, or a bool)
+_DEFS = ("$defs", "definitions")
+
+
+def _nested(schema: dict[str, Any], out: dict[str, Any], fn: Any) -> dict[str, Any]:
+    """``out`` with ``fn`` applied to every subschema of ``schema`` one level down."""
+    for key in _MAPS:
+        if isinstance(schema.get(key), dict):
+            out[key] = {k: fn(v) for k, v in schema[key].items()}
+    for key in _ONE:
+        if isinstance(schema.get(key), dict):
+            out[key] = fn(schema[key])
+        elif isinstance(schema.get(key), list):
+            out[key] = [fn(v) for v in schema[key]]
+    for key in _NESTED:
+        if isinstance(schema.get(key), list):
+            out[key] = [fn(s) for s in schema[key]]
+    return out
 
 
 def _dump(doc: dict[str, Any]) -> str:
@@ -40,16 +62,9 @@ def _cap_depth(schema: Any, depth: int) -> Any:
     if not isinstance(schema, dict):
         return schema
     if depth <= 0:
-        return {k: schema[k] for k in ("type", "description") if k in schema} or {"type": "object"}
-    out = dict(schema)
-    if isinstance(schema.get("properties"), dict):
-        out["properties"] = {k: _cap_depth(v, depth - 1) for k, v in schema["properties"].items()}
-    if "items" in schema:
-        out["items"] = _cap_depth(schema["items"], depth - 1)
-    for key in _NESTED:
-        if isinstance(schema.get(key), list):
-            out[key] = [_cap_depth(s, depth - 1) for s in schema[key]]
-    return out
+        kept = {k: schema[k] for k in ("type", "description", "$ref") if k in schema}
+        return kept or {"type": "object"}
+    return _nested(schema, dict(schema), lambda s: _cap_depth(s, depth - 1))
 
 
 def _drop_descriptions(schema: Any, keep_level: int, level: int = 0) -> Any:
@@ -57,16 +72,7 @@ def _drop_descriptions(schema: Any, keep_level: int, level: int = 0) -> Any:
     if not isinstance(schema, dict):
         return schema
     out = {k: v for k, v in schema.items() if k != "description" or level <= keep_level}
-    if isinstance(schema.get("properties"), dict):
-        out["properties"] = {
-            k: _drop_descriptions(v, keep_level, level + 1) for k, v in schema["properties"].items()
-        }
-    if "items" in schema:
-        out["items"] = _drop_descriptions(schema["items"], keep_level, level + 1)
-    for key in _NESTED:
-        if isinstance(schema.get(key), list):
-            out[key] = [_drop_descriptions(s, keep_level, level + 1) for s in schema[key]]
-    return out
+    return _nested(schema, out, lambda s: _drop_descriptions(s, keep_level, level + 1))
 
 
 def _first_properties(schema: Any, keep: int) -> Any:
@@ -80,15 +86,41 @@ def _first_properties(schema: Any, keep: int) -> Any:
     return out
 
 
+def _without_defs(schema: Any) -> Any:
+    """The schema without its ``$defs`` / ``definitions``: the ``$ref`` names stay as the hint."""
+    if not isinstance(schema, dict):
+        return schema
+    return {k: v for k, v in schema.items() if k not in _DEFS}
+
+
+def _names_only(schema: Any, keep: int) -> Any:
+    """The first ``keep`` top-level parameters with their types and nothing else."""
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(props, dict):
+        return {"type": "object"}
+    names = list(props)[:keep]
+    out: dict[str, Any] = {"type": "object", "properties": {}}
+    for n in names:
+        t = props[n].get("type") if isinstance(props[n], dict) else None
+        out["properties"][n] = {"type": t} if isinstance(t, str) else {}
+    if len(props) > keep:
+        out["…"] = f"{len(props) - keep} more properties"
+    return out
+
+
 def _smaller_schemas(schema: Any) -> Iterator[Any]:
     """Ever smaller versions of ``schema``: depth 4 → 1, then descriptions below the parameters
-    dropped, then the parameters' own, then only the first top-level properties."""
+    dropped, then the parameters' own, then only the first top-level properties, then those without
+    the ``$defs``, and last their names and types only."""
     for depth in (4, 3, 2, 1):
         yield _cap_depth(schema, depth)
     flat = _cap_depth(schema, 1)
     yield _drop_descriptions(flat, keep_level=1)
     yield _drop_descriptions(flat, keep_level=0)
-    yield _first_properties(_drop_descriptions(flat, keep_level=0), _KEEP_TOP)
+    first = _first_properties(_drop_descriptions(flat, keep_level=0), _KEEP_TOP)
+    yield first
+    yield _without_defs(first)
+    yield _names_only(first, _KEEP_TOP)
 
 
 def shrink_schema(schema: Any, max_chars: int) -> tuple[Any, bool]:
@@ -124,6 +156,10 @@ def fit_text(
             text = _dump(doc)
             if len(text) <= max_chars:
                 return text, True
+        del doc["inputSchema"]  # the description says more about what the tool is for
+        text = _dump(doc)
+        if len(text) <= max_chars:
+            return text, True
     while len(text) > max_chars and doc["description"]:  # JSON escapes make lengths approximate
         keep = max(len(doc["description"]) - (len(text) - max_chars) - 1, 0)
         doc["description"] = doc["description"][:keep].rstrip() + "…" if keep else ""

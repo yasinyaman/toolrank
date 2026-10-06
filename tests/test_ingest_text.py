@@ -52,3 +52,29 @@ def test_fit_text_keeps_the_first_properties_then_cuts_the_description():
     text, _ = fit_text("S", "op", "word " * 500, None, max_chars=300)
     doc = json.loads(text)
     assert len(text) <= 300 and doc["name"] == "op" and doc["description"].endswith("…")
+
+
+def _pydantic_schema(n_models=20):
+    """What FastMCP and pydantic write: the models in $defs, the properties as $refs to them."""
+    model = {
+        "type": "object",
+        "description": "A model with a long docstring. " * 10,
+        "properties": {f"f{i}": {"type": "string", "description": "field " * 12} for i in range(6)},
+    }
+    return {
+        "type": "object",
+        "properties": {f"m{i}": {"$ref": f"#/$defs/Model{i}"} for i in range(n_models)},
+        "$defs": {f"Model{i}": model for i in range(n_models)},
+        "additionalProperties": {"type": "object", "properties": {"x": {"description": "extra " * 50}}},
+    }
+
+
+def test_fit_text_shrinks_defs_and_keeps_the_description():
+    text, capped = fit_text("Docs", "create", "Create a document in a workspace.", _pydantic_schema())
+    doc = json.loads(text)
+    assert capped and len(text) <= 6000 and doc["description"] == "Create a document in a workspace."
+    assert (doc["server"], doc["name"]) == ("Docs", "create") and "m0" in doc["inputSchema"]["properties"]
+    # a schema no step brings under the budget goes before the description is cut
+    text, _ = fit_text("Docs", "create", "Create a document.", _pydantic_schema(), max_chars=120)
+    doc = json.loads(text)
+    assert "inputSchema" not in doc and doc["description"] == "Create a document."
