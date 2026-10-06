@@ -43,6 +43,14 @@ SAFE_METHODS = ("GET", "HEAD")
 MAX_RESPONSE_CHARS = 25_000
 
 
+def no_cookies() -> Any:
+    """A cookie jar that keeps nothing: one client serves every caller, so a cookie one answer sets
+    must not ride along on the next caller's request (OpenAPI calls and shared MCP connections)."""
+    from http.cookiejar import CookieJar, DefaultCookiePolicy
+
+    return CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
+
+
 def merge_headers(base: dict[str, str], own: dict[str, str]) -> dict[str, str]:
     """``base`` with ``own`` on top, names compared case-insensitively (HTTP's rule): a key's
     ``authorization`` replaces the config's ``Authorization`` instead of travelling next to it."""
@@ -134,7 +142,9 @@ class MCPBackend:
                             if self.cfg.transport == "http":
                                 http = await stack.enter_async_context(
                                     httpx2.AsyncClient(
-                                        headers=dict(self.cfg.headers), timeout=httpx2.Timeout(30, read=None)
+                                        headers=dict(self.cfg.headers),
+                                        timeout=httpx2.Timeout(30, read=None),
+                                        cookies=no_cookies(),  # keys without credentials share it
                                     )
                                 )
                             client = await stack.enter_async_context(
@@ -373,16 +383,11 @@ class OpenAPIExecutor:
         import httpx2
 
         if self._client is None:
-            from http.cookiejar import CookieJar, DefaultCookiePolicy
-
-            # one client serves every caller: a cookie one response sets must not ride along on the
-            # next caller's request, so no cookie is ever kept
-            jar = CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
             self._client = httpx2.AsyncClient(
                 timeout=httpx2.Timeout(self.timeout),
                 follow_redirects=False,
                 transport=self.transport,
-                cookies=jar,
+                cookies=no_cookies(),
             )
         return self._client
 

@@ -253,3 +253,28 @@ def test_a_spec_cannot_send_calls_to_metadata_or_climb_the_path():
         with pytest.raises(ValueError, match="dot segment"):
             ex.build(_op(args=QUERY), {"id": climb})
     assert ex.build(_op(args=QUERY), {"id": "a..b"})["url"].endswith("/items/a..b")
+
+
+def test_a_shared_mcp_connection_keeps_no_cookies(monkeypatch):
+    """Keys without credentials of their own share one MCP connection: like the OpenAPI client, its
+    HTTP client must keep no cookie one caller's answer set."""
+    import httpx2
+
+    made = []
+
+    class Recording(httpx2.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            made.append(kwargs.get("cookies"))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx2, "AsyncClient", Recording)
+    cfg = ServerConfig("web", "http", url="http://127.0.0.1:9/mcp")
+
+    async def main():
+        async with Backends([cfg], connect_timeout=2).running() as b:
+            return await b.call(_mcp("web", "x"), {})
+
+    anyio.run(main)
+    assert made and made[0] is not None
+    jar = made[0]
+    assert jar._policy.allowed_domains() == ()  # no domain may set a cookie (None would be every one)

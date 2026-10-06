@@ -130,6 +130,8 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- The HTTP client of an MCP connection that several keys share keeps no cookies, as the OpenAPI client
+  already did: a cookie one caller's answer set rode along on the next caller's call.
 - OpenAPI calls: the answer is read only as far as it will be shown (the whole body was held in memory
   before the 25,000-character cut); a spec's own `servers` can no longer send a call to a link-local or
   cloud-metadata address (a configured `base_url` still can); and a path parameter with a dot segment
