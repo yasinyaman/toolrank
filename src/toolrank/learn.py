@@ -135,7 +135,9 @@ def mine(
         kind = e.get("event")
         if kind == "search":
             counts["searches"] += 1
-            if e.get("v", 0) < SCHEMA or not e.get("emb_hmac"):
+            if not isinstance(e.get("id"), str):
+                counts["searches_malformed"] += 1  # a line no version of the log writes
+            elif e.get("v", 0) < SCHEMA or not e.get("emb_hmac"):
                 counts["searches_without_vector"] += 1  # an older schema, or a keyword answer
             elif since and str(e.get("ts", "")) < since:
                 counts["searches_before_since"] += 1
@@ -563,6 +565,8 @@ def judge(
     arms: dict[str, str] = {}
     for e in events:
         if e.get("event") != "search" or (since and str(e.get("ts", "")) < since):
+            continue
+        if not isinstance(e.get("id"), str):
             continue
         if not may_learn_from(e.get("scorer")):
             if counts is not None:

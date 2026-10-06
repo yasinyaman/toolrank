@@ -596,6 +596,17 @@ def test_mine_skips_the_requests_another_backbone_answered():
     assert [p.state for p in pairs] == ["A", "B", "C"]
 
 
+def test_mine_and_judge_skip_a_search_without_an_id():
+    events = [
+        {"v": 3, "event": "search", "emb_hmac": "x", "ts": "2026-10-01"},
+        _search("s1", "A", ["t1"], 1, "2026-10-01"),
+    ]
+    events.append(_call("t1", "s1"))
+    pairs, counts = mine(events)
+    assert [p.state for p in pairs] == ["A"] and counts["searches_malformed"] == 1
+    assert judge(events)["control"]["searches"] == 1
+
+
 def test_mine_tells_the_backbone_of_old_searches_by_their_scorer_name():
     """Logs from before the model field (0.1.x, all of qwen3-emb's) and second-stage searches logged
     with model null still name the first stage's encoder in the scorer: emb/<served name>/."""

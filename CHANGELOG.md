@@ -128,6 +128,10 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A usage-log line no version of toolrank writes (a search without an id, a call without a tool) no
+  longer stops `serve --co-use` from starting or the table from ever refreshing again (a `KeyError`
+  killed the refresh thread), nor fails `learn` and `ab`: such lines are skipped (`learn` counts them
+  as `searches_malformed`).
 - `ingest openapi`: a generated name never takes a name the spec uses (operationIds `list`, `list`,
   `list_2` gave two `list_2` tools, and duplicate ids kept the semantic index from being built), and
   `$ref`s that branch at every level stop at 5,000 schema nodes an operation (12 chained schemas of

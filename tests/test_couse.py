@@ -126,6 +126,28 @@ def test_the_servers_table_is_rebuilt_from_its_log_in_the_background(tmp_path):
     assert CoUseTable(log, days=1).table() == {"list": [("label", 1.0, 2)], "label": [("list", 1.0, 2)]}
 
 
+def test_a_line_no_version_of_the_log_writes_neither_stops_the_table_nor_the_server(tmp_path):
+    """A search without an id killed the build (KeyError): serve failed to start, and a later bad line
+    stopped every refresh for good."""
+    log = tmp_path / "usage"
+    log.mkdir()
+    odd = [
+        {"event": "search", "ts": "2026-10-01"},
+        {"event": "search", "id": 5},
+        {"event": "call", "search_id": "s1"},
+    ]
+    lines = [json.dumps(e) for e in [*_events()[:6], *odd]]
+    (log / "usage-2026-10-01.jsonl").write_text("\n".join(lines) + "\n")
+    table = CoUseTable(log, min_count=1, every=0.0)
+    assert table.table() == {"list": [("comment", 1.0, 1)], "comment": [("list", 1.0, 1)]}
+    (log / "usage-2026-10-02.jsonl").write_text("\n".join(json.dumps(e) for e in _events()[6:]) + "\n")
+    for _ in range(200):  # the rebuilds keep coming
+        if "label" in table.table():
+            break
+        time.sleep(0.01)
+    assert "label" in table.table()
+
+
 class _HashEncoder:
     name = "hash"
 

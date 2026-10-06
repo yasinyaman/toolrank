@@ -68,10 +68,13 @@ def co_use(
             if counts is not None:
                 counts["searches_with_jev"] += 1
             continue
+        if not isinstance(e.get("id"), str):  # a line no version of the log writes: it says nothing
+            continue
         request_of[e["id"]] = e.get("emb_hmac") or e["id"]
     called: dict[str, set[str]] = defaultdict(set)
     for e in events:
-        if e.get("event") == "call" and e.get("outcome") == "ok" and e.get("search_id") in request_of:
+        ok = e.get("event") == "call" and e.get("outcome") == "ok" and isinstance(e.get("tool"), str)
+        if ok and e.get("search_id") in request_of:
             called[request_of[e["search_id"]]].add(e["tool"])
     alone: Counter[str] = Counter()
     together: Counter[tuple[str, str]] = Counter()
@@ -155,8 +158,10 @@ class CoUseTable:
                     by_tenant[owner[e["search_id"]]].append(e)
             for tenant, own in by_tenant.items():
                 tables[tenant] = co_use(own, min_count=self.min_count, min_p=self.min_p, counts=counts)
-        except OSError:  # the log directory is not readable: no partners
-            tables = {}
+        except (
+            Exception
+        ):  # an unreadable directory, or a line no code expected: no partners until the next try
+            tables, counts = {}, Counter()
         with self._lock:
             self._tables, self._at, self._building = tables, time.monotonic(), False
             self._counts = counts
