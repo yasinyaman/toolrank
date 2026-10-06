@@ -126,3 +126,15 @@ def test_data_seed_reaches_the_split_not_the_training_seed(monkeypatch, tmp_path
     assert captured == {"split_seed": 11, "train_seed": 5}
     main(args + ["--seed", "5"])  # without --data-seed the split follows --seed, as before
     assert captured == {"split_seed": 5, "train_seed": 5}
+
+
+def test_compare_paired_refuses_repeated_ids_and_warns_about_two_datasets(tmp_path, capsys):
+    rows = [{"id": i, "top": [], "P@1": 1.0, "hit@5": 1.0, "NDCG@10": 0.8} for i in ("q1", "q2", "q1")]
+    _write_runs(tmp_path / "a.json", "alpha", rows)
+    _write_runs(tmp_path / "b.json", "beta", rows[:2])
+    with pytest.raises(SystemExit, match="query ids repeat"):
+        main(["compare", "--paired", str(tmp_path / "a.json"), str(tmp_path / "b.json")])
+    other = json.loads((tmp_path / "b.json").read_text())
+    (tmp_path / "c.json").write_text(json.dumps({**other, "dataset": "another_set"}))
+    main(["compare", "--paired", str(tmp_path / "b.json"), str(tmp_path / "c.json")])
+    assert "pairing by id assumes one set" in capsys.readouterr().err

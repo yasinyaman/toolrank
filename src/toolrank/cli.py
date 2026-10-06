@@ -212,7 +212,17 @@ def _compare_paired(a: argparse.Namespace) -> int:
         rows = r.get("rows")
         if not isinstance(rows, list):
             sys.exit(f"{f} is not a runs file: run toolrank eval with --runs-out")
+        seen: set[str] = set()
+        twice = {row["id"] for row in rows if row["id"] in seen or seen.add(row["id"])}
+        if twice:  # pairing by id would silently keep one of them
+            sys.exit(f"{f}: query ids repeat ({sorted(twice)[:3]}): a runs file names each query once")
         runs.append(r)
+    sets = [r.get("dataset") for r in runs]
+    if sets[0] != sets[1]:
+        print(
+            f"warning: the runs are of {sets[0]!r} and {sets[1]!r}: pairing by id assumes one set",
+            file=sys.stderr,
+        )
     by_id = [{row["id"]: row for row in r["rows"]} for r in runs]
     ids = [i for i in by_id[0] if i in by_id[1]]
     if not ids:
