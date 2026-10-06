@@ -133,6 +133,21 @@ def test_workflow_actions_are_pinned_to_commits():
     assert uses and [u for u in uses if not pinned.fullmatch(u)] == []
 
 
+def test_workflow_runners_name_their_ubuntu_release():
+    """``ubuntu-latest`` moves to a new release on GitHub's schedule (24.04 -> 26.04 from 19 Oct 2026),
+    under a release job too; a named image changes only when the workflow does."""
+    workflows = ROOT / ".github" / "workflows"
+    if not workflows.is_dir():
+        pytest.skip("no .github/workflows here")
+    runners = [
+        line.split(":", 1)[1].strip()
+        for f in sorted(workflows.glob("*.yml"))
+        for line in f.read_text().splitlines()
+        if line.strip().startswith("runs-on:")
+    ]
+    assert runners and set(runners) == {"ubuntu-26.04"}
+
+
 def test_the_release_check_finds_every_placeholder(tmp_path):
     check = _script("release_check").problems
     (tmp_path / "SECURITY.md").write_text("write to us at TODO(launch): an address\n")

@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Releases are switched on
         if: github.event_name == 'push' && vars.TOOLRANK_RELEASE != 'enabled'
@@ -44,7 +44,7 @@ jobs:
 
   dist:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -60,7 +60,7 @@ jobs:
 
   heads:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -81,7 +81,7 @@ jobs:
   image:
     if: github.event_name == 'push'
     needs: [dist, heads]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: ghcr
     permissions:
       contents: read
@@ -120,7 +120,7 @@ jobs:
   image-rehearsal:
     if: github.event_name == 'workflow_dispatch'
     needs: [dist, heads]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -140,7 +140,7 @@ jobs:
   pypi:
     if: github.event_name == 'push'
     needs: [dist, image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: pypi
     permissions:
       id-token: write # trusted publishing: no token stored in the repository
@@ -156,7 +156,7 @@ jobs:
   github-release:
     if: github.event_name == 'push'
     needs: [pypi, image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

@@ -515,7 +515,7 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   directory is the engine user's: no drop, no chown. Both images install with
   `--require-hashes` (the vLLM base's `UV_OVERRIDE` is unset for that) and name their base images once,
   by tag and digest, on `FROM` lines (Dependabot reads nothing else); the `*_IMAGE` build arguments
-  default to those pinned stages. Workflow actions are pinned to commits, and a test keeps them so.
+  default to those pinned stages. Workflow actions are pinned to commits and runners to `ubuntu-26.04` (not `ubuntu-latest`), and tests keep them so.
   Compose projects are `toolrank-stack` and
   `toolrank-bundled`, never `toolrank` (that name is `deploy/spark`'s benchmark servers).
   `release.yml` on a `v*` tag: checks, the `toolrank` image to GHCR, then PyPI (it cannot be taken
