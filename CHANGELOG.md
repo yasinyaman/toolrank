@@ -130,6 +130,9 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- The toolrank skill's scripts tell a server they could not reach from one that took the request and
+  sent no whole answer ("the request may have been carried out"), and no longer end in a traceback
+  with exit status 1 (a tool's error) on a dropped or non-HTTP answer.
 - A connection the server drops (`RemoteDisconnected`, `ConnectionResetError`, `IncompleteRead`, which
   urllib does not wrap) is retried like any network error by the embeddings, chat, score and Jev
   clients (one dropped keep-alive ended a long encode), and `ToolrankClient` reports it as a

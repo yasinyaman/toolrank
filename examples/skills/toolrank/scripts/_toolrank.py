@@ -2,10 +2,13 @@
 
 Standard library only, so the skill's folder works wherever it is copied. Redirects are not
 followed (the bearer token never reaches another host); a failure prints why on stderr and exits 2.
+A request that went out but got no whole answer says so: a call may have been carried out, so it is
+not one to send again blindly.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -47,8 +50,13 @@ def post(path: str, body: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         except (ValueError, AttributeError):
             message = None
         fail(f"toolrank {e.code}: {message or raw[:300].decode('utf-8', 'replace') or e.reason}")
-    except (urllib.error.URLError, OSError) as e:  # refused, timed out, no such host
-        fail(f"toolrank at {url} unreachable: {getattr(e, 'reason', e)} (is `toolrank serve` running?)")
+    except urllib.error.URLError as e:  # before the request went out: refused, no such host, connect timeout
+        fail(f"toolrank at {url} unreachable: {e.reason} (is `toolrank serve` running?)")
+    except (OSError, http.client.HTTPException) as e:  # after it went out: no whole answer came back
+        fail(
+            f"toolrank at {url} sent no complete answer ({type(e).__name__}: {e}); "
+            "the request may have been carried out: check before sending it again"
+        )
     except ValueError:
         fail(f"toolrank at {url} answered with something that is not JSON")
     if not isinstance(payload, dict):

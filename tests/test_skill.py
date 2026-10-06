@@ -124,3 +124,33 @@ def test_skill_keeps_its_token_on_the_host_and_says_when_toolrank_is_away():
     assert moved.returncode == 2 and "toolrank 302" in moved.stderr
     away = _run("search.py", "x", url="http://127.0.0.1:1")
     assert away.returncode == 2 and "unreachable" in away.stderr
+
+
+def test_skill_says_when_a_request_went_out_but_no_answer_came_back(tmp_path):
+    """A server that closes without answering, or that is not HTTP at all, ended in a traceback and
+    exit 1 (the tool's own error); a call that may have run must not read as "unreachable"."""
+    import socket
+
+    for reply in (b"", b"SSH-2.0-OpenSSH_9.6\r\n"):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+
+        def answer(srv=srv, reply=reply):
+            conn, _ = srv.accept()
+            conn.recv(65536)
+            if reply:
+                conn.sendall(reply)
+            conn.close()
+
+        threading.Thread(target=answer, daemon=True).start()
+        out = _run("call.py", "fx/add", '{"a": 1, "b": 2}', url=f"http://127.0.0.1:{srv.getsockname()[1]}")
+        srv.close()
+        assert out.returncode == 2 and "Traceback" not in out.stderr, out.stderr
+        assert "may have been carried out" in out.stderr
+    gone = socket.socket()
+    gone.bind(("127.0.0.1", 0))
+    port = gone.getsockname()[1]
+    gone.close()  # nothing listens: refused before anything went out
+    out = _run("search.py", "x", url=f"http://127.0.0.1:{port}")
+    assert out.returncode == 2 and "unreachable" in out.stderr
