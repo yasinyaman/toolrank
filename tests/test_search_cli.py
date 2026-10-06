@@ -295,3 +295,20 @@ def test_pgvector_variants_and_eval_keep_tables_of_their_own(
     assert base.table == "toolrank_tools"
     ev = build_parser().parse_args(["eval", "--data", str(tmp_path), "--index", "pgvector"])
     assert ev.pg_table == "toolrank_eval"
+
+
+def test_clm_ckpt_none_ranks_without_the_packaged_heads_even_when_they_are_cached(
+    ingest_dir, tmp_path, fake_endpoint, monkeypatch
+):
+    from test_retriever import _npz_heads
+    from toolrank.adapters.heads_np import HEADS_FILE
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+
+    cache = tmp_path / "cached"
+    monkeypatch.setenv("TOOLRANK_CACHE", str(cache))
+    _npz_heads(cache / "heads" / HEADS_FILE, seed=1, backbone="Qwen/Qwen3-Embedding-8B")
+    base = _args(ingest_dir, tmp_path, "--emb-model", "qwen3-emb")  # the backbone the packaged heads fit
+    assert build_retriever(build_parser().parse_args(base)).search("send an email").scorer.startswith("clm[")
+    off = build_retriever(build_parser().parse_args([*base, "--clm-ckpt", "none"]))
+    assert off.search("send an email").scorer.startswith("dense/")

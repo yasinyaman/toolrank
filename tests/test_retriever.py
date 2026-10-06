@@ -361,3 +361,20 @@ def test_rows_of_another_catalogue_in_a_shared_index_are_skipped(tmp_path):
     r = Retriever(_dir(tmp_path), _Ghosts, fixed_k=3)
     res = r.search("tool 3")
     assert [h.id for h in res.hits] == ["s/t0", "s/t1", "s/t2"]
+
+
+def test_rank_scores_supplied_tools_with_the_heads_a_search_would_use(tmp_path):
+    """/v1/rank (Retriever.rank) once used the base heads only: the promoted, the tenant's and the
+    candidate's heads must score supplied tools as they rank the catalogue."""
+    r, _ = _with_heads(tmp_path)
+    supplied = _tools(6, tag=" supplied")
+    base = r.rank("tool 3", supplied)
+    heads = tmp_path / "heads"
+    _npz_heads(heads / "current.npz", seed=1)
+    assert _ready(r, "current")["ready"]
+    current = r.rank("tool 3", supplied)
+    _npz_heads(heads / "tenants" / "acme" / "current.npz", seed=3)
+    assert _ready(r, "tenant:acme")["ready"]
+    acme = r.rank("tool 3", supplied, tenant="acme")
+    assert len({tuple(s for _, s in x) for x in (base, current, acme)}) == 3
+    assert r.rank("tool 3", supplied, tenant="other") == current  # another key: the shared heads
