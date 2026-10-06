@@ -8,6 +8,13 @@ change behaviour.
 
 ### Added
 
+- API key scopes: an `--api-keys` entry's `scopes` names what the key may do, among `search`,
+  `call` and `feedback` (all three without it). A search-only key's MCP tool list has no `call_tool`,
+  and a call it tries anyway is refused (REST 403) and logged as `refused`.
+- `POST /v1/feedback` (`ToolrankClient.feedback`): a client that runs the tools itself reports a
+  call (the tool, `ok` or `tool_error`, optionally the search and its duration). It goes to the
+  usage log linked to that search, with `ran_by: client`, so `learn`, `ab` and co-use count it;
+  `toolrank_calls_total` counts it as `via="client"`.
 - Ingest checks every tool's input schema against JSON Schema 2020-12 (with `jsonschema`, which
   the `[mcp]` extra brings; by hand for the common draft-04/07 habits otherwise), and also flags
   roots that are not objects and `$ref`s that do not resolve. A failing tool is kept, counted in its

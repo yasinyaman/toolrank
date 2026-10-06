@@ -49,7 +49,8 @@ A named key can also be limited to some sources and carry its own credentials:
     "sources": ["github", "time"],
     "headers": {"github": {"Authorization": "Bearer ${TEAM_A_GITHUB_TOKEN}"}},
     "env": {"time": {"TZ": "Europe/Istanbul"}}
-  }
+  },
+  "dashboard": {"key": "${DASHBOARD_KEY}", "scopes": ["search"]}
 }
 ```
 
@@ -59,6 +60,9 @@ A named key can also be limited to some sources and carry its own credentials:
 - `headers`: sent with this key's calls to that source on top of the config's: an OpenAPI source
   (to its configured `base_url` only) or a streamable HTTP MCP server.
 - `env`: added to a stdio MCP server's environment.
+- `scopes`: what the key may do, among `search` (searches, `/v1/tools`, `/v1/rank`), `call`
+  (`call_tool`, `/v1/call`) and `feedback` (`/v1/feedback`); all three without it. A search-only key's
+  MCP tool list has no `call_tool`, and a call it tries anyway is refused (403 over REST) and logged.
 
 A source for which a key has `headers` or `env` gets a connection (for a stdio server, a process)
 of that key's own, so one team's token never carries another team's call. The server refuses to

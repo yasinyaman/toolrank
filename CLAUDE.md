@@ -381,7 +381,10 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   `unknown_tool`, never sent). `Backends(tenants=...)`: a key's headers join the config's on its OpenAPI calls
   (configured `base_url` only), and an MCP server it has headers or env for gets a connection of the key's own
   (`backend_for`). The OpenAPI client keeps no cookies (a cookie jar would have carried one caller's cookie to
-  the next). Co-use tables and the token estimate are per tenant; `/v1/metrics` refuses keys with `sources`.
+  the next). Co-use tables and the token estimate are per tenant; `/v1/metrics` refuses keys with `sources`. `scopes`
+  (`search` | `call` | `feedback`, all by default; `tenants.may`): REST 403, MCP drops `call_tool` from a
+  search-only key's list and `dispatch_call` logs a refused call. `POST /v1/feedback` logs a call the client
+  ran itself (`ran_by: client`, linked like any call), so learn, ab and co-use see platform-run calls.
 - **Metrics** (Faz 2 week 6, `GET /v1/metrics`, Prometheus text 0.0.4, under `Guard` like the rest of `/v1`):
   `UsageLog` owns a `metrics.Metrics` and feeds it from `search()` and `call()`, so MCP and REST are counted
   alike and `--no-usage-log` stops the files, not the counters; a failing counter never fails a request. The

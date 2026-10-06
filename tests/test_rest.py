@@ -577,3 +577,54 @@ def test_a_key_limited_to_some_sources_sees_only_those_over_rest(tmp_path):
         assert ranked.status_code == 404
         assert c.get("/v1/metrics", headers=team).status_code == 403
         assert c.get("/v1/metrics", headers=ops).status_code == 200
+
+
+def test_scopes_limit_a_key_and_feedback_logs_a_call_the_client_ran(tmp_path):
+    from toolrank.tenants import parse_tenants
+
+    retriever, usage, backends = _callable(tmp_path)
+    backends.tenants = parse_tenants(
+        {
+            "reader": {"key": "rk", "scopes": ["search"]},
+            "runner": {"key": "uk", "scopes": ["search", "feedback"]},
+        }
+    )
+    named = {name: t.key for name, t in backends.tenants.items()}
+    app = http_app(
+        build_proxy(retriever, backends, usage),
+        named_keys=named,
+        routes=rest_routes(retriever, usage, backends),
+    )
+    reader, runner = ({"Authorization": f"Bearer {k}"} for k in ("rk", "uk"))
+    with TestClient(app, base_url=BASE) as c:
+        found = c.post("/v1/search", json={"query": "add", "k": 1}, headers=reader)
+        assert found.status_code == 200 and c.get("/v1/tools", headers=reader).status_code == 200
+        r = c.post("/v1/call", json={"name": "fx/add", "arguments": {"a": 1, "b": 2}}, headers=reader)
+        assert r.status_code == 403 and r.json()["error"] == "this API key may not call tools (its scopes)"
+        r = c.post("/v1/feedback", json={"name": "fx/add", "outcome": "ok"}, headers=reader)
+        assert r.status_code == 403 and "may not report calls" in r.json()["error"]
+
+        sid = c.post("/v1/search", json={"query": "add", "k": 3}, headers=runner).json()["search_id"]
+        r = c.post(
+            "/v1/feedback",
+            json={"name": "fx/add", "outcome": "ok", "search_id": sid, "took_ms": 12},
+            headers=runner,
+        )
+        assert r.status_code == 200 and r.json()["name"] == "fx/add" and r.json()["call_id"].startswith("c-")
+        assert (
+            c.post("/v1/feedback", json={"name": "fx/add", "outcome": "maybe"}, headers=runner).status_code
+            == 400
+        )
+        assert (
+            c.post("/v1/feedback", json={"name": "fx/none", "outcome": "ok"}, headers=runner).status_code
+            == 404
+        )
+        assert c.post("/v1/feedback", content="name=fx/add", headers=runner).status_code == 415
+        text = c.get("/v1/metrics", headers=runner).text
+        assert 'toolrank_calls_total{kind="mcp",outcome="ok",via="client"} 1' in text
+    refused, ran = [e for e in _events(tmp_path) if e["event"] == "call"]
+    assert (refused["tool"], refused["outcome"], refused["tenant"]) == ("fx/add", "refused", "reader")
+    assert "ran_by" not in refused  # it never ran
+    assert (ran["outcome"], ran["ran_by"], ran["search_id"], ran["took_ms"], ran["link"]) == (
+        "ok", "client", sid, 12.0, "search_id"
+    )  # fmt: skip

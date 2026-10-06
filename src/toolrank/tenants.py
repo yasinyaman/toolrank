@@ -8,6 +8,10 @@ credentials: the form before tenants), or an object:
               "headers": {"github": {"Authorization": "Bearer ${TEAM_GITHUB_TOKEN}"}},
               "env": {"time": {"TZ": "Europe/Istanbul"}}}}
 
+``scopes`` limits what the key may do: ``search`` (searches, ``/v1/tools``, ``/v1/rank``), ``call``
+(``call_tool``, ``/v1/call``) and ``feedback`` (``/v1/feedback``: the outcome of a call the client
+ran itself); without it, all three. A search-only key's MCP tool list has no ``call_tool``.
+
 ``sources`` limits the key to those sources' tools: searches, ``/v1/tools``, ``/v1/rank`` by id
 and calls see nothing else, and a tool outside them is answered like one that does not exist (its
 name is not confirmed). Without ``sources`` the key reaches every source. ``headers`` are sent with
@@ -34,6 +38,8 @@ from typing import Any
 
 from toolrank.ingest.mcp import expand_env
 
+SCOPES = ("search", "call", "feedback")
+
 
 @dataclass(frozen=True)
 class Tenant:
@@ -42,9 +48,13 @@ class Tenant:
     sources: frozenset[str] | None = None  # None: every source
     headers: Mapping[str, Mapping[str, str]] = field(default_factory=dict, repr=False)
     env: Mapping[str, Mapping[str, str]] = field(default_factory=dict, repr=False)
+    scopes: frozenset[str] | None = None  # None: every scope
 
     def allows(self, source: str) -> bool:
         return self.sources is None or source in self.sources
+
+    def may(self, scope: str) -> bool:
+        return self.scopes is None or scope in self.scopes
 
     def credentials(self, source: str) -> tuple[dict[str, str], dict[str, str]]:
         """(headers, env) this tenant adds to its calls to ``source``."""
@@ -87,7 +97,7 @@ def parse_tenants(raw: Any, where: str = "--api-keys") -> dict[str, Tenant]:
             entry = {"key": entry}
         if not isinstance(entry, dict):
             raise ValueError(f"{at}: expected a key string or an object with a key")
-        unknown = set(entry) - {"key", "sources", "headers", "env"}
+        unknown = set(entry) - {"key", "sources", "headers", "env", "scopes"}
         if unknown:
             raise ValueError(f"{at}: unknown field(s) {sorted(unknown)}")
         key = entry.get("key")
@@ -107,7 +117,12 @@ def parse_tenants(raw: Any, where: str = "--api-keys") -> dict[str, Tenant]:
             outside = sorted((set(headers) | set(env)) - sources)
             if outside:
                 raise ValueError(f"{at}: credentials for {outside}, which are not among its sources")
-        out[name] = Tenant(name, key, sources, headers, env)
+        scopes = entry.get("scopes")
+        if scopes is not None:
+            if not isinstance(scopes, list) or not scopes or not set(scopes) <= set(SCOPES):
+                raise ValueError(f"{at}.scopes: a non-empty list of {', '.join(SCOPES)}")
+            scopes = frozenset(scopes)
+        out[name] = Tenant(name, key, sources, headers, env, scopes)
     keys = [t.key for t in out.values()]
     if len(set(keys)) != len(keys):
         raise ValueError(f"{where}: two names share a key")
@@ -144,3 +159,9 @@ def check_sources(
         if missing:
             warnings.append(f"--api-keys {t.name}: sources not in the catalogue (yet): {', '.join(missing)}")
     return warnings
+
+
+def may(tenants: Mapping[str, Tenant], name: str | None, scope: str) -> bool:
+    """Whether the key ``name`` (None: a request without a named key) may do ``scope``."""
+    tenant = tenants.get(name) if name else None
+    return tenant is None or tenant.may(scope)

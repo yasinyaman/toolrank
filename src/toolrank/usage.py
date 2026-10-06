@@ -26,7 +26,8 @@ a calibration).
 
 ``call``: v, event, ts, id, session, client, via, tenant, tool, kind (mcp | openapi), search_id,
 rank, link, outcome (ok | tool_error | protocol_error | timeout | refused | unknown_tool),
-http_status, took_ms, args_hmac, error.
+http_status, took_ms, args_hmac, error, ran_by (``client`` for a call the client ran itself and
+reported on ``/v1/feedback``; absent when toolrank ran it).
 
 Who asked: ``session`` is the MCP session (``stdio`` for a stdio server, which serves one client;
 ``null`` over HTTP for 2026-07-28 clients, which have none); ``client`` is a coarser caller key —
@@ -305,14 +306,16 @@ class UsageLog:
         session: str | None,
         via: str,
         outcome: str,
-        took_ms: float,
+        took_ms: float | None,
         arguments: Any = None,
         search_id: str | None = None,
         http_status: int | None = None,
         error: str | None = None,
         client: str | None = None,
         tenant: str | None = None,
+        ran_by: str | None = None,
     ) -> str:
+        """Log a call; ``ran_by="client"``: one the client ran itself (``took_ms`` its own, if it said)."""
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown outcome {outcome!r}")
         if outcome == "unknown_tool":  # not a catalogue id: whatever the agent typed, so request text
@@ -321,7 +324,9 @@ class UsageLog:
         cid = "c-" + uuid.uuid4().hex[:16]
         sid, rank, how = self.link(tool, session, search_id, via=via, client=client, tenant=tenant)
         with contextlib.suppress(Exception):
-            self.metrics.call(kind=kind, outcome=outcome, via=via, took_ms=took_ms, link=how, rank=rank)
+            self.metrics.call(
+                kind=kind, outcome=outcome, via=ran_by or via, took_ms=took_ms, link=how, rank=rank
+            )
         args = json.dumps(
             arguments if arguments is not None else {}, sort_keys=True, ensure_ascii=False, default=str
         )
@@ -342,9 +347,10 @@ class UsageLog:
                 "link": how,
                 "outcome": outcome,
                 "http_status": http_status,
-                "took_ms": round(took_ms, 2),
+                "took_ms": round(took_ms, 2) if took_ms is not None else None,
                 "args_hmac": self.digest(args),
                 "error": self._text(error[:200]) if error else None,
+                **({"ran_by": ran_by} if ran_by else {}),
             }
         )
         return cid

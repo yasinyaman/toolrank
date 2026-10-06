@@ -48,7 +48,9 @@ def test_the_keys_file_takes_plain_keys_and_tenant_objects(tmp_path, monkeypatch
         ({"a": ""}, "non-empty string key"),
         ({"a": 3}, "key string or an object"),
         ({"a/b": "k"}, "a name is 1-64"),
-        ({"a": {"key": "k", "scopes": []}}, "unknown field"),
+        ({"a": {"key": "k", "roles": []}}, "unknown field"),
+        ({"a": {"key": "k", "scopes": []}}, "a non-empty list of search, call, feedback"),
+        ({"a": {"key": "k", "scopes": ["search", "admin"]}}, "a non-empty list of search, call, feedback"),
         ({"a": {"key": "k", "sources": "github"}}, "list of source names"),
         ({"a": {"key": "k", "headers": {"github": {"X": 1}}}}, "object of strings"),
         (
@@ -61,6 +63,15 @@ def test_the_keys_file_takes_plain_keys_and_tenant_objects(tmp_path, monkeypatch
             parse_tenants(bad)
     with pytest.raises(ValueError, match="UNSET_VAR"):
         parse_tenants({"a": {"key": "${UNSET_VAR}"}})
+
+
+def test_scopes_say_what_a_key_may_do():
+    from toolrank.tenants import may
+
+    keys = parse_tenants({"reader": {"key": "r", "scopes": ["search"]}, "all": "a"})
+    assert keys["reader"].scopes == frozenset({"search"}) and keys["all"].scopes is None
+    assert may(keys, "reader", "search") and not may(keys, "reader", "call")
+    assert not may(keys, "reader", "feedback") and may(keys, "all", "call") and may(keys, None, "call")
 
 
 def test_tenant_names_cannot_reach_other_paths_or_session_keys():

@@ -33,6 +33,7 @@ from toolrank.adapters.backends import Backends, error_result
 from toolrank.domain import Tool
 from toolrank.ingest.text import shrink_schema
 from toolrank.retriever import IndexNotReady, Retriever
+from toolrank.tenants import may
 from toolrank.usage import UsageLog
 
 log = logging.getLogger("toolrank.serve")
@@ -139,6 +140,14 @@ async def dispatch_call(
     from mcp_types import TextContent
 
     session, client, tenant = who
+    if not may(backends.tenants, tenant, "call"):
+        cid = usage.call(
+            tool=name, kind=None, session=session, via=via, outcome="refused", took_ms=0.0,
+            arguments=arguments, search_id=search_id, client=client, tenant=tenant,
+        )  # fmt: skip
+        return Dispatched(
+            None, error_result("this API key may not call tools (its scopes)"), "refused", None, cid
+        )
     tool = await in_thread(retriever.get, name, tenant)  # None as well for a tool outside the key's sources
     if tool is None:
         cid = usage.call(
@@ -165,8 +174,11 @@ async def dispatch_call(
     return Dispatched(tool, result, out.outcome, out.http_status, cid)
 
 
-def tool_definitions(retriever: Retriever, tenant: str | None = None) -> list[Any]:
-    """The two tools; ``search_tools`` counts the tools and sources ``tenant`` may reach."""
+def tool_definitions(
+    retriever: Retriever, tenant: str | None = None, tenants: Mapping[str, Any] | None = None
+) -> list[Any]:
+    """The two tools, those ``tenant``'s scopes allow; ``search_tools`` counts the tools and sources
+    ``tenant`` may reach."""
     from mcp_types import Tool as MCPTool
 
     st = retriever.status()
@@ -175,7 +187,7 @@ def tool_definitions(retriever: Retriever, tenant: str | None = None) -> list[An
         mine = retriever.catalogue(tenant)[0]
         tools, sources = len(mine), len({t.category for t in mine})
     where = f"the {tools} tools of {sources} servers and APIs" if tools else "the tools"
-    return [
+    defs = [
         MCPTool(
             name=SEARCH_TOOL,
             description=(
@@ -216,6 +228,8 @@ def tool_definitions(retriever: Retriever, tenant: str | None = None) -> list[An
             },
         ),
     ]
+    scope = {SEARCH_TOOL: "search", CALL_TOOL: "call"}
+    return [d for d in defs if may(tenants or {}, tenant, scope[d.name])]
 
 
 def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, name: str = "toolrank") -> Any:
@@ -241,6 +255,8 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
         if k is not None and (not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= 50):
             return error_result("k must be an integer from 1 to 50")
         session, client, tenant = who
+        if not may(backends.tenants, tenant, "search"):
+            return error_result("this API key may not search (its scopes)")
         try:
             res = await in_thread(retriever.search, query, k=k, arm_key=session, tenant=tenant)
         except IndexNotReady as e:
@@ -281,7 +297,7 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
         return done.result
 
     async def on_list_tools(ctx: Any, params: Any) -> Any:
-        return ListToolsResult(tools=tool_definitions(retriever, identity(ctx)[2]))
+        return ListToolsResult(tools=tool_definitions(retriever, identity(ctx)[2], backends.tenants))
 
     async def on_call_tool(ctx: Any, params: Any) -> Any:
         args = dict(params.arguments or {})

@@ -12,7 +12,8 @@ What is exposed:
   ``toolrank_search_co_use_added_total``, ``toolrank_search_rerank_failed_total`` (a second stage
   that failed, so the first stage's order answered), ``toolrank_search_confidence`` (with a
   calibration: a falling median says the traffic drifted from what the catalogue answers);
-* ``toolrank_calls_total{kind,outcome,via}``, ``toolrank_call_duration_seconds``,
+* ``toolrank_calls_total{kind,outcome,via}`` (``via="client"``: reported on ``/v1/feedback``),
+  ``toolrank_call_duration_seconds``,
   ``toolrank_calls_linked_total{link}`` and ``toolrank_called_tool_rank`` (where the called tool
   stood in the search it is linked to: its ``le="5"`` bucket over its count is "top 5");
 * the token estimate: ``toolrank_search_returned_tokens_total`` (the tools a search handed over)
@@ -211,11 +212,13 @@ class Metrics:
             self.inc("toolrank_search_saved_tokens_total", max(0, whole - returned))
 
     def call(
-        self, *, kind: str | None, outcome: str, via: str, took_ms: float, link: str, rank: int | None
+        self, *, kind: str | None, outcome: str, via: str, took_ms: float | None, link: str, rank: int | None
     ) -> None:
-        """One forwarded call and how it was tied to a search."""
+        """One call and how it was tied to a search (``via="client"``: one the client ran and
+        reported; its duration counts only when it said)."""
         self.inc("toolrank_calls_total", kind=kind or "unknown", outcome=outcome, via=via)
-        self.observe("toolrank_call_duration_seconds", float(took_ms) / 1000.0)
+        if took_ms is not None:
+            self.observe("toolrank_call_duration_seconds", float(took_ms) / 1000.0)
         self.inc("toolrank_calls_linked_total", link=link)
         if rank is not None:
             self.observe("toolrank_called_tool_rank", rank)

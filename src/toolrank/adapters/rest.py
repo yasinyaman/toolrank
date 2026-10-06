@@ -6,6 +6,7 @@ tool_search).
 confidence?, note?}
 ``POST /v1/rank`` {query, instruction?, tools: [MCP tool objects] | tool_ids: [...]} -> scores
 ``POST /v1/call`` {name, arguments?, search_id?} -> {name, call_id, outcome, isError, content, ...}
+``POST /v1/feedback`` {name, outcome, search_id?, took_ms?} -> {name, call_id}: a call the client ran
 ``GET /v1/tools[?server=&full=true]`` -> the catalogue; ``GET /v1/tools/{id}`` -> one tool's record
 ``GET /openapi.json`` -> this API; ``GET /healthz`` -> 200 once the index is ready, else 503
 
@@ -52,11 +53,14 @@ from toolrank.ingest.schema import PROBLEMS_KEY
 from toolrank.metrics import arm_kind
 from toolrank.names import api_name
 from toolrank.retriever import IndexNotReady, Retriever
+from toolrank.tenants import may
 from toolrank.usage import UsageLog
 
 log = logging.getLogger("toolrank.serve")
 
 MAX_RANK = 200
+FEEDBACK_OUTCOMES = ("ok", "tool_error")  # what learn reads: a positive, a weak one
+SCOPE_VERBS = {"search": "search", "call": "call tools", "feedback": "report calls"}
 MAX_K = 50
 
 
@@ -173,6 +177,15 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
             functools.partial(fn, *args, **kw), limiter=limiter[1 if own_slots else 0], abandon_on_cancel=True
         )
 
+    tenants = backends.tenants if backends is not None else {}
+
+    def allowed(request: Any, scope: str) -> tuple[str | None, str | None, str | None]:
+        """The request's identity, once its key's scopes allow ``scope`` (403 otherwise)."""
+        who = identity(request)
+        if not may(tenants, who[2], scope):
+            raise _Reject(403, f"this API key may not {SCOPE_VERBS[scope]} (its scopes)")
+        return who
+
     def endpoint(fn: Callable[[Any], Awaitable[Any]]) -> Callable[[Any], Awaitable[Any]]:
         @functools.wraps(fn)
         async def wrapped(request: Any) -> Any:
@@ -193,7 +206,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         k = body.get("k")
         if k is not None and (not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= MAX_K):
             raise _Reject(400, f"k must be an integer from 1 to {MAX_K}")
-        session, client, tenant = identity(request)
+        session, client, tenant = allowed(request, "search")
         try:
             res = await in_thread(
                 retriever.search, query, k=k, instruction=inst, arm_key=session, tenant=tenant
@@ -228,7 +241,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         items = ids if ids is not None else given
         if not isinstance(items, list) or not 1 <= len(items) <= MAX_RANK:
             raise _Reject(400, f"{'tool_ids' if ids is not None else 'tools'}: a list of 1 to {MAX_RANK}")
-        session, client, tenant = identity(request)
+        session, client, tenant = allowed(request, "search")
         if ids is not None:
             if not all(isinstance(i, str) for i in ids):
                 raise _Reject(400, "tool_ids must be strings")
@@ -269,7 +282,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     async def list_tools(request: Any) -> Any:
         server = request.query_params.get("server")
         full = request.query_params.get("full", "").lower() in ("1", "true", "yes")
-        tools, catalog = await in_thread(retriever.catalogue, identity(request)[2])
+        tools, catalog = await in_thread(retriever.catalogue, allowed(request, "search")[2])
         chosen = [t for t in tools if not server or t.category == server]
         if full:
             items = [platform_record(t) for t in chosen]
@@ -288,7 +301,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
 
     @endpoint
     async def get_tool(request: Any) -> Any:
-        tool = await in_thread(retriever.get, request.path_params["tool_id"], identity(request)[2])
+        tool = await in_thread(retriever.get, request.path_params["tool_id"], allowed(request, "search")[2])
         if tool is None:
             raise _Reject(404, "no such tool")
         keep = ("title", "description", "inputSchema", "outputSchema", "annotations", "http")
@@ -316,6 +329,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
             raise
         except RuntimeError as e:  # the backends are not running
             raise _Reject(503, str(e)) from e
+        if done.tool is None and done.outcome == "refused":  # the key's scopes: logged, not run
+            raise _Reject(403, f"this API key may not {SCOPE_VERBS['call']} (its scopes)")
         if done.tool is None:
             raise _Reject(404, f"no tool named {name!r}; GET /v1/tools lists them")
         result = done.result
@@ -330,6 +345,32 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         if result.structured_content is not None:
             out["structuredContent"] = result.structured_content
         return JSONResponse(out)
+
+    @endpoint
+    async def feedback(request: Any) -> Any:
+        """A call the client ran itself (its platform runs the tools): logged as a call linked to its
+        search, ``ran_by: client``, so ``learn``, ``ab`` and co-use count it like one toolrank ran."""
+        if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+            raise _Reject(415, "send the feedback as application/json")  # a web form cannot
+        body = await _body(request)
+        name = _string(body, "name", required=True)
+        outcome = body.get("outcome")
+        if outcome not in FEEDBACK_OUTCOMES:
+            raise _Reject(400, f"outcome: one of {', '.join(FEEDBACK_OUTCOMES)}")
+        took = body.get("took_ms")
+        if took is not None and (isinstance(took, bool) or not isinstance(took, int | float) or took < 0):
+            raise _Reject(400, "took_ms must be a number of milliseconds")
+        search_id = _string(body, "search_id")
+        session, client, tenant = allowed(request, "feedback")
+        tool = await in_thread(retriever.get, name, tenant)
+        if tool is None:
+            raise _Reject(404, f"no tool named {name!r}; GET /v1/tools lists them")
+        cid = usage.call(
+            tool=tool.id, kind=_kind(tool), session=session, via="rest", outcome=outcome,
+            took_ms=None if took is None else float(took), search_id=search_id, client=client,
+            tenant=tenant, ran_by="client",
+        )  # fmt: skip
+        return JSONResponse({"name": tool.id, "call_id": cid})
 
     async def openapi(request: Any) -> Any:
         return JSONResponse(OPENAPI)
@@ -384,6 +425,7 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         Route("/v1/search", search, methods=["POST"]),
         Route("/v1/rank", rank, methods=["POST"]),
         *([Route("/v1/call", call, methods=["POST"])] if backends is not None else []),
+        Route("/v1/feedback", feedback, methods=["POST"]),
         Route("/v1/tools", list_tools, methods=["GET"]),
         Route("/v1/tools/{tool_id:path}", get_tool, methods=["GET"]),
         Route("/v1/metrics", metrics, methods=["GET"]),
@@ -411,7 +453,7 @@ def _responses(ok: dict[str, Any], *errors: int) -> dict[str, Any]:
 _ERRORS = {
     400: "Bad input",
     401: "Missing or wrong bearer token",
-    403: "Origin not allowed",
+    403: "Origin not allowed, or the API key's scopes do not allow this",
     404: "Unknown tool",
     413: "Body too large",
     415: "Not application/json",
@@ -437,6 +479,24 @@ _SCHEMAS: dict[str, Any] = {
             "search_id": {"type": "string", "description": "The search that found the tool, for the log."},
         },
         "required": ["name"],
+    },
+    "FeedbackRequest": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Tool id, as /v1/search and /v1/tools return it."},
+            "outcome": {
+                "enum": ["ok", "tool_error"],
+                "description": "How the call the client ran ended: ok, or the tool reported an error.",
+            },
+            "search_id": {"type": "string", "description": "The search that found the tool."},
+            "took_ms": {"type": "number", "minimum": 0},
+        },
+        "required": ["name", "outcome"],
+    },
+    "FeedbackResult": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "call_id": {"type": "string"}},
+        "required": ["name", "call_id"],
     },
     "CallResult": {
         "type": "object",
@@ -650,6 +710,14 @@ OPENAPI: dict[str, Any] = {
                 "summary": "Run a tool (a failing tool is a 200 with isError)",
                 "requestBody": {"required": True, **_json(_ref("CallRequest"))},
                 "responses": _responses(_ref("CallResult"), 400, 401, 403, 404, 413, 415, 421, 503),
+            }
+        },
+        "/v1/feedback": {
+            "post": {
+                "operationId": "feedback",
+                "summary": "Report a call the client ran itself, for the usage log (learn, ab, co-use)",
+                "requestBody": {"required": True, **_json(_ref("FeedbackRequest"))},
+                "responses": _responses(_ref("FeedbackResult"), 400, 401, 403, 404, 413, 415, 421),
             }
         },
         "/v1/tools": {

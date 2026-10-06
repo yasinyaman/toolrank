@@ -204,6 +204,24 @@ class ToolrankClient:
             body["search_id"] = search_id
         return self._request("POST", "/v1/call", body, timeout=self.call_timeout, session=session)
 
+    def feedback(
+        self,
+        name: str,
+        outcome: str,
+        *,
+        search_id: str | None = None,
+        took_ms: float | None = None,
+        session: str | None = None,
+    ) -> dict[str, Any]:
+        """Report a call the client ran itself (``outcome``: ``ok`` or ``tool_error``), so the server's
+        usage log, and with it ``toolrank learn``, sees it; -> ``{name, call_id}``."""
+        body: dict[str, Any] = {"name": name, "outcome": outcome}
+        if search_id:
+            body["search_id"] = search_id
+        if took_ms is not None:
+            body["took_ms"] = took_ms
+        return self._request("POST", "/v1/feedback", body, session=session)
+
 
 class AsyncToolrankClient:
     """``ToolrankClient``'s API as coroutines: each method runs the standard-library client in a
@@ -232,6 +250,10 @@ class AsyncToolrankClient:
     async def rank(self, query: str, tools: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
         """``ToolrankClient.rank``: ``instruction``, ``session``."""
         return await self._run(self.sync.rank, query, tools, **kwargs)
+
+    async def feedback(self, name: str, outcome: str, **kwargs: Any) -> dict[str, Any]:
+        """``ToolrankClient.feedback``: ``search_id``, ``took_ms``, ``session``."""
+        return await self._run(self.sync.feedback, name, outcome, **kwargs)
 
     async def call(self, name: str, arguments: dict[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
         """``ToolrankClient.call``: ``search_id``, ``session``."""

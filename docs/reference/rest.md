@@ -52,6 +52,18 @@ Runs a catalogue tool exactly as MCP `call_tool` does, with the same write polic
 content blocks) and, for OpenAPI
 operations, `http_status`. A tool that fails is still a 200 with `isError: true`. JSON bodies only.
 
+### `POST /v1/feedback`
+
+```json
+{"name": "stripe/PostRefunds", "outcome": "ok", "search_id": "s-...", "took_ms": 840}
+```
+
+For a client that runs the tools itself (its agent platform calls the APIs) and wants toolrank to
+learn from what it called. It reports a call: the tool id, `outcome` (`ok`, or `tool_error` when the
+tool answered with an error), and optionally the search that found it and how long it took. The
+call goes to the usage log as if toolrank had run it, linked to that search (`ran_by: client`), so
+`toolrank learn`, `ab` and co-use count it. The answer is `{name, call_id}`. JSON bodies only.
+
 ### `GET /v1/tools`, `GET /v1/tools/{id}`
 
 The catalogue, optionally one server's (`?server=`). With `?full=true`, each tool also has its input
@@ -77,10 +89,10 @@ Errors are JSON `{"error": "..."}`:
 | --- | --- |
 | 400 | bad input |
 | 401 | missing or wrong key |
-| 403 | a browser origin that is not allowed; `/v1/metrics` for a key limited to some sources |
+| 403 | a browser origin that is not allowed; `/v1/metrics` for a key limited to some sources; what a key's `scopes` do not allow |
 | 404 | unknown tool |
 | 413 | body over 1 MiB |
-| 415 | a call that is not JSON |
+| 415 | a call or feedback that is not JSON |
 | 421 | a Host header that is not allowed |
 | 503 | index not ready, embedding endpoint down, or backends not running |
 

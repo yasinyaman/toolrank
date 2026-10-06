@@ -256,3 +256,16 @@ def test_identity_of_stdio_and_http_callers():
     assert identity(NS(request=request, session=info)) == (None, "team-a|claude-desktop|10.0.0.5", "team-a")
     legacy = NS(scope={}, headers={"mcp-session-id": "abc"}, client=None)
     assert identity(NS(request=legacy, session=None)) == ("abc", "-|-|-", None)
+
+
+def test_a_search_only_key_is_not_offered_call_tool(tmp_path):
+    from toolrank.adapters.mcp_proxy import CALL_TOOL, SEARCH_TOOL, tool_definitions
+    from toolrank.tenants import parse_tenants
+
+    retriever = Retriever(_catalogue(tmp_path), lambda: DenseScorer(_HashEncoder(), "name_desc"))
+    keys = parse_tenants(
+        {"reader": {"key": "r", "scopes": ["search"]}, "caller": {"key": "c", "scopes": ["call"]}}
+    )
+    names = lambda tenant: [t.name for t in tool_definitions(retriever, tenant, keys)]  # noqa: E731
+    assert names("reader") == [SEARCH_TOOL] and names("caller") == [CALL_TOOL]
+    assert names(None) == [SEARCH_TOOL, CALL_TOOL] == [t.name for t in tool_definitions(retriever)]
