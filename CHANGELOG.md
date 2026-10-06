@@ -130,6 +130,12 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A/B with API keys: a key without heads files of its own now takes part in the shared experiment,
+  candidate share included; before, every keyed request was control, so a server whose clients all
+  had keys never tried the candidate (`ab` waited forever) while their searches swelled the control
+  arm. `ab` without `--tenant` leaves out the keys that run their own experiment (both arms), `ab
+  --tenant` counts only that key's own, and `learn` without `--tenant` skips searches a key's own
+  heads answered (`searches_with_tenant_heads`).
 - `/v1/rank` embeds the caller's tools with a request's limits (10 s, one retry, as for queries) and
   keeps them in memory (8,192 texts), not in the shared on-disk cache; it has two worker slots of its
   own. Before, they were embedded like catalogue documents (600 s, three tries), so four slow rank

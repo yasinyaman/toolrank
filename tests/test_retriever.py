@@ -418,3 +418,19 @@ def test_a_key_limited_to_some_sources_ranks_as_if_the_catalogue_were_its_own(tm
         "tool 3", tenant="acme"
     )
     assert len(fused.hits) == 6 and min(h.score for h in fused.hits) >= 1 / (60 + 6)  # ranks among its 6
+
+
+def test_a_key_without_heads_of_its_own_takes_part_in_the_shared_experiment(tmp_path):
+    """Every keyed request was control: a key never got the shared candidate, so a server whose
+    clients all have keys never tried it (ab waited forever) while its control arm grew."""
+    from toolrank.retriever import bucket
+
+    r, _ = _with_heads(tmp_path, candidate_share=0.5)
+    heads = tmp_path / "heads"
+    _npz_heads(heads / "candidate.npz", seed=2)
+    assert _ready(r, "candidate")["ready"]
+    inside = next(k for k in (f"s{i}" for i in range(100)) if bucket(k, 0.5))
+    assert r.search("tool 3", arm_key=inside, tenant="team").arm == "candidate"
+    _npz_heads(heads / "tenants" / "acme" / "current.npz", seed=3)  # acme runs its own experiment
+    assert _ready(r, "tenant:acme")["ready"]
+    assert r.search("tool 3", arm_key=inside, tenant="acme").arm == "tenant:acme"

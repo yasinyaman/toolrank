@@ -622,6 +622,25 @@ def test_judge_counts_the_jev_searches_of_the_key_it_judges_only():
     assert counts["searches_with_jev"] == 1  # acme's own; not the other key's
 
 
+def test_the_shared_experiment_leaves_out_keys_that_run_their_own():
+    s = lambda sid, tenant, arm: {**_search(sid, sid, ["t1"], 1, "2026-10-01", tenant=tenant), "arm": arm}  # noqa: E731
+    events = [
+        s("s1", None, "current"),
+        s("s2", "team", "candidate"),  # a key without heads of its own: part of the shared experiment
+        s("s3", "acme", "current"),  # acme has heads of its own: neither of its arms counts here
+        s("s4", "acme", "tenant:acme:candidate"),
+        *[_call("t1", sid) for sid in ("s1", "s2", "s3", "s4")],
+    ]
+    shared = judge(events)
+    assert (shared["control"]["searches"], shared["candidate"]["searches"]) == (1, 1)
+    acme = judge(events, tenant="acme")
+    assert (acme["control"]["searches"], acme["candidate"]["searches"]) == (1, 1)
+    team = judge(events, tenant="team")  # its share of the shared candidate is not its own experiment
+    assert team["candidate"]["searches"] == 0
+    pairs, counts = mine(events)
+    assert sorted(p.state for p in pairs) == ["s1", "s2", "s3"] and counts["searches_with_tenant_heads"] == 1
+
+
 def test_mine_tells_the_backbone_of_old_searches_by_their_scorer_name():
     """Logs from before the model field (0.1.x, all of qwen3-emb's) and second-stage searches logged
     with model null still name the first stage's encoder in the scorer: emb/<served name>/."""

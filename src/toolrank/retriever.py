@@ -414,18 +414,22 @@ class Retriever:
     ) -> tuple[_State, str, str | None]:
         """The state a request is answered with -> (state, arm, heads sha): the tenant's current
         heads if it has some, else ``current.npz``, else the base; and the matching candidate for
-        the share of ``arm_key`` values that fall in the candidate bucket. A variant that is not
-        built yet is skipped, so a request never waits for one."""
+        the share of ``arm_key`` values that fall in the candidate bucket. A key with heads files of
+        its own runs its own experiment; any other key's requests are part of the shared one (its
+        candidate's share included), as requests without a key are. A variant that is not built
+        yet is skipped, so a request never waits for one."""
         base = self.state(fallback=self.make_fallback is not None)
         chosen, arm, sha = base, "base", self.heads_sha
         if self.heads_dir is None or base.lexical:
             return chosen, arm, sha
         where, prefix = self.heads_dir, ""
         if tenant:
-            where, prefix = self.heads_dir / "tenants" / tenant, f"tenant:{tenant}"
-            current = self._variant(prefix, where / "current.npz")
+            own, mine = self.heads_dir / "tenants" / tenant, f"tenant:{tenant}"
+            current = self._variant(mine, own / "current.npz")
             if current is not None and current.state is not None:
-                chosen, arm, sha = current.state, prefix, current.sha
+                chosen, arm, sha = current.state, mine, current.sha
+            if current is not None or (own / "candidate.npz").exists():
+                where, prefix = own, mine
         if arm == "base" and self.use_current:
             current = self._variant("current", self.heads_dir / "current.npz")
             if current is not None and current.state is not None:

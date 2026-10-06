@@ -143,6 +143,8 @@ def mine(
                 counts["searches_before_since"] += 1
             elif tenant and e.get("tenant") != tenant:
                 counts["searches_of_other_tenants"] += 1
+            elif not tenant and str(e.get("arm") or "").startswith("tenant:"):
+                counts["searches_with_tenant_heads"] += 1  # answered by a key's own heads: its learn
             elif model and _served_by_other(e, model):
                 counts["searches_of_other_models"] += 1
             elif not may_learn_from(e.get("scorer")):
@@ -568,10 +570,18 @@ def judge(
     counts: Counter[str] | None = None,
 ) -> dict[str, dict[str, float]]:
     """How the control and the candidate did since ``since`` -> {"control" | "candidate": {searches,
-    called, top1, mrr}}. A search belongs to the candidate when its ``arm`` ends in ``candidate``,
-    with ``tenant`` only that key's searches count; a search counts as called when a linked call
-    ended ``ok`` or ``tool_error``, at the best rank among those calls. Searches a Jev second stage
-    answered decide nothing (the provider's terms); when ``counts`` is given they are tallied in it."""
+    called, top1, mrr}}. A search belongs to the candidate when its ``arm`` ends in ``candidate``.
+    Without ``tenant`` this is the shared experiment: the searches of keys that run their own (their
+    heads files show in ``arm`` as ``tenant:<name>``) stay out, both arms of them. With ``tenant``
+    only that key's own experiment counts. A search counts as called when a linked call ended ``ok``
+    or ``tool_error``, at the best rank among those calls. Searches a Jev second stage answered
+    decide nothing (the provider's terms); when ``counts`` is given they are tallied in it."""
+    events = list(events)
+    own = {
+        e.get("tenant")
+        for e in events
+        if e.get("event") == "search" and str(e.get("arm") or "").startswith("tenant:")
+    }
     arms: dict[str, str] = {}
     for e in events:
         if e.get("event") != "search" or (since and str(e.get("ts", "")) < since):
@@ -579,10 +589,10 @@ def judge(
         if not isinstance(e.get("id"), str):
             continue
         arm = str(e.get("arm") or "base")
-        if tenant is not None and e.get("tenant") != tenant:
-            continue
-        if tenant is None and arm.startswith("tenant:"):
-            continue  # a tenant's own heads are another experiment
+        if tenant is not None and (e.get("tenant") != tenant or arm == "candidate"):
+            continue  # another key's, or this key's share of the shared experiment
+        if tenant is None and (arm.startswith("tenant:") or e.get("tenant") in own):
+            continue  # a key with heads of its own runs another experiment
         if not may_learn_from(e.get("scorer")):  # counted for the key being judged only
             if counts is not None:
                 counts["searches_with_jev"] += 1

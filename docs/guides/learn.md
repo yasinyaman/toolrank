@@ -68,6 +68,11 @@ watches `DATA/heads` while it runs:
 | `candidate.npz` | answers `--candidate-share` (10%) of the requests with it, the same session or client always on the same side |
 | `tenants/<name>/current.npz`, `candidate.npz` | the same, for the requests of one API key (`--api-keys`) |
 
+A key with heads files of its own runs its own experiment (`learn --tenant`, `ab --tenant`). Every
+other key's requests take part in the shared one, candidate share included, like requests without
+a key; `ab` without `--tenant` leaves the keys with their own experiment out, and `learn` without
+`--tenant` does not learn from searches their own heads answered.
+
 A file that appears or changes is loaded in the background (its tools are re-projected from cached
 vectors, nothing is embedded again); until then requests get the heads before it. The log records
 which arm answered each search. `toolrank ab` reads it back:
