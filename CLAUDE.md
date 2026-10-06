@@ -421,8 +421,12 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   whose name becomes the request's tenant. OpenAPI path parameters `.`/`..` are refused, and so is a spec path without its leading `/` (appended to the base URL it names another host; `backends.same_origin` checks the composed URL against the base URL as well). `usage.UsageLog` appends schema-v3 JSONL to
   `DATA/usage/` (one `os.write` per event), requests, a request's own instruction, arguments and the
   embedding-cache key (`emb_hmac`; the key itself is an unkeyed hash that would confirm a guess) as HMAC digests under a
-  per-install key, each call linked to a search: `search_id`, else the session's latest, else the
-  same client's latest (`client` = key name | client app | remote host, logged as a digest).
+  per-install key (`usage.read_key`: written whole, refused under 32 bytes; an unknown tool name is a digest too), each
+  call linked to a search of the same key: `search_id`, else the session's latest, else the same client's latest
+  (`client` = key name | client app | remote host, logged as a digest; a named key's REST session is `rest@<name>:<id>`).
+  `/healthz` (no token, no Host check) says `{ready, mode}` only, and client-facing errors leave out exception text
+  (the `toolrank.serve` log keeps it). `/v1/rank`'s supplied tools (`ports.supplied`) get query limits, an in-memory
+  cache and two worker slots of their own.
   2026-07-28 HTTP clients have no session id (`session: null`); `client` carries their links.
   Serve gives query embeddings 10 s and one retry; indexing keeps the encoder's 600 s. Under
   `--stdio` stdout is the protocol: log to stderr only. Paths are made absolute (Claude Desktop
