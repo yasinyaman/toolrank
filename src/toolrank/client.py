@@ -133,7 +133,7 @@ class ToolrankClient:
         return payload
 
     def health(self) -> dict[str, Any]:
-        """``{ready, mode, tools, sources, scorer}``; a server still building its index is no error."""
+        """``{ready, mode}``; a server still building its index is no error."""
         return self._request("GET", "/healthz", ok=(200, 503))
 
     def catalog(self, server: str | None = None) -> dict[str, Any]:

@@ -100,7 +100,7 @@ def test_first_index_in_the_background_and_failures(tmp_path):
     def _broken():
         raise RuntimeError("heads file missing")
 
-    with pytest.raises(IndexNotReady, match="heads file missing"):
+    with pytest.raises(IndexNotReady, match="the server's log says why"):
         Retriever(_dir(tmp_path), _broken, background=True, ready_timeout=5).search("x")
 
 
@@ -190,7 +190,7 @@ def test_keyword_stand_in_until_the_index_is_built_and_a_failed_build_is_retried
     res = r.search("refund this payment")  # retries the failed build; keyword matches meanwhile
     assert (res.mode, [h.id for h in res.hits], res.emb_key) == ("lexical", ["s/refund"], None)
     assert r.get("s/send") is not None and r.status()["mode"] == "lexical"
-    with pytest.raises(IndexNotReady, match="endpoint down"):
+    with pytest.raises(IndexNotReady, match="the server's log says why"):
         r.rank("x", tools)  # needs the semantic index
     gate.set()
     for _ in range(300):

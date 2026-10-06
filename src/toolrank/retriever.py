@@ -330,10 +330,9 @@ class Retriever:
                 return fb
             if self._error is None:
                 meanwhile = " (keyword search works meanwhile)" if fb is not None else ""
-                raise IndexNotReady(
-                    f"the tool index for {self.data_dir} is still being built{meanwhile}; try again shortly"
-                )
-            raise IndexNotReady(f"building the tool index failed: {self._error}")
+                raise IndexNotReady(f"the tool index is still being built{meanwhile}; try again shortly")
+            # the reason (often the embedding endpoint's address) went to the server's log
+            raise IndexNotReady("building the tool index failed; the server's log says why")
         with contextlib.suppress(OSError):
             due = time.monotonic() >= self._retry_at  # a failed reload waits retry_s before the next
             if due and self._stamp() != st.stamp and not self._reload_lock.locked():

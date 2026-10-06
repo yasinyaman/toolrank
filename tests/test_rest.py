@@ -141,13 +141,7 @@ def test_search_rank_and_catalogue_routes(tmp_path):
             "api__getThing",
         )
         assert c.get("/v1/tools/fx/nope").status_code == 404
-        assert c.get("/healthz").json() == {
-            "ready": True,
-            "mode": "semantic",
-            "tools": 3,
-            "sources": 2,
-            "scorer": retriever.status()["scorer"],
-        }
+        assert c.get("/healthz").json() == {"ready": True, "mode": "semantic"}  # no token: nothing more
         spec = c.get("/openapi.json").json()
         assert spec["openapi"] == "3.1.0" and {"/v1/search", "/v1/rank", "/v1/tools"} <= set(spec["paths"])
     assert [(e["event"], e["via"], e["session"]) for e in _events(tmp_path)] == [
@@ -224,7 +218,10 @@ def test_first_index_and_endpoint_failures_are_503(tmp_path):
         assert c.get("/healthz").status_code == 200
         encoder.down = True
         r = c.post("/v1/search", json={"query": "x"})
-        assert r.status_code == 503 and r.json()["error"] == "search failed: RuntimeError: endpoint down"
+        assert (
+            r.status_code == 503
+            and r.json()["error"] == "search failed (RuntimeError); the server's log says why"
+        )
 
 
 def test_keyword_matches_while_the_index_builds_and_named_keys(tmp_path):
@@ -248,7 +245,7 @@ def test_keyword_matches_while_the_index_builds_and_named_keys(tmp_path):
             "fx/search_issues",
         )
         health = c.get("/healthz")
-        assert health.status_code == 503 and (health.json()["mode"], health.json()["tools"]) == ("lexical", 3)
+        assert health.status_code == 503 and health.json() == {"ready": False, "mode": "lexical"}
         assert (
             c.post("/v1/rank", json={"query": "x", "tool_ids": ["fx/add"]}, headers=team_a).status_code == 503
         )

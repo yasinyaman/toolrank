@@ -130,6 +130,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- What any caller learns of the server: `/healthz`, which needs no key and checks no `Host` (probes),
+  answers `{ready, mode}` only (no catalogue size or scorer for a DNS-rebinding page to read);
+  `search_tools`' description counts the tools a key limited to some sources may reach, not the whole
+  catalogue's; and a failed search, rank or first index says so without the exception's text (the
+  embedding endpoint's address, the data directory), which goes to the server's log instead.
 - `--api-keys` names are 1–64 letters, digits, `_`, `-` and `.`: a name with `:` could pass for another
   key's heads variant (`tenant:x:candidate`) and `..` reached the shared heads directory. A named key's
   REST session ids are `rest@<name>:<id>` (a request without a key can no longer pick `alice:abc` and

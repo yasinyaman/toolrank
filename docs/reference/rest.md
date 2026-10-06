@@ -63,7 +63,8 @@ catalogue's size. See [Metrics](../guides/serve.md#metrics).
 
 ### `GET /healthz`
 
-200 with `{ready, mode, tools, sources, scorer}` once the semantic index is ready, 503 before.
+200 with `{ready, mode}` once the semantic index is ready, 503 before. It needs no key and checks no
+`Host` (load balancers and probes call it), so it says nothing more.
 
 ## Errors
 

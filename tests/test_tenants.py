@@ -334,3 +334,25 @@ def test_a_limited_key_cannot_call_another_sources_tool(tmp_path):
         ("big/t0", "unknown_tool", "team"),
         ("small/s0", "ok", "team"),
     ]
+
+
+def test_a_limited_key_hears_only_its_own_counts(tmp_path):
+    """search_tools' description told a key limited to some sources how big the whole catalogue is."""
+    pytest.importorskip("mcp")
+    from toolrank.adapters.mcp_proxy import tool_definitions
+
+    tools = [
+        Tool(id=f"{s}/t{i}", doc={"name": f"t{i}", "description": "x"}, category=s)
+        for s in "ab"
+        for i in range(3)
+    ]
+    tools += [Tool(id=f"c/t{i}", doc={"name": f"t{i}", "description": "x"}, category="c") for i in range(4)]
+    write_tools(tmp_path / "tools.jsonl", tools)
+    r = Retriever(
+        tmp_path,
+        lambda: DenseScorer(_HashEncoder(), "name_desc", "plain"),
+        allowed={"acme": frozenset({"a"})},
+    )
+    assert "the 10 tools of 3 servers" in tool_definitions(r)[0].description
+    assert "the 3 tools of 1 servers" in tool_definitions(r, "acme")[0].description
+    assert "the 10 tools of 3 servers" in tool_definitions(r, "team")[0].description  # not limited

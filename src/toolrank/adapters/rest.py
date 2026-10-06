@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -48,6 +49,8 @@ from toolrank.metrics import arm_kind
 from toolrank.names import api_name
 from toolrank.retriever import IndexNotReady, Retriever
 from toolrank.usage import UsageLog
+
+log = logging.getLogger("toolrank.serve")
 
 MAX_RANK = 200
 MAX_K = 50
@@ -190,7 +193,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         except IndexNotReady:
             raise
         except Exception as e:  # the embedding endpoint is down, ...
-            raise _Reject(503, f"search failed: {type(e).__name__}: {e}") from e
+            log.warning("search failed: %s: %s", type(e).__name__, e)  # the endpoint's address stays here
+            raise _Reject(503, f"search failed ({type(e).__name__}); the server's log says why") from e
         sid = usage.search(
             res, session=session, via="rest", heads=res.heads, client=client, tenant=tenant, arm=res.arm
         )
@@ -245,7 +249,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         except ValueError as e:  # a scorer that cannot score tools outside its index
             raise _Reject(400, str(e)) from e
         except Exception as e:
-            raise _Reject(503, f"rank failed: {type(e).__name__}: {e}") from e
+            log.warning("rank failed: %s: %s", type(e).__name__, e)
+            raise _Reject(503, f"rank failed ({type(e).__name__}); the server's log says why") from e
         out = [{"index": int(n), **labels[int(n)], "score": round(s, 6)} for n, s in scored]
         return JSONResponse({"tools": out})
 
@@ -352,9 +357,9 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
             extra.append(("toolrank_embedding_tokens_total", "counter", text, {}, enc.tokens_spent))
         return PlainTextResponse(usage.metrics.render(extra), media_type="text/plain; version=0.0.4")
 
-    async def healthz(request: Any) -> Any:  # no token: keep it to what a load balancer needs
+    async def healthz(request: Any) -> Any:  # no token, no Host check (probes): what a probe needs only
         st = retriever.status()
-        body = {k: st[k] for k in ("ready", "mode", "tools", "sources", "scorer")}
+        body = {k: st[k] for k in ("ready", "mode")}
         return JSONResponse(body, status_code=200 if st["ready"] else 503)
 
     return [
@@ -572,9 +577,6 @@ _SCHEMAS: dict[str, Any] = {
         "properties": {
             "ready": {"type": "boolean"},
             "mode": {"enum": ["semantic", "lexical", "starting", "failed"]},
-            "tools": {"type": "integer"},
-            "sources": {"type": "integer"},
-            "scorer": {"type": ["string", "null"]},
         },
     },
 }

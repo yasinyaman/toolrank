@@ -21,6 +21,7 @@ from __future__ import annotations
 import functools
 import hmac
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -33,6 +34,8 @@ from toolrank.domain import Tool
 from toolrank.ingest.text import shrink_schema
 from toolrank.retriever import IndexNotReady, Retriever
 from toolrank.usage import UsageLog
+
+log = logging.getLogger("toolrank.serve")
 
 SEARCH_TOOL, CALL_TOOL = "search_tools", "call_tool"
 FULL_SCHEMAS = 3  # search hits that carry their whole inputSchema
@@ -143,11 +146,16 @@ async def dispatch_call(
     return Dispatched(tool, result, out.outcome, out.http_status, cid)
 
 
-def tool_definitions(retriever: Retriever) -> list[Any]:
+def tool_definitions(retriever: Retriever, tenant: str | None = None) -> list[Any]:
+    """The two tools; ``search_tools`` counts the tools and sources ``tenant`` may reach."""
     from mcp_types import Tool as MCPTool
 
     st = retriever.status()
-    where = f"the {st['tools']} tools of {st['sources']} servers and APIs" if st["tools"] else "the tools"
+    tools, sources = st["tools"], st["sources"]
+    if tools and tenant and retriever.allowed.get(tenant) is not None:  # a key limited to some sources
+        mine = retriever.catalogue(tenant)[0]
+        tools, sources = len(mine), len({t.category for t in mine})
+    where = f"the {tools} tools of {sources} servers and APIs" if tools else "the tools"
     return [
         MCPTool(
             name=SEARCH_TOOL,
@@ -219,7 +227,8 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
         except IndexNotReady as e:
             return error_result(str(e))
         except Exception as e:  # the embedding endpoint is down, ...
-            return error_result(f"search failed: {type(e).__name__}: {e}")
+            log.warning("search failed: %s: %s", type(e).__name__, e)  # the endpoint's address stays here
+            return error_result(f"search failed ({type(e).__name__}); the server's log says why")
         sid = usage.search(
             res, session=session, via="mcp", heads=res.heads, client=client, tenant=tenant, arm=res.arm
         )
@@ -252,7 +261,7 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
         return done.result
 
     async def on_list_tools(ctx: Any, params: Any) -> Any:
-        return ListToolsResult(tools=tool_definitions(retriever))
+        return ListToolsResult(tools=tool_definitions(retriever, identity(ctx)[2]))
 
     async def on_call_tool(ctx: Any, params: Any) -> Any:
         args = dict(params.arguments or {})
