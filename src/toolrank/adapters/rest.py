@@ -148,15 +148,17 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
     from starlette.responses import JSONResponse
     from starlette.routing import Route
 
-    limiter: list[Any] = []  # created inside the event loop
+    limiter: list[Any] = []  # created inside the event loop: searches, lookups, calls; then /v1/rank's own
     if usage.metrics.catalogue is None:  # what a search is compared against, for the token estimate
         usage.metrics.catalogue = retriever.catalogue
 
-    async def in_thread(fn: Any, *args: Any, **kw: Any) -> Any:
+    async def in_thread(fn: Any, *args: Any, own_slots: bool = False, **kw: Any) -> Any:
+        """``fn`` in a worker thread: four for searches, lookups and calls, two of their own for
+        ``/v1/rank`` (``own_slots``), whose tools a slow endpoint may take seconds to embed."""
         if not limiter:
-            limiter.append(anyio.CapacityLimiter(4))
+            limiter.extend([anyio.CapacityLimiter(4), anyio.CapacityLimiter(2)])
         return await anyio.to_thread.run_sync(
-            functools.partial(fn, *args, **kw), limiter=limiter[0], abandon_on_cancel=True
+            functools.partial(fn, *args, **kw), limiter=limiter[1 if own_slots else 0], abandon_on_cancel=True
         )
 
     def endpoint(fn: Callable[[Any], Awaitable[Any]]) -> Callable[[Any], Awaitable[Any]]:
@@ -229,7 +231,13 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         tools = [dataclasses.replace(t, id=str(n)) for n, t in enumerate(tools)]
         try:
             scored = await in_thread(
-                retriever.rank, query, tools, instruction=inst, arm_key=session or client, tenant=tenant
+                retriever.rank,
+                query,
+                tools,
+                instruction=inst,
+                arm_key=session or client,
+                tenant=tenant,
+                own_slots=True,
             )
         except IndexNotReady:
             raise

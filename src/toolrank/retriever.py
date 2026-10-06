@@ -40,7 +40,7 @@ from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
 from toolrank.domain import Query, RankedList, Tool
-from toolrank.ports import cache_scope, visible_ids
+from toolrank.ports import cache_scope, supplied, visible_ids
 
 LOG_TOP = 20  # ranked tools kept for the usage log, whatever the cut returns
 SETTLE_S = 0.05  # a tools.jsonl modified more recently than this may still be being written
@@ -578,7 +578,11 @@ class Retriever:
             raise ValueError(f"{st.scorer.name} cannot score tools outside its index")
         inst = self.instruction if instruction is None else instruction
         q = Query(id=uuid.uuid4().hex, text=query, qrels={}, instruction=inst)
-        scores = st.scorer.score_tools(q, list(tools))
+        mark = supplied.set(True)  # the caller's tools: a request's limits, kept in memory only
+        try:
+            scores = st.scorer.score_tools(q, list(tools))
+        finally:
+            supplied.reset(mark)
         return sorted(zip([t.id for t in tools], scores, strict=True), key=lambda x: -x[1])
 
     def visible(self, st: _State, tenant: str | None) -> frozenset[str] | None:

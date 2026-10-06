@@ -130,6 +130,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `/v1/rank` embeds the caller's tools with a request's limits (10 s, one retry, as for queries) and
+  keeps them in memory (8,192 texts), not in the shared on-disk cache; it has two worker slots of its
+  own. Before, they were embedded like catalogue documents (600 s, three tries), so four slow rank
+  requests held every worker `/v1/search` and `/v1/call` need, and any client could grow the cache on
+  disk with texts of its choosing.
 - A key's credential header replaces the config's whatever the case of its name: `{**config, **key}`
   kept `Authorization: Bearer shared` next to a key's `authorization: Bearer team-token`, the upstream
   got both, and many servers take the first, the operator's (OpenAPI calls and a key's own MCP

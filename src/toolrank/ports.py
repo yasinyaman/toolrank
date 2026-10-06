@@ -48,6 +48,12 @@ def within_visible(
     return [[t for t, _ in r][:k] for r in kept], [[s for _, s in r][:k] for r in kept]
 
 
+# True while a caller's own tools are embedded (``/v1/rank``): they get a request's time limits and
+# stay in memory, so a client cannot hold the server's workers on a slow endpoint for minutes nor
+# grow the shared cache on disk with texts of its choosing.
+supplied: ContextVar[bool] = ContextVar("toolrank_supplied", default=False)
+
+
 def scoped(key_text: str) -> str:
     """``key_text`` within the current ``cache_scope`` (unchanged outside one)."""
     scope = cache_scope.get()

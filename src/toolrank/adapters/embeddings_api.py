@@ -22,13 +22,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import OrderedDict
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from toolrank.ports import scoped
+from toolrank.ports import scoped, supplied
 
 
 def env_api_key(base_url: str, own: str) -> str | None:
@@ -47,6 +48,9 @@ def env_api_key(base_url: str, own: str) -> str | None:
 
 def l2_normalize(x: np.ndarray) -> np.ndarray:
     return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-12)
+
+
+SUPPLIED_KEPT = 8192  # embeddings of callers' own tools kept in memory (``ports.supplied``)
 
 
 class EmbeddingCache:
@@ -141,6 +145,8 @@ class OpenAIEmbeddings:
         ns = f"{self.base_url}|{model}|trunc={truncate_prompt_tokens}|norm={normalize}"
         self.cache = EmbeddingCache(Path(cache_dir) / "embeddings.sqlite", ns) if cache_dir else None
         self.tokens_spent = 0
+        self._supplied: OrderedDict[str, np.ndarray] = OrderedDict()  # ports.supplied texts, newest last
+        self._supplied_lock = threading.Lock()
         # texts answered from the cache and texts sent to the endpoint, per kind (a server's metrics)
         self.texts: dict[tuple[str, str], int] = {}
         self._texts_lock = threading.Lock()
@@ -199,8 +205,15 @@ class OpenAIEmbeddings:
         # vLLM rejects an empty prompt ("The decoder prompt cannot be empty"); ToolRet has one
         # empty query (mnms_query_17, w/o inst), so send a single space: one token, no content.
         texts = [t if t else " " for t in texts]
-        # `is not None`: EmbeddingCache has __len__, so an empty cache is falsy
-        have = self.cache.get_many(texts) if self.cache is not None else {}
+        volatile = kind == "document" and supplied.get()  # a caller's own tools: memory, short limits
+        if volatile:
+            kind = "supplied"
+            keys = [scoped(t) for t in texts]
+            with self._supplied_lock:
+                have = {i: self._supplied[k] for i, k in enumerate(keys) if k in self._supplied}
+        else:
+            # `is not None`: EmbeddingCache has __len__, so an empty cache is falsy
+            have = self.cache.get_many(texts) if self.cache is not None else {}
         todo = [i for i in range(len(texts)) if i not in have]
         with self._texts_lock:
             for source, n in (("cache", len(texts) - len(todo)), ("endpoint", len(todo))):
@@ -210,12 +223,18 @@ class OpenAIEmbeddings:
         for i in todo:
             uniq.setdefault(texts[i], []).append(i)
         pending = list(uniq)
-        limits = self.query_limits if kind == "query" else {}
+        limits = self.query_limits if kind in ("query", "supplied") else {}
         for s in range(0, len(pending), self.batch):
             chunk = pending[s : s + self.batch]
             vecs, spent = self._post(chunk, **limits)
             self.tokens_spent += spent
-            if self.cache is not None:
+            if volatile:
+                with self._supplied_lock:
+                    for t, v in zip(chunk, vecs, strict=True):
+                        self._supplied[scoped(t)] = v
+                    while len(self._supplied) > SUPPLIED_KEPT:
+                        self._supplied.popitem(last=False)
+            elif self.cache is not None:
                 self.cache.put_many(chunk, np.stack(vecs))
             for t, v in zip(chunk, vecs, strict=True):
                 for i in uniq[t]:

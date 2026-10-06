@@ -16,7 +16,7 @@ def fake_endpoint(monkeypatch):
     """16-d vectors from a text hash, plus the texts each call sent."""
     sent: list[list[str]] = []
 
-    def fake_post(self, texts):
+    def fake_post(self, texts, **limits):
         sent.append(list(texts))
         rows = []
         for t in texts:
@@ -345,3 +345,41 @@ def test_a_named_keys_requests_never_hit_another_keys_cached_embeddings(ingest_d
     before = sum(len(b) for b in fake_endpoint)
     r.rank("x", [Tool(id="mine", doc=mail.doc, documentation=mail.documentation)], tenant="bob")
     assert sum(len(b) for b in fake_endpoint) - before == 2  # the request and the tool
+
+
+def test_tools_a_caller_ranks_get_a_requests_limits_and_stay_out_of_the_shared_cache(
+    ingest_dir, tmp_path, fake_endpoint
+):
+    """/v1/rank embedded the caller's tools as catalogue documents: 600 s x 3 tries on a slow
+    endpoint (holding the workers /v1/call needs) and every text kept on disk for good."""
+    import sqlite3
+
+    from toolrank.adapters.embeddings_api import OpenAIEmbeddings
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+    from toolrank.domain import Tool
+    from toolrank.ports import supplied
+
+    r = build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)), serving_limits=True)
+    mine = [Tool(id=f"m{n}", doc={"name": f"mine{n}", "description": f"my own tool {n}"}) for n in range(3)]
+    fake_endpoint.clear()
+    r.rank("send an email", mine)
+    r.rank("send an email", mine)
+    assert [len(b) for b in fake_endpoint] == [3, 1]  # the tools once (then from memory), the request once
+    db = sqlite3.connect(tmp_path / "c" / "embeddings.sqlite")
+    keys = {k for (k,) in db.execute("SELECT key FROM emb")}
+    enc = r.encoder
+    assert not any(
+        enc.cache_key(enc_text) in keys for enc_text in (r.state().scorer.tool_format(t) for t in mine)
+    )
+
+    calls = []
+    slow = OpenAIEmbeddings("m", "http://127.0.0.1:9/v1", query_timeout=10.0, query_max_retries=2)
+    slow._post = lambda texts, **kw: (calls.append(kw), ([np.ones(4, np.float32)] * len(texts), 0))[1]
+    mark = supplied.set(True)
+    try:
+        slow.encode(["a tool"])
+    finally:
+        supplied.reset(mark)
+    slow.encode(["a catalogue tool"])
+    assert calls == [{"timeout": 10.0, "attempts": 2}, {}]  # the catalogue keeps the long limits
