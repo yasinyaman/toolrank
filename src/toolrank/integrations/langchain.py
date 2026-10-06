@@ -30,9 +30,12 @@ names, ``always_include`` and provider tools (dicts, such as web search); shown 
 agent's order. A model call goes on with every tool when there are at most ``min_tools`` to choose
 from, when a tool is deferred to the provider's own tool search (``extras["defer_loading"]``), when
 there is no user text, and when toolrank fails or does not answer within ``timeout_s``: the
-selection then carries on in the background and is kept, so a later call is fast. An agent makes
-several model calls per user message; a selection is kept for ``ttl_s`` seconds, so they ask
-toolrank once.
+selection then carries on in the background and is kept, so a later call is fast. With a toolbox a
+failure shows the catalogue's tools of the session's last selection (and the fixed ones), not the
+whole catalogue, which no model takes in one request. An agent makes several model calls per user
+message; a selection is kept for ``ttl_s`` seconds, and a call that comes while the same selection
+is still being made waits for that one, so they ask toolrank once. Selections run in daemon threads,
+four at a time: one still running never holds up the interpreter's exit.
 
 Needs ``langchain`` 1.x (``toolrank[langchain]``), imported when ``ToolrankToolSelector`` is first
 used. ``Selector`` is the same work without LangChain's class.
@@ -48,7 +51,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any
 
@@ -60,6 +63,7 @@ from toolrank.integrations.langgraph import Toolbox
 log = logging.getLogger("toolrank.integrations.langchain")
 
 CACHED_SELECTIONS = 256
+WORKERS = 4  # selections asked of toolrank at a time
 
 
 def _text(content: Any) -> str:
@@ -128,7 +132,9 @@ class _Job:
 
 class Selector:
     """The middleware's work: ``select(request) -> request`` (``aselect``), the request a model call
-    should get. ``on_select(details)`` sees every selection and every skip."""
+    should get. ``on_select(details)`` sees every selection made or reused and every failure
+    (``outcome`` ``selected`` or ``skipped``), not the calls with nothing to choose from (few tools,
+    deferred ones, no user text)."""
 
     def __init__(
         self,
@@ -156,9 +162,11 @@ class Selector:
         self.timeout_s, self.ttl_s = timeout_s, ttl_s
         self.rule = AdaptiveK(max_k=max_tools, margin=margin)
         self.on_select = on_select or (lambda details: None)
-        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="toolrank-select")
+        self._slots = threading.BoundedSemaphore(WORKERS)
         self._lock = threading.Lock()
         self._chosen: OrderedDict[tuple[Any, ...], tuple[float, frozenset[str]]] = OrderedDict()
+        self._running: dict[tuple[Any, ...], Future[frozenset[str]]] = {}
+        self._last: OrderedDict[Any, frozenset[str]] = OrderedDict()  # toolbox: a session's last choice
 
     def _job(self, request: Any) -> _Job | None:
         """What to choose from, or None to show every tool."""
@@ -200,17 +208,57 @@ class Selector:
             self._chosen.move_to_end(job.key)
             while len(self._chosen) > CACHED_SELECTIONS:
                 self._chosen.popitem(last=False)
+            if self.toolbox is not None:
+                self._last[job.key[1]] = chosen
+                self._last.move_to_end(job.key[1])
+                while len(self._last) > CACHED_SELECTIONS:
+                    self._last.popitem(last=False)
         return chosen
 
-    def _submit(self, job: _Job) -> Any:
-        return self._pool.submit(contextvars.copy_context().run, self._choose, job)
+    def _submit(self, job: _Job) -> Future[frozenset[str]]:
+        """The selection for ``job``: the one already being made, or a new one in a daemon thread
+        (with the caller's context: a LangGraph thread's session)."""
+        with self._lock:
+            running = self._running.get(job.key)
+            if running is not None:
+                return running
+            fut: Future[frozenset[str]] = Future()
+            self._running[job.key] = fut
+        ctx = contextvars.copy_context()
 
-    def _skipped(self, request: Any, e: BaseException) -> Any:
+        def work() -> None:
+            try:
+                with self._slots:
+                    result = ctx.run(self._choose, job)
+            except BaseException as e:  # noqa: BLE001 - handed to whoever waits
+                fut.set_exception(e)
+            else:
+                fut.set_result(result)
+            finally:
+                with self._lock:
+                    if self._running.get(job.key) is fut:
+                        del self._running[job.key]
+
+        threading.Thread(target=work, name="toolrank-select", daemon=True).start()
+        return fut
+
+    def _skipped(self, request: Any, job: _Job, e: BaseException) -> Any:
         log.warning("toolrank tool selection skipped: %s: %s", type(e).__name__, e)
-        self.on_select(
-            {"outcome": "skipped", "error": f"{type(e).__name__}: {e}", "tools": len(request.tools)}
-        )
-        return request
+        details: dict[str, Any] = {
+            "outcome": "skipped",
+            "error": f"{type(e).__name__}: {e}",
+            "tools": len(request.tools),
+        }
+        if self.toolbox is None:  # the agent's own tools: all of them, as it built the list
+            self.on_select(details)
+            return request
+        # a toolbox's pool is the catalogue: the session's last choice and the fixed tools, not all
+        with self._lock:
+            last = self._last.get(job.key[1], frozenset())
+        keep, pool = last | job.fixed, set(job.pool)
+        kept = [t for t in request.tools if isinstance(t, dict) or t.name not in pool or t.name in keep]
+        self.on_select({**details, "kept": len(kept), "fallback": "last selection" if last else "fixed only"})
+        return request.override(tools=kept)
 
     def _apply(self, request: Any, job: _Job, chosen: frozenset[str], cached: bool) -> Any:
         keep, pool = chosen | job.fixed, set(job.pool)
@@ -236,8 +284,8 @@ class Selector:
             return self._apply(request, job, chosen, True)
         try:
             chosen = self._submit(job).result(timeout=self.timeout_s)
-        except Exception as e:  # toolrank down, slow or odd: the model gets every tool
-            return self._skipped(request, e)
+        except Exception as e:  # toolrank down, slow or odd: the model gets every tool (see _skipped)
+            return self._skipped(request, job, e)
         return self._apply(request, job, chosen, False)
 
     async def aselect(self, request: Any) -> Any:
@@ -247,10 +295,12 @@ class Selector:
         chosen = self._cached(job)
         if chosen is not None:
             return self._apply(request, job, chosen, True)
-        try:
-            chosen = await asyncio.wait_for(asyncio.wrap_future(self._submit(job)), self.timeout_s)
+        try:  # shielded: a timeout here must not cancel the selection that goes on in the background
+            chosen = await asyncio.wait_for(
+                asyncio.shield(asyncio.wrap_future(self._submit(job))), self.timeout_s
+            )
         except Exception as e:
-            return self._skipped(request, e)
+            return self._skipped(request, job, e)
         return self._apply(request, job, chosen, False)
 
 

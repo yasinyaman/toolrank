@@ -259,6 +259,66 @@ def test_langchain_selector_shows_every_tool_when_it_should_and_fails_open():
     assert _names(slow.select(request)) == ["t5", "t7", "t9", "t20", "t21", "web_search"]
 
 
+def test_langchain_selector_asks_once_per_selection_and_never_drops_one_that_waits():
+    """Model calls that come while a slow selection is running wait for it instead of asking again,
+    and an async timeout does not cancel selections still waiting for a worker."""
+    pytest.importorskip("langchain")
+    import time
+
+    from langchain_core.messages import HumanMessage
+
+    from toolrank.integrations.langchain import Selector
+
+    request, ranker = _lc_request(), _Ranker(delay=0.3)
+    sel = Selector(ranker, timeout_s=0.02)
+    assert all(sel.select(request) is request for _ in range(3))  # all three time out, one ranking
+    time.sleep(0.5)
+    assert len(ranker.asked) == 1 and _names(sel.select(request))[-1] == "web_search"
+
+    ranker = _Ranker(delay=0.2)
+    sel = Selector(ranker, timeout_s=0.02)
+
+    async def six():
+        reqs = [request.override(messages=[HumanMessage(f"task {n}")]) for n in range(6)]
+        return await asyncio.gather(*(sel.aselect(r) for r in reqs))
+
+    asyncio.run(six())
+    deadline = time.time() + 3
+    while len(ranker.asked) < 6 and time.time() < deadline:  # four workers, then the other two
+        time.sleep(0.05)
+    assert sorted(q for q, _ in ranker.asked) == [f"task {n}" for n in range(6)]
+
+
+def test_langchain_selector_with_a_toolbox_falls_back_to_the_last_choice_not_the_catalogue():
+    pytest.importorskip("langchain")
+    from langchain_core.messages import HumanMessage
+
+    from toolrank.integrations.langchain import Selector
+
+    class _Box:  # a Toolbox stand-in: the request's t0..t24 are its catalogue
+        toolrank, fail = None, False
+
+        def __init__(self):
+            self.entries = {f"t{n}": None for n in range(25)}
+
+        def current_session(self):
+            return "thread-1"
+
+        def retrieve_tools(self, query):
+            if self.fail:
+                raise RuntimeError("toolrank is down")
+            return ["t4", "t8"]
+
+    box, seen = _Box(), []
+    sel = Selector(toolbox=box, on_select=seen.append)
+    request = _lc_request()
+    assert _names(sel.select(request)) == ["t4", "t8", "t20", "t21", "web_search"]
+    box.fail = True
+    later = sel.select(request.override(messages=[HumanMessage("Something else now")]))
+    assert _names(later) == ["t4", "t8", "t21", "web_search"]  # last choice + tool_choice, not 25 tools
+    assert seen[-1]["outcome"] == "skipped" and seen[-1]["fallback"] == "last selection"
+
+
 def test_langchain_selector_ranks_through_a_served_toolrank(tmp_path):
     pytest.importorskip("langchain")
     from toolrank.integrations.langchain import Selector

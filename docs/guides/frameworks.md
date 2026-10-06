@@ -61,10 +61,12 @@ agent = create_agent(model, tools=[*box.registry().values(), *my_tools],
   `always_include` and provider tools such as web search. Shown tools keep the agent's order.
 - Every tool is shown when there are 20 or fewer to choose from (`min_tools`), when a tool is deferred
   to the provider's own tool search, or when there is no user text.
-- If toolrank fails or takes longer than `timeout_s` (5 seconds), the model gets every tool. The
-  selection still finishes in the background, so a later call can use it.
-- An agent makes several model calls per user message. A selection is kept for `ttl_s` seconds, so
-  toolrank is asked once.
+- If toolrank fails or takes longer than `timeout_s` (5 seconds), the model gets every tool of its
+  own; with a `toolbox`, the catalogue tools of that session's last selection instead (a catalogue of
+  hundreds is more than a model takes in one request). The selection still finishes in the
+  background, so a later call can use it.
+- An agent makes several model calls per user message. A selection is kept for `ttl_s` seconds, and
+  calls that come while it is being made wait for it, so toolrank is asked once.
 - In our end-to-end run on 1,862 catalogue tools, each task's model call saw 2 tools, the right one
   among them.
 

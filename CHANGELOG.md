@@ -128,6 +128,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `ToolrankToolSelector`: model calls that come while a selection is still being made wait for it
+  instead of asking toolrank again (each timed-out call had started another ranking, and with a
+  toolbox another logged search); an async timeout no longer cancels selections waiting for a worker;
+  selections run in daemon threads, so one still running never holds up the interpreter's exit; and
+  with a toolbox a failure shows the session's last selection rather than the whole catalogue.
 - A persistent vector index shared by two writers with different settings (say `search` with other
   flags on the same `DATA/index`) no longer keeps the other writer's rows as if they were current:
   `NumpyIndex` (and FAISS) rereads a snapshot another process replaced, and `apply` takes the rows
