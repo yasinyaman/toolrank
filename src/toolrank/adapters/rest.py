@@ -97,8 +97,9 @@ def identity(request: Any) -> tuple[str | None, str | None, str | None]:
     header = (request.headers.get("x-session-id") or "")[:128]
     agent = (request.headers.get("user-agent") or "-").split("/")[0][:64]
     host = request.client.host if request.client else None
-    # under the key's name: two tenants that pick the same session id stay apart
-    session = (f"rest:{tenant}:{header}" if tenant else f"rest:{header}") if header else None
+    # a named key's under its name (names hold no ':'), so no session id another key or a request
+    # without a key picks can be the same: rest@alice:abc, rest:abc
+    session = (f"rest@{tenant}:{header}" if tenant else f"rest:{header}") if header else None
     return session, f"{tenant or '-'}|{agent}|{host or '-'}", tenant
 
 

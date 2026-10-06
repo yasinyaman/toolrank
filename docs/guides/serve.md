@@ -35,7 +35,7 @@ On `127.0.0.1` (the default) no key is needed. Any other address needs one:
 
 - `--api-key` or `TOOLRANK_API_KEY`: one bearer token for everyone;
 - `--api-keys keys.json`: one named token per client or team (`{"ci-agent": "${CI_AGENT_KEY}"}`);
-  the name goes into the usage log as the tenant.
+  the name goes into the usage log as the tenant. A name is 1–64 letters, digits, `_`, `-` and `.`.
 
 ### Tenants
 

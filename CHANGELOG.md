@@ -130,6 +130,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `--api-keys` names are 1–64 letters, digits, `_`, `-` and `.`: a name with `:` could pass for another
+  key's heads variant (`tenant:x:candidate`) and `..` reached the shared heads directory. A named key's
+  REST session ids are `rest@<name>:<id>` (a request without a key can no longer pick `alice:abc` and
+  share alice's session `abc`), and a call links only to a search of the same key, by id, session or
+  client alike.
 - A/B with API keys: a key without heads files of its own now takes part in the shared experiment,
   candidate share included; before, every keyed request was control, so a server whose clients all
   had keys never tried the candidate (`ab` waited forever) while their searches swelled the control

@@ -47,7 +47,7 @@ def test_the_keys_file_takes_plain_keys_and_tenant_objects(tmp_path, monkeypatch
         ({}, "expected a JSON object"),
         ({"a": ""}, "non-empty string key"),
         ({"a": 3}, "key string or an object"),
-        ({"a/b": "k"}, "without '/'"),
+        ({"a/b": "k"}, "a name is 1-64"),
         ({"a": {"key": "k", "scopes": []}}, "unknown field"),
         ({"a": {"key": "k", "sources": "github"}}, "list of source names"),
         ({"a": {"key": "k", "headers": {"github": {"X": 1}}}}, "object of strings"),
@@ -61,6 +61,48 @@ def test_the_keys_file_takes_plain_keys_and_tenant_objects(tmp_path, monkeypatch
             parse_tenants(bad)
     with pytest.raises(ValueError, match="UNSET_VAR"):
         parse_tenants({"a": {"key": "${UNSET_VAR}"}})
+
+
+def test_tenant_names_cannot_reach_other_paths_or_session_keys():
+    for bad in ("..", ".", "a:b", "x:candidate", "a b", ""):
+        with pytest.raises(ValueError, match="a name is 1-64"):
+            parse_tenants({bad: "k"})
+    assert set(parse_tenants({"ci-agent.v2_x": "k"})) == {"ci-agent.v2_x"}
+
+
+def test_a_call_links_only_to_its_own_keys_searches(tmp_path):
+    """An anonymous request with X-Session-Id 'alice:abc' was session rest:alice:abc, alice's own
+    'abc'; and link() matched by session or a passed search id whoever's key made the search."""
+    from types import SimpleNamespace
+
+    from toolrank.adapters.mcp_proxy import TENANT_KEY
+    from toolrank.adapters.rest import identity
+    from toolrank.retriever import Hit, SearchResult
+    from toolrank.usage import UsageLog
+
+    def session(tenant, header):
+        scope = {TENANT_KEY: tenant} if tenant else {}
+        headers = {"x-session-id": header, "user-agent": "x"}
+        return identity(SimpleNamespace(scope=scope, headers=headers, client=SimpleNamespace(host="h")))[0]
+
+    assert (session(None, "alice:abc"), session("alice", "abc")) == ("rest:alice:abc", "rest@alice:abc")
+
+    log = UsageLog(tmp_path / "usage")
+    tool = Tool(id="x/t", doc={"name": "t"}, category="x")
+    res = SearchResult(
+        query="q",
+        instruction="",
+        hits=[Hit(tool, 0.9)],
+        ranked=[("x/t", 0.9)],
+        took_ms=1.0,
+        rule="r",
+        emb_key=None,
+        scorer="s",
+        catalog="c",
+    )
+    sid = log.search(res, session="shared", via="rest", tenant="alice")
+    assert log.link("x/t", "shared", sid, via="rest", tenant="bob") == (None, None, "none")
+    assert log.link("x/t", "shared", sid, via="rest", tenant="alice")[2] == "search_id"
 
 
 def test_credentials_must_fit_how_the_source_is_called():

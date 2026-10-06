@@ -105,6 +105,7 @@ class _Seen:
     client: str | None
     via: str
     ranks: dict[str, int]
+    tenant: str | None = None
 
 
 def mask_pii(text: str) -> str:
@@ -195,7 +196,7 @@ class UsageLog:
         with contextlib.suppress(Exception):  # a counter must never cost a search its answer
             self.metrics.search(result, via=via, arm=arm, tenant=tenant)
         with self._lock:
-            self._searches[sid] = _Seen(session, client, via, ranks)
+            self._searches[sid] = _Seen(session, client, via, ranks, tenant or self.tenant)
             while len(self._searches) > _KEEP:
                 self._searches.popitem(last=False)
         self._write(
@@ -237,16 +238,19 @@ class UsageLog:
         *,
         via: str | None = None,
         client: str | None = None,
+        tenant: str | None = None,
     ) -> tuple[str | None, int | None, str]:
-        """(search id, rank of ``tool`` in it, how it was found) for a call."""
+        """(search id, rank of ``tool`` in it, how it was found) for a call: only ever a search of
+        the same key's, whatever ids the caller passes or picks."""
+        tenant = tenant or self.tenant
         with self._lock:
             # a call must never fail on its log entry: anything but a known id is no link
             seen = self._searches.get(search_id) if isinstance(search_id, str) else None
-            if seen is not None and tool in seen.ranks:
+            if seen is not None and seen.tenant == tenant and tool in seen.ranks:
                 return search_id, seen.ranks[tool], "search_id"
             by_client: tuple[str | None, int | None, str] | None = None
             for sid, s in reversed(self._searches.items()):
-                if tool not in s.ranks:
+                if tool not in s.ranks or s.tenant != tenant:
                     continue
                 if session is not None and s.session == session:
                     return sid, s.ranks[tool], "session"
@@ -281,7 +285,7 @@ class UsageLog:
         if outcome == "unknown_tool":  # not a catalogue id: whatever the agent typed
             tool = tool[:UNKNOWN_TOOL_CHARS]
         cid = "c-" + uuid.uuid4().hex[:16]
-        sid, rank, how = self.link(tool, session, search_id, via=via, client=client)
+        sid, rank, how = self.link(tool, session, search_id, via=via, client=client, tenant=tenant)
         with contextlib.suppress(Exception):
             self.metrics.call(kind=kind, outcome=outcome, via=via, took_ms=took_ms, link=how, rank=rank)
         args = json.dumps(

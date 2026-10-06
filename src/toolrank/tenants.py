@@ -26,6 +26,7 @@ Pure: nothing here imports an adapter.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,8 +74,15 @@ def parse_tenants(raw: Any, where: str = "--api-keys") -> dict[str, Tenant]:
     out: dict[str, Tenant] = {}
     for name, entry in raw.items():
         at = f"{where} {name}"
-        if not isinstance(name, str) or not name.strip() or name != name.strip() or "/" in name:
-            raise ValueError(f"{at}: a name must be non-empty, unpadded and without '/'")
+        # the name goes into paths (DATA/heads/tenants/<name>), session keys and arm labels
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name)
+            or name in (".", "..")
+        ):
+            raise ValueError(
+                f"{at}: a name is 1-64 letters, digits, '_', '-' and '.' (not '.' or '..' alone)"
+            )
         if isinstance(entry, str):
             entry = {"key": entry}
         if not isinstance(entry, dict):
