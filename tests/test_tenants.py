@@ -330,8 +330,9 @@ def test_a_limited_key_cannot_call_another_sources_tool(tmp_path):
     assert anyio.run(main) == {"big/t0": "unknown_tool", "small/s0": "ok"}
     assert sent == ["/x"]  # only the allowed tool reached its API
     calls = [e for e in read_events(tmp_path / "usage") if e["event"] == "call"]
-    assert [(c["tool"], c["outcome"], c["tenant"]) for c in calls] == [
-        ("big/t0", "unknown_tool", "team"),
+    # a hidden tool is logged as any name that is no tool: a digest of what was typed
+    assert [(c["tool"][:8], c["outcome"], c["tenant"]) for c in calls] == [
+        ("unknown:", "unknown_tool", "team"),
         ("small/s0", "ok", "team"),
     ]
 

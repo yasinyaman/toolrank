@@ -56,7 +56,7 @@ import numpy as np
 
 from toolrank.domain import TrainPair
 from toolrank.finetune import Batches, TrainConfig, curve_metrics, project, recall_at, train_heads
-from toolrank.usage import may_learn_from, read_events
+from toolrank.usage import may_learn_from, read_events, read_key
 
 POSITIVE, WEAK = "ok", "tool_error"
 K = 5  # the log's own metric: the called tool among the top K of the catalogue
@@ -357,7 +357,7 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
     tools = load_tools(job.data / "tools.jsonl")
     index = {t.id: n for n, t in enumerate(tools)}
     cache_dir = Path(job.cache_dir) if job.cache_dir else job.data / "cache"
-    states = state_vectors(cache_dir / "embeddings.sqlite", key_path.read_bytes(), {p.state for p in pairs})
+    states = state_vectors(cache_dir / "embeddings.sqlite", read_key(key_path), {p.state for p in pairs})
     usable: list[LogPair] = []
     for p in pairs:
         if p.state not in states:

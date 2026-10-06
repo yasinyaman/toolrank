@@ -163,3 +163,36 @@ def test_mask_pii_replaces_addresses_and_numbers_but_not_dates(tmp_path):
     hidden = UsageLog(tmp_path / "c", mask_pii=True)
     hidden.search(_result(query="x@y.zz"), session="s", via="rest")
     assert _events(tmp_path / "c")[0]["query"] is None
+
+
+def test_unknown_tool_names_are_request_text_and_the_key_is_never_short(tmp_path):
+    """An unknown tool name is what the agent typed (it can carry what a user said): a digest unless
+    --log-text, then masked like a request. An empty or short .key (a write cut short) is refused."""
+    from toolrank.usage import read_events, read_key
+
+    log = UsageLog(tmp_path / "plain")
+    log.call(
+        tool="send_to_ada@example.com",
+        kind=None,
+        session=None,
+        via="mcp",
+        outcome="unknown_tool",
+        took_ms=1.0,
+    )
+    text = UsageLog(tmp_path / "text", log_text=True, mask_pii=True)
+    text.call(
+        tool="send_to_ada@example.com",
+        kind=None,
+        session=None,
+        via="mcp",
+        outcome="unknown_tool",
+        took_ms=1.0,
+    )
+    (plain,) = [e["tool"] for e in read_events(tmp_path / "plain")]
+    (masked,) = [e["tool"] for e in read_events(tmp_path / "text")]
+    assert plain.startswith("unknown:") and "ada" not in plain and "ada@example.com" not in masked
+    assert len(read_key(tmp_path / "plain" / ".key")) == 32 and not list((tmp_path / "plain").glob(".key.*"))
+    (tmp_path / "cut").mkdir()
+    (tmp_path / "cut" / ".key").write_bytes(b"")
+    with pytest.raises(ValueError, match="cut short"):
+        UsageLog(tmp_path / "cut")

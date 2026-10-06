@@ -351,7 +351,7 @@ def test_calls_over_rest_run_like_mcp_call_tool(tmp_path):
     ]
     assert (calls[0]["search_id"], calls[0]["link"], calls[0]["session"]) == (sid, "search_id", "rest:t1")
     unknown = [e["tool"] for e in calls if e["outcome"] == "unknown_tool"]
-    assert unknown == ["fx/nope", "fx/" + "n" * 197]  # what the agent typed, cut at 200 characters
+    assert len(unknown) == 2 and all(u.startswith("unknown:") and len(u) == 24 for u in unknown)
 
 
 def test_calls_need_running_backends_and_the_route_needs_them(tmp_path):

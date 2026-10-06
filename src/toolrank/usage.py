@@ -10,8 +10,9 @@ key (``<dir>/.key``, mode 0600): repeats are recognisable, guesses are not.
 ``emb_hmac`` is the digest of the request's embedding-cache key: whoever holds the key can match it
 to the cache's keys and use the request's backbone vector without its text. The server's own
 instruction is configuration and is logged as text; one sent with a request is request text, so
-only ``instruction_hmac`` is kept. The name of a tool that does not exist is what the agent typed:
-it is logged as text, cut at ``UNKNOWN_TOOL_CHARS``.
+only ``instruction_hmac`` is kept. The name of a tool that does not exist is what the agent typed,
+so it is request text too: ``unknown:<digest>`` unless ``log_text`` (then the text, cut at
+``UNKNOWN_TOOL_CHARS`` and masked like a request).
 
 ``search``: v, event, ts, id, session, client, via, tenant, query_hmac, query, emb_hmac,
 instruction_hmac, instruction, rule, results ([[tool, score], ...], the top 20 before the cut),
@@ -108,6 +109,20 @@ class _Seen:
     tenant: str | None = None
 
 
+KEY_BYTES = 32
+
+
+def read_key(path: str | Path) -> bytes:
+    """A usage log's HMAC key; refuses one too short to keep guesses from being checked."""
+    key = Path(path).read_bytes()
+    if len(key) < KEY_BYTES:
+        raise ValueError(
+            f"{path}: {len(key)} bytes, not {KEY_BYTES}: a write was cut short. Move it aside and a new one "
+            "is made (the log's old digests then no longer match)"
+        )
+    return key
+
+
 def mask_pii(text: str) -> str:
     """``text`` with e-mail addresses, IBANs, card numbers and phone numbers (nine digits or more)
     replaced by tags. A pattern, not an understanding: names and addresses pass."""
@@ -139,16 +154,24 @@ class UsageLog:
 
     # -- storage -------------------------------------------------------------------------------
     def _load_key(self) -> bytes:
+        """The install's HMAC key: made whole in a temporary file and linked into place, so no
+        process (another server, ``learn``) ever reads a half-written or empty one."""
         assert self.dir is not None
         self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / ".key"
-        try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError:
-            return path.read_bytes()
-        with os.fdopen(fd, "wb") as f:
-            f.write(secrets.token_bytes(32))
-        return path.read_bytes()
+        if not path.exists():
+            tmp = self.dir / f".key.{uuid.uuid4().hex}"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(secrets.token_bytes(32))
+                    f.flush()
+                    os.fsync(f.fileno())
+                with contextlib.suppress(FileExistsError):  # another process made one first: use it
+                    os.link(tmp, path)
+            finally:
+                tmp.unlink(missing_ok=True)
+        return read_key(path)
 
     def digest(self, text: str) -> str:
         return hmac.new(self._key, text.encode("utf-8"), sha256).hexdigest()
@@ -282,8 +305,9 @@ class UsageLog:
     ) -> str:
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown outcome {outcome!r}")
-        if outcome == "unknown_tool":  # not a catalogue id: whatever the agent typed
-            tool = tool[:UNKNOWN_TOOL_CHARS]
+        if outcome == "unknown_tool":  # not a catalogue id: whatever the agent typed, so request text
+            typed = tool[:UNKNOWN_TOOL_CHARS]
+            tool = self._text(typed) if self.log_text else f"unknown:{self.digest(typed)[:16]}"
         cid = "c-" + uuid.uuid4().hex[:16]
         sid, rank, how = self.link(tool, session, search_id, via=via, client=client, tenant=tenant)
         with contextlib.suppress(Exception):

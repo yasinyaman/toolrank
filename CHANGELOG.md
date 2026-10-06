@@ -130,6 +130,10 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- The usage log's key is written whole before anyone can read it (a temporary file linked into
+  place), and a key shorter than 32 bytes is refused rather than used: an empty `.key` left by a cut
+  write made every digest checkable by guessing. A name the agent called that is no tool is logged as
+  a digest (`unknown:…`) unless `--log-text`, then masked by `--mask-pii` like request text.
 - What any caller learns of the server: `/healthz`, which needs no key and checks no `Host` (probes),
   answers `{ready, mode}` only (no catalogue size or scorer for a DNS-rebinding page to read);
   `search_tools`' description counts the tools a key limited to some sources may reach, not the whole

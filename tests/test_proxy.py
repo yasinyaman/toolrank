@@ -145,11 +145,12 @@ def test_proxy_search_then_call_mcp_and_openapi_tools(tmp_path):
     ]
     calls = [e for e in events if e["event"] == "call"]
     assert [e["event"] for e in events].count("search") == 1
-    assert [(c["tool"], c["outcome"], c["link"]) for c in calls][:3] == [
+    assert [(c["tool"], c["outcome"], c["link"]) for c in calls][:2] == [
         ("fx/add", "ok", "search_id"),
         ("api/getThing", "ok", "session"),  # in process = one session, like stdio
-        ("fx/nope", "unknown_tool", "none"),
     ]
+    # a name that is no tool is what the agent typed: a digest, as requests are, without --log-text
+    assert calls[2]["tool"].startswith("unknown:") and calls[2]["outcome"] == "unknown_tool"
     assert calls[1]["http_status"] == 200 and calls[3]["outcome"] in ("tool_error", "protocol_error")
 
 

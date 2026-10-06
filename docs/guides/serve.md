@@ -221,10 +221,10 @@ What it holds, and what it does not:
   alone reconstructs nothing. The request's embedding-cache key is a digest too (`emb_hmac`), which
   is how `learn` finds its vector without its text.
 - Tool names, scores, outcomes, latencies and the server's own instruction are text; so are the
-  tools a search added by co-use (`added`). An
-  instruction sent with a request is a digest. The client (API key name, client app, remote address)
+  tools a search added by co-use (`added`). A name the agent called that is no tool is what it typed,
+  so it is a digest (`unknown:…`) like a request. An instruction sent with a request is a digest. The client (API key name, client app, remote address)
   is a digest; the session id and the tenant (the API key's name) are text.
-- `--log-text` adds the request text and the error text of failed calls; `--mask-pii` then replaces
+- `--log-text` adds the request text, the error text of failed calls and unknown tool names; `--mask-pii` then replaces
   e-mail addresses, phone, card and IBAN numbers in them with tags (a pattern, not an understanding).
 - `--no-usage-log` turns the log off.
 
