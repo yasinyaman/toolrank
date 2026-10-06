@@ -130,6 +130,9 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `toolrank eval` refuses a corpus with duplicate tool ids, and the metrics refuse a ranked list that
+  names a tool twice: such a list counted the tool twice (`['a', 'a']` with gold `{a}` gave Recall 2.0),
+  where trec_eval reads a run as one score per doc. Valid runs score exactly as before.
 - `learn --replay` drops the pairs a `--dev` set asks about before it draws the sample, so the sample
   has `--replay-n` pairs (it had that many minus the dropped ones); `ab --tenant` counts only that
   key's Jev-served searches.

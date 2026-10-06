@@ -8,6 +8,9 @@ Conventions copied from trec_eval:
 * the ideal DCG uses all relevant docs sorted by relevance (cut at k);
 * ``recall@k`` and ``map@k`` divide by the TOTAL number of relevant docs (rel > 0);
 * ``P@k`` divides by k even when fewer than k docs were returned.
+
+A run is a ranking of distinct docs (trec_eval reads it as a doc -> score map), so a ranked list
+that names a doc twice is refused rather than counted twice.
 """
 
 from __future__ import annotations
@@ -18,10 +21,20 @@ from collections.abc import Iterable, Sequence
 DEFAULT_KS: tuple[int, ...] = (5, 10, 20)
 
 
+def _distinct(ranked: Sequence[str]) -> None:
+    if len(set(ranked)) != len(ranked):
+        seen: set[str] = set()
+        twice = [d for d in ranked if d in seen or seen.add(d)]
+        raise ValueError(
+            f"a ranked list names {twice[:3]} more than once: a scorer or corpus with duplicate ids"
+        )
+
+
 def evaluate_query(
     ranked: Sequence[str], qrels: dict[str, int], ks: Iterable[int] = DEFAULT_KS
 ) -> dict[str, float]:
-    """Metrics for one query. ``ranked`` = tool ids best first; ``qrels`` = id -> relevance."""
+    """Metrics for one query. ``ranked`` = distinct tool ids best first; ``qrels`` = id -> relevance."""
+    _distinct(ranked)
     rel = {d: g for d, g in qrels.items() if g > 0}
     n_rel = len(rel)
     gains = [rel.get(d, 0) for d in ranked]
@@ -52,6 +65,7 @@ def evaluate_query(
 def evaluate_cut(returned: Sequence[str], qrels: dict[str, int]) -> dict[str, float]:
     """Metrics of a variable-length result (an adaptive cut): how many tools were handed over
     (``K@cut``), recall and completeness over all relevant tools, precision over what was returned."""
+    _distinct(returned)
     rel = {d for d, g in qrels.items() if g > 0}
     hits = sum(1 for d in returned if d in rel)
     return {

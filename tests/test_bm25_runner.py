@@ -197,3 +197,22 @@ def test_summarize_is_the_reports_aggregation_with_and_without_categories():
     plain = summarize([(Query(id="q", text="x", qrels={}), {"NDCG@1": 1.0})])
     assert (plain.per_task.keys(), plain.per_category, plain.category_macro) == ({"all": 0}.keys(), {}, {})
     assert report.category_macro and report.overall["NDCG@1"] == 0.5  # run_eval goes through it
+
+
+def test_a_ranked_list_or_a_corpus_that_repeats_an_id_is_refused():
+    """trec_eval reads a run as a doc -> score map: a doc named twice would count twice here
+    (['a', 'a'] with gold {a}: Recall 2.0), so it is an error, not a number."""
+    from toolrank.eval.metrics import evaluate_cut, evaluate_query
+    from toolrank.eval.runner import run_eval
+
+    assert evaluate_query(["a", "b"], {"a": 1, "c": 1}, ks=(5,))["Recall@5"] == 0.5
+    with pytest.raises(ValueError, match="more than once"):
+        evaluate_query(["a", "a", "b"], {"a": 1, "c": 1}, ks=(5,))
+    with pytest.raises(ValueError, match="more than once"):
+        evaluate_cut(["a", "a"], {"a": 1})
+    tools = [
+        Tool(id="x", doc={"name": "x", "description": "one"}),
+        Tool(id="x", doc={"name": "x", "description": "two"}),
+    ]
+    with pytest.raises(ValueError, match="duplicate tool ids"):
+        run_eval(BM25Scorer("name_desc", "plain"), tools, [], dataset="dupes")

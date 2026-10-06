@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import statistics
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +68,9 @@ def run_eval(
     metrics still read the full list. With ``runs`` (a list to fill) every query also leaves one
     row — id, the top-20 ids, P@1, hit@5, NDCG@10 — the raw material of ``compare --paired``.
     """
+    dupes = sorted(i for i, n in Counter(t.id for t in tools).items() if n > 1)
+    if dupes:  # one id for two tools: neither the index nor the metrics can tell them apart
+        raise ValueError(f"{dataset}: the corpus has duplicate tool ids, e.g. {dupes[:3]}")
     t0 = time.perf_counter()
     scorer.index(tools)
     index_s = time.perf_counter() - t0
