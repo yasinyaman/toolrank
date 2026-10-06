@@ -342,10 +342,13 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         if whole is not None:
             text = "Estimated tokens of every tool's name, description and input schema."
             extra.append(("toolrank_catalog_tokens", gauge, text, {}, whole))
+        answering: dict[str, float] = {}  # one series per kind: every tenant's heads are "tenant"
         for arm, heads in (st.get("heads") or {}).items():
             ready = heads is not None if arm == "base" else bool(heads.get("ready"))
-            text = "Heads files the server follows (1: answering)."
-            extra.append(("toolrank_heads", gauge, text, {"arm": arm_kind(arm)}, float(ready)))
+            answering[arm_kind(arm)] = answering.get(arm_kind(arm), 0.0) + float(ready)
+        for kind, n in answering.items():
+            text = "Heads files the server follows, by kind: how many are answering."
+            extra.append(("toolrank_heads", gauge, text, {"arm": kind}, n))
         enc = getattr(retriever, "encoder", None)
         for (kind, source), n in sorted(getattr(enc, "texts", {}).items()):
             text = "Texts embedded, by where the vector came from."

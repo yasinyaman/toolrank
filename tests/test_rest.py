@@ -437,7 +437,13 @@ def test_metrics_route_counts_searches_and_sits_behind_the_token(tmp_path):
         text = c.get("/v1/metrics", headers=auth).text
         status = retriever.status()  # the same server, had it been following a heads directory
         variants = {"sha": "x", "ready": True, "error": None}
-        heads = {"base": "abc", "candidate": variants, "tenant:acme:candidate": {**variants, "ready": False}}
+        heads = {
+            "base": "abc",
+            "candidate": variants,
+            "tenant:acme:candidate": {**variants, "ready": False},
+            "tenant:acme": variants,
+            "tenant:team": variants,  # two keys' heads: one series, counting both
+        }
         retriever.status = lambda: {**status, "heads": heads}
         followed = c.get("/v1/metrics", headers=auth).text
     assert 'toolrank_searches_total{arm="base",mode="semantic",via="rest"} 2' in text
@@ -453,6 +459,8 @@ def test_metrics_route_counts_searches_and_sits_behind_the_token(tmp_path):
     assert "toolrank_heads" not in text  # this server follows no heads directory
     assert 'toolrank_heads{arm="base"} 1' in followed and 'toolrank_heads{arm="candidate"} 1' in followed
     assert 'toolrank_heads{arm="tenant-candidate"} 0' in followed and "acme" not in followed
+    tenant_series = [x for x in followed.splitlines() if x.startswith('toolrank_heads{arm="tenant"}')]
+    assert tenant_series == ['toolrank_heads{arm="tenant"} 2']  # a second line would be a duplicate series
 
 
 def test_a_key_limited_to_some_sources_sees_only_those_over_rest(tmp_path):

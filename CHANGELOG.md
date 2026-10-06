@@ -130,6 +130,8 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `/v1/metrics`: `toolrank_heads` has one series per kind of heads, counting the files answering (two
+  keys' heads gave two `toolrank_heads{arm="tenant"}` lines, which scrapers reject or drop).
 - The usage log's key is written whole before anyone can read it (a temporary file linked into
   place), and a key shorter than 32 bytes is refused rather than used: an empty `.key` left by a cut
   write made every digest checkable by guessing. A name the agent called that is no tool is logged as
