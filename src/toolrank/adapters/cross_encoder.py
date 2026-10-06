@@ -32,6 +32,7 @@ from typing import Any
 from toolrank.adapters.embeddings_api import env_api_key
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter
+from toolrank.ports import scoped
 
 __all__ = ["TEMPLATES", "CrossEncoderScorer", "ScoreClient", "prompts"]
 
@@ -72,7 +73,7 @@ class ScoreCache:
 
     @staticmethod
     def key(base_url: str, model: str, text_1: str, text_2: str) -> str:
-        return hashlib.sha256(f"{base_url}\x00{model}\x00{text_1}\x00{text_2}".encode()).hexdigest()
+        return hashlib.sha256(scoped(f"{base_url}\x00{model}\x00{text_1}\x00{text_2}").encode()).hexdigest()
 
     def get_many(self, keys: Sequence[str]) -> dict[str, float]:
         out: dict[str, float] = {}

@@ -46,6 +46,7 @@ from typing import Any
 
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import QUERY_FORMATS, TOOL_FORMATS, NamedFormatter
+from toolrank.ports import scoped
 
 __all__ = [
     "MAX_OPTIONS",
@@ -179,7 +180,7 @@ class JevClient:
         raw = json.dumps(body, sort_keys=True, ensure_ascii=False)
         if not is_typesafe(self.base_url):
             raw = f"{self.base_url}\x00{raw}"  # the endpoint is part of what was asked
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return hashlib.sha256(scoped(raw).encode("utf-8")).hexdigest()
 
     def ask(self, state: Any, questions: dict[str, Any]) -> dict[str, Any]:
         """The ``answers`` for one evaluation, from the cache when the same body was sent before."""

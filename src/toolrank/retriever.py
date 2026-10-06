@@ -31,7 +31,7 @@ import hashlib
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
 from toolrank.domain import Query, RankedList, Tool
+from toolrank.ports import cache_scope
 
 LOG_TOP = 20  # ranked tools kept for the usage log, whatever the cut returns
 SETTLE_S = 0.05  # a tools.jsonl modified more recently than this may still be being written
@@ -123,6 +124,16 @@ class _Variant:
     sha: str | None = None
     building: bool = False
     error: str | None = None
+
+
+@contextlib.contextmanager
+def _scope(tenant: str | None) -> Iterator[None]:
+    token = cache_scope.set(tenant) if tenant is not None else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            cache_scope.reset(token)
 
 
 def innermost(scorer: Any) -> Any:
@@ -441,6 +452,20 @@ class Retriever:
         arm_key: str | None = None,
         tenant: str | None = None,
     ) -> SearchResult:
+        """A named key's request runs in its own ``cache_scope``: what another key asked before
+        neither speeds it up nor shows."""
+        with _scope(tenant):
+            return self._search(query, k=k, instruction=instruction, arm_key=arm_key, tenant=tenant)
+
+    def _search(
+        self,
+        query: str,
+        *,
+        k: int | None,
+        instruction: str | None,
+        arm_key: str | None,
+        tenant: str | None,
+    ) -> SearchResult:
         st, arm, heads = self.pick(arm_key=arm_key, tenant=tenant)
         inst = self.instruction if instruction is None else instruction
         q = Query(id=uuid.uuid4().hex, text=query, qrels={}, instruction=inst)
@@ -519,7 +544,21 @@ class Retriever:
         tenant: str | None = None,
     ) -> list[tuple[str, float]]:
         """Cosine of caller-supplied tools (not necessarily in the index), best first. The heads are
-        picked as a search's are: the tenant's or the promoted ones, and the candidate's share."""
+        picked as a search's are: the tenant's or the promoted ones, and the candidate's share; a
+        named key's tools and request are embedded in its own ``cache_scope`` (an exact catalogue
+        tool text it was not given never comes back faster)."""
+        with _scope(tenant):
+            return self._rank(query, tools, instruction=instruction, arm_key=arm_key, tenant=tenant)
+
+    def _rank(
+        self,
+        query: str,
+        tools: Sequence[Tool],
+        *,
+        instruction: str | None,
+        arm_key: str | None,
+        tenant: str | None,
+    ) -> list[tuple[str, float]]:
         st, _arm, _heads = self.pick(arm_key=arm_key, tenant=tenant)
         if st.lexical:
             st = self.state()  # the keyword stand-in cannot score tools it has not indexed: wait

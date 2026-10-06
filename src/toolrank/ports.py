@@ -7,11 +7,24 @@ runner, the CLI or the datasets - the whole point of the Phase 0 go/no-go on CLM
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 from toolrank.domain import Query, RankedList, Tool
+
+# Whose request is being answered: an API key's name, or None. Caches keyed by request text (query
+# embeddings, second-stage scores and answers) keep a named key's entries apart, so how fast an
+# answer comes tells one key nothing about another key's requests. The shared catalogue is indexed
+# outside any scope.
+cache_scope: ContextVar[str | None] = ContextVar("toolrank_cache_scope", default=None)
+
+
+def scoped(key_text: str) -> str:
+    """``key_text`` within the current ``cache_scope`` (unchanged outside one)."""
+    scope = cache_scope.get()
+    return key_text if scope is None else f"scope={scope}\x00{key_text}"
 
 
 @runtime_checkable

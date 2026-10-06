@@ -28,6 +28,8 @@ from typing import Any
 
 import numpy as np
 
+from toolrank.ports import scoped
+
 
 def env_api_key(base_url: str, own: str) -> str | None:
     """The key to send to ``base_url`` from the environment: ``$own`` (``TOOLRANK_EMB_API_KEY``,
@@ -61,7 +63,7 @@ class EmbeddingCache:
         self.db.commit()
 
     def _key(self, text: str) -> str:
-        return hashlib.sha256((self.ns + "\x00" + text).encode("utf-8")).hexdigest()
+        return hashlib.sha256(scoped(self.ns + "\x00" + text).encode("utf-8")).hexdigest()
 
     def get_many(self, texts: Sequence[str]) -> dict[int, np.ndarray]:
         out: dict[int, np.ndarray] = {}

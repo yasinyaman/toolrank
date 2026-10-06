@@ -130,6 +130,12 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- Named API keys no longer share request caches: a request another key made before was answered from
+  the embedding cache in milliseconds instead of a round trip to the endpoint, which let one key
+  confirm another's exact request (and `/v1/rank` confirm a catalogue tool's exact text). A named
+  key's searches and rankings now run in a cache scope of their own (`ports.cache_scope`) for the
+  embedding, score and Jev caches; the catalogue's embeddings stay shared, and the usage log's
+  `emb_hmac` follows the scope, so `learn` still finds each request's vector.
 - `compare --paired` refuses a runs file that names a query twice (pairing by id kept one of them
   silently) and warns when the two runs are of different datasets.
 - The toolrank skill's scripts tell a server they could not reach from one that took the request and

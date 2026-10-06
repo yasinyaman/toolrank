@@ -312,3 +312,36 @@ def test_clm_ckpt_none_ranks_without_the_packaged_heads_even_when_they_are_cache
     assert build_retriever(build_parser().parse_args(base)).search("send an email").scorer.startswith("clm[")
     off = build_retriever(build_parser().parse_args([*base, "--clm-ckpt", "none"]))
     assert off.search("send an email").scorer.startswith("dense/")
+
+
+def test_a_named_keys_requests_never_hit_another_keys_cached_embeddings(ingest_dir, tmp_path, fake_endpoint):
+    """A shared query cache answers a request another key made before in milliseconds instead of
+    150: that is how bob could confirm alice's exact request. Each named key gets its own scope;
+    the catalogue stays shared, and the usage log's emb_key follows the scope (learn finds it)."""
+    import sqlite3
+
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+    from toolrank.domain import Tool
+
+    r = build_retriever(build_parser().parse_args(_args(ingest_dir, tmp_path)))
+    fake_endpoint.clear()
+
+    def sent_for(**kw):
+        before = sum(len(b) for b in fake_endpoint)
+        res = r.search("refund the last payment of alice@example.com", **kw)
+        return sum(len(b) for b in fake_endpoint) - before, res
+
+    (alice_first, a1), (bob, b1), (alice_again, a2) = (sent_for(tenant=t) for t in ("alice", "bob", "alice"))
+    assert (alice_first, bob, alice_again) == (1, 1, 0)
+    assert [sent_for()[0] for _ in range(2)] == [1, 0]  # requests without a named key share one scope
+    assert a1.emb_key == a2.emb_key != b1.emb_key
+    keys = {
+        k for (k,) in sqlite3.connect(tmp_path / "c" / "embeddings.sqlite").execute("SELECT key FROM emb")
+    }
+    assert {a1.emb_key, b1.emb_key} <= keys
+    # /v1/rank: a supplied tool whose text is a catalogue tool's is embedded again for a named key
+    mail = r.state().tools[0]
+    before = sum(len(b) for b in fake_endpoint)
+    r.rank("x", [Tool(id="mine", doc=mail.doc, documentation=mail.documentation)], tenant="bob")
+    assert sum(len(b) for b in fake_endpoint) - before == 2  # the request and the tool

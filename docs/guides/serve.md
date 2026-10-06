@@ -64,8 +64,10 @@ A source for which a key has `headers` or `env` gets a connection (for a stdio s
 of that key's own, so one team's token never carries another team's call. The server refuses to
 start when a key has credentials for a source it cannot send them to. Each key also has its own
 co-use table and its own heads (`DATA/heads/tenants/<name>/`); the catalogue, the index and the
-embedding cache are shared. `/v1/metrics` is server-wide, so a key limited by `sources` cannot read
-it.
+catalogue's embeddings are shared. What a key's requests leave in the caches (request embeddings,
+the tools it hands `/v1/rank`, second-stage scores) is its own: another key's identical request is
+not answered faster, so timing tells it nothing. `/v1/metrics` is server-wide, so a key limited by
+`sources` cannot read it.
 
 The server checks the `Host` header, so a web page cannot reach it through a rebound domain. It
 answers to its bind address and, when bound to `0.0.0.0`, to `localhost`. Add the names it is
