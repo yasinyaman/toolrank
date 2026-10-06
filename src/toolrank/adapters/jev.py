@@ -76,8 +76,13 @@ def env_jev_key(base_url: str) -> str | None:
 
 
 def _host(base_url: str) -> str:
-    """The endpoint's ``host[:port]``, for scorer names and cache files."""
-    return urllib.parse.urlsplit(base_url).netloc or base_url
+    """The endpoint's ``host[:port]``, for scorer names and cache files: never a ``user:password@``
+    the URL may carry (names go to the usage log, result files and file names)."""
+    url = urllib.parse.urlsplit(base_url)
+    if not url.hostname:  # no scheme: what is left after any credentials
+        return base_url.rsplit("@", 1)[-1]
+    host = f"[{url.hostname}]" if ":" in url.hostname else url.hostname
+    return f"{host}:{url.port}" if url.port else host
 
 
 def option_key(n: int) -> str:

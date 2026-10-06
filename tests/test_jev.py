@@ -277,6 +277,16 @@ def test_the_key_goes_to_typesafe_alone(monkeypatch):
     assert sent[1].get_header("Authorization") == "Bearer k"
 
 
+def test_endpoint_labels_never_carry_credentials(fake_jev, tmp_path):
+    """The host goes into scorer names (the usage log, result files) and cache file names."""
+    client = JevClient("m", "http://user:s3cret@127.0.0.1:8093/v1", cache_dir=tmp_path)
+    name = JevScorer(client, "name_desc").name
+    assert "s3cret" not in name and "user" not in name and "@127.0.0.1:8093," in name
+    client.ask({"request": "send an email"}, {"tool": choice_question("", ["send email", "weather"], 100)})
+    files = [p.name for p in tmp_path.iterdir()]
+    assert files and not any("s3cret" in f or "user" in f for f in files)
+
+
 def test_each_endpoint_has_its_own_cache(fake_jev, tmp_path):
     q = {"tool": choice_question("", ["send email", "weather"], 100)}
     ts = JevClient(cache_dir=tmp_path)  # TypeSafe stays in jev.sqlite, its keys unchanged

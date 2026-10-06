@@ -128,6 +128,8 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A `--jev-url` with `user:password@` in it no longer puts them into the scorer name (the usage log,
+  result files) or the cache file's name.
 - `ToolrankToolSelector`: model calls that come while a selection is still being made wait for it
   instead of asking toolrank again (each timed-out call had started another ranking, and with a
   toolbox another logged search); an async timeout no longer cancels selections waiting for a worker;
