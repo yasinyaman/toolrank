@@ -26,6 +26,7 @@ own, opened lazily like the shared one: one tenant's credentials never carry ano
 from __future__ import annotations
 
 import dataclasses
+import ipaddress
 import math
 import re
 import tempfile
@@ -246,6 +247,23 @@ def _query_pairs(name: str, value: Any, style: str, explode: bool) -> list[tuple
     return [(name, _scalar(value))]
 
 
+# hosts a spec's own ``servers`` may not send the proxy to (a configured base_url still can): cloud
+# instance metadata, which hands out credentials to whoever asks from inside the machine
+METADATA_HOSTS = {"metadata.google.internal", "metadata", "metadata.azure.internal", "instance-data"}
+
+
+def spec_host_refused(url: str) -> bool:
+    """Whether a base URL that came from the spec, not the config, points at link-local or
+    metadata addresses (169.254.169.254 and friends)."""
+    host = (urllib.parse.urlsplit(url).hostname or "").rstrip(".").lower()
+    if host in METADATA_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_link_local
+    except ValueError:
+        return False
+
+
 def same_origin(url: str, base: str) -> bool:
     """Whether a request to ``url`` goes to ``base``'s scheme, host and port, as the HTTP client
     reads the two: the guard that keeps a source's headers (credentials) on its own base URL."""
@@ -292,6 +310,11 @@ class OpenAPIExecutor:
             raise Refused(
                 f"{source}: no absolute base URL ({base!r}); set openapi.{source}.base_url in the config"
             )
+        if not (cfg is not None and cfg.base_url) and spec_host_refused(base):
+            raise Refused(
+                f"{source}: the spec sends this call to {base!r}, a link-local or metadata address; "
+                f"set openapi.{source}.base_url in the config if that is really where the API lives"
+            )
         headers = merge_headers(cfg.headers, extra_headers or {}) if cfg is not None and cfg.base_url else {}
         spec = http.get("args") or {}
         path = str(http.get("path") or "")
@@ -307,8 +330,11 @@ class OpenAPIExecutor:
             where, name = arg.get("in"), str(arg.get("name", key))
             if where == "path":
                 text = _scalar(value)
-                if text in (".", ".."):  # a dot segment would move the request up the path
-                    raise ValueError(f"{tool.id}: path parameter {name!r} cannot be {text!r}")
+                # a dot segment moves the request up the path; so does "../x", once an upstream
+                # decodes the %2F that quoting makes of its slash
+                parts = re.split(r"[/\\]", urllib.parse.unquote(text))
+                if any(p in (".", "..") for p in parts):
+                    raise ValueError(f"{tool.id}: path parameter {name!r} cannot be {text!r} (a dot segment)")
                 path = path.replace("{" + name + "}", urllib.parse.quote(text, safe=""))
             elif where == "query":
                 if isinstance(value, (list, dict)) and "style" not in arg:
@@ -377,22 +403,33 @@ class OpenAPIExecutor:
             return CallOutcome(error_result(str(e)), "refused")
         except ValueError as e:
             return CallOutcome(error_result(str(e)), "tool_error")
-        try:
-            resp = await self._http().request(**req)
+        try:  # the body is read only as far as the answer will show (a large one stays on the wire)
+            async with self._http().stream(**req) as resp:
+                status = resp.status_code
+                if 300 <= status < 400:
+                    text = f"HTTP {status}: redirect to {resp.headers.get('location', '?')} (not followed)"
+                else:
+                    raw, more = bytearray(), False
+                    async for chunk in resp.aiter_bytes():
+                        raw += chunk
+                        if len(raw) > 4 * self.max_chars:  # UTF-8: at most 4 bytes a character
+                            more = True
+                            break
+                    body = bytes(raw).decode(resp.encoding or "utf-8", errors="replace")
+                    if more or len(body) > self.max_chars:
+                        size = resp.headers.get("content-length")
+                        body = (
+                            body[: self.max_chars]
+                            + "\n… truncated"
+                            + (f": {size} bytes in total" if size else "")
+                        )
+                    text = f"HTTP {status}\n{body}"
         except httpx2.TimeoutException:
             return CallOutcome(
                 error_result(f"{tool.category}: no answer within {self.timeout:g} s"), "timeout"
             )
         except httpx2.HTTPError as e:
             return CallOutcome(error_result(f"{tool.category}: {type(e).__name__}: {e}"), "protocol_error")
-        status = resp.status_code
-        if 300 <= status < 400:
-            text = f"HTTP {status}: redirect to {resp.headers.get('location', '?')} (not followed)"
-        else:
-            body = resp.text
-            if len(body) > self.max_chars:
-                body = body[: self.max_chars] + f"\n… truncated: {len(body)} characters in total"
-            text = f"HTTP {status}\n{body}"
         failed = status >= 300
         result = CallToolResult(content=[TextContent(type="text", text=text)], is_error=failed)
         return CallOutcome(result, "tool_error" if failed else "ok", status)

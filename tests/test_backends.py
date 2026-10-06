@@ -194,7 +194,7 @@ def test_openapi_calls_statuses_redirects_and_truncation():
     assert (out["/ok"].outcome, out["/ok"].http_status) == ("ok", 200) and '"ok"' in _text(out["/ok"])
     assert (out["/missing"].outcome, out["/missing"].http_status) == ("tool_error", 404)
     assert "not followed" in _text(out["/moved"]) and len(seen) == 4  # no request to the Location
-    assert "truncated: 5000 characters" in _text(out["/big"]) and len(_text(out["/big"])) < 1100
+    assert "truncated: 5000 bytes in total" in _text(out["/big"]) and len(_text(out["/big"])) < 1100
     assert out["post"].outcome == "refused"
     assert all(r.headers["authorization"] == "Bearer t" and r.url.host == "api.example.com" for r in seen)
 
@@ -232,3 +232,24 @@ def test_config_env_expansion_and_openapi_section(tmp_path, monkeypatch):
             ValueError, match=rf"toolrank.json: Permission denied: toolrank runs as uid {os.getuid()}"
         ):
             load_config(cfg)
+
+
+def test_a_spec_cannot_send_calls_to_metadata_or_climb_the_path():
+    """Without a configured base_url the spec's own servers choose the host: never link-local or
+    cloud metadata (credentials for whoever asks). "../x" climbs once an upstream decodes %2F."""
+    ex = OpenAPIExecutor({})
+    for base in (
+        "http://169.254.169.254/latest/",
+        "http://metadata.google.internal/computeMetadata/",
+        "http://[fe80::1]/",
+    ):
+        with pytest.raises(Refused, match="link-local or metadata"):
+            ex.build(_op(args=QUERY, base=base), {"id": 1})
+    configured = OpenAPIExecutor({"api": OpenAPIBackend("api", "http://169.254.169.254/latest", {})})
+    assert configured.build(_op(args=QUERY, base="ignored"), {"id": 1})["url"].startswith(
+        "http://169.254.169.254/"
+    )
+    for climb in ("../admin", "x/../../admin", "..%2Fadmin", "..\\admin"):
+        with pytest.raises(ValueError, match="dot segment"):
+            ex.build(_op(args=QUERY), {"id": climb})
+    assert ex.build(_op(args=QUERY), {"id": "a..b"})["url"].endswith("/items/a..b")

@@ -130,6 +130,10 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- OpenAPI calls: the answer is read only as far as it will be shown (the whole body was held in memory
+  before the 25,000-character cut); a spec's own `servers` can no longer send a call to a link-local or
+  cloud-metadata address (a configured `base_url` still can); and a path parameter with a dot segment
+  anywhere (`../admin`, which climbs once an upstream decodes the `%2F` quoting makes) is refused.
 - `/v1/metrics`: `toolrank_heads` has one series per kind of heads, counting the files answering (two
   keys' heads gave two `toolrank_heads{arm="tenant"}` lines, which scrapers reject or drop).
 - The usage log's key is written whole before anyone can read it (a temporary file linked into

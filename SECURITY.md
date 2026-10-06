@@ -20,7 +20,8 @@ toolrank is not yet at 1.0: fixes go into the latest release only.
 - `/v1` checks the Host and Origin headers, so a web page cannot reach a server on your machine;
   `/mcp` has the MCP SDK's DNS-rebinding protection with the same allowed hosts.
 - OpenAPI tools send only GET and HEAD requests unless you pass `--allow-write`. Headers from the
-  config (credentials) go only to that source's `base_url`, and redirects are not followed.
+  config (credentials) go only to that source's `base_url`, and redirects are not followed. A spec's own
+  `servers` cannot point a call at a link-local or cloud-metadata address; only a configured `base_url` can.
 - The embedding endpoint gets `TOOLRANK_EMB_API_KEY` if you set one; `OPENAI_API_KEY` goes only to
   `https://api.openai.com`, and no key is carried onto a redirect.
 - The usage log keeps requests and arguments as keyed digests, not text, unless `--log-text`; tool
