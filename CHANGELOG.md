@@ -80,7 +80,9 @@ change behaviour.
 - The Jev seat is provider-aware: `TYPESAFE_API_KEY` goes to `api.typesafe.ai` alone (never to a
   local or third-party `/systemone` endpoint, which is asked without a key), TypeSafe's answers
   stay in `jev.sqlite` with their keys unchanged while every other endpoint gets its own
-  `jev-<host>.sqlite` with the URL in the key, the cross-encoder's score cache keys the URL too,
+  `jev-<host>.sqlite` with the URL in the key, the cross-encoder's score cache keys the URL too (its
+  existing `scores.sqlite` entries no longer match: a rerun of the cross-encoder rows scores them
+  again, and vLLM's scores are not bit-reproducible, so a number may move in its last digits),
   `JevScorer` never sends a one-option Choice, and the scorer names and serve's privacy line name
   the endpoint (`jev[<model>@<host>,...]`).
 - `toolrank learn` on the default (v0.2) backbone: it started from a random head, mixed the
