@@ -39,13 +39,19 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+def asks_like(test_queries: Sequence[Query]) -> Callable[[TrainPair], bool]:
+    """-> whether a pair's request text equals one of these benchmark requests."""
+    test = {_norm(q.text) for q in test_queries if q.text.strip()}
+    return lambda p: _norm(p.text) in test
+
+
 def drop_test_requests(
     pairs: Sequence[TrainPair], test_queries: Sequence[Query]
 ) -> tuple[list[TrainPair], int]:
     """Pairs whose request text equals a benchmark request are dropped -> (kept, n_dropped): a pair
     the selection set already asks about would make the guard meaningless."""
-    test = {_norm(q.text) for q in test_queries if q.text.strip()}
-    kept = [p for p in pairs if _norm(p.text) not in test]
+    asked = asks_like(test_queries)
+    kept = [p for p in pairs if not asked(p)]
     return kept, len(pairs) - len(kept)
 
 

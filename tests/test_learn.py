@@ -518,7 +518,8 @@ def test_replay_pairs_bring_no_negatives_and_none_the_dev_set_asks_about(tmp_pat
     report = run(job, log=lambda _: None)
     b = seen["batches"]
     replay_pos, replay_neg = b.pos[48:], b.neg[48:]  # the log's 48 train pairs come first
-    assert len(replay_pos) == 24 and report["replay"]["against_dev"] == 1  # "general request 3" dropped
+    # "general request 3" goes before the sample is drawn, so the sample still has 25 pairs
+    assert len(replay_pos) == 25 and report["replay"]["against_dev"] == 1
     assert all(row for row in replay_pos) and not any(row for row in replay_neg)  # positives, no negatives
 
 
@@ -605,6 +606,20 @@ def test_mine_and_judge_skip_a_search_without_an_id():
     pairs, counts = mine(events)
     assert [p.state for p in pairs] == ["A"] and counts["searches_malformed"] == 1
     assert judge(events)["control"]["searches"] == 1
+
+
+def test_judge_counts_the_jev_searches_of_the_key_it_judges_only():
+    from collections import Counter
+
+    jev = "jev[jev-1.13.0@api.typesafe.ai,d20,documentation]/dense/emb/qwen3-emb/documentation/x"
+    events = [
+        {**_search("s1", "A", ["t1"], 1, "2026-10-01", tenant="other"), "scorer": jev},
+        {**_search("s2", "B", ["t1"], 1, "2026-10-01", tenant="acme"), "scorer": jev},
+        _search("s3", "C", ["t1"], 1, "2026-10-01", tenant="acme"),
+    ]
+    counts: Counter[str] = Counter()
+    judge(events, tenant="acme", counts=counts)
+    assert counts["searches_with_jev"] == 1  # acme's own; not the other key's
 
 
 def test_mine_tells_the_backbone_of_old_searches_by_their_scorer_name():

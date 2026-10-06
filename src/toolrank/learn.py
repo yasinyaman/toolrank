@@ -46,7 +46,7 @@ import random
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from pathlib import Path
@@ -416,13 +416,23 @@ def run(job: Job, log: Callable[[str], None] = print) -> dict[str, Any]:
     )
     if job.replay is not None and job.replay_n > 0:
         from toolrank.datasets.jsonl import iter_pairs
-        from toolrank.finetune import drop_test_requests, index_tools, pair_texts, with_instruction
+        from toolrank.finetune import asks_like, index_tools, pair_texts, with_instruction
 
-        picked = _reservoir(iter_pairs(job.replay), job.replay_n, job.data_seed)
-        picked, _ = with_instruction(picked, job.instruction)
+        # a pair the guard set asks about would make the guard meaningless: out before the sample,
+        # so the sample still has replay_n pairs
+        asked = asks_like(load_queries(job.dev / "queries.jsonl")) if job.dev is not None else None
         dropped = 0
-        if job.dev is not None:  # a pair the guard set asks about would make the guard meaningless
-            picked, dropped = drop_test_requests(picked, load_queries(job.dev / "queries.jsonl"))
+
+        def clean(pairs: Iterable[TrainPair]) -> Iterator[TrainPair]:
+            nonlocal dropped
+            for p in pairs:
+                if asked is not None and asked(p):
+                    dropped += 1
+                else:
+                    yield p
+
+        picked = _reservoir(clean(iter_pairs(job.replay)), job.replay_n, job.data_seed)
+        picked, _ = with_instruction(picked, job.instruction)
         # positives only: the mined negatives replay files carry cost more than they taught (Phase 0)
         picked = [replace(p, negatives=()) for p in picked]
         state_texts, pos_texts, neg_texts = pair_texts(picked, tf, qf)
@@ -568,15 +578,15 @@ def judge(
             continue
         if not isinstance(e.get("id"), str):
             continue
-        if not may_learn_from(e.get("scorer")):
-            if counts is not None:
-                counts["searches_with_jev"] += 1
-            continue
         arm = str(e.get("arm") or "base")
         if tenant is not None and e.get("tenant") != tenant:
             continue
         if tenant is None and arm.startswith("tenant:"):
             continue  # a tenant's own heads are another experiment
+        if not may_learn_from(e.get("scorer")):  # counted for the key being judged only
+            if counts is not None:
+                counts["searches_with_jev"] += 1
+            continue
         arms[e["id"]] = "candidate" if arm.endswith("candidate") else "control"
     best: dict[str, int] = {}
     for e in events:

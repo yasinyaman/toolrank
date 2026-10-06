@@ -128,6 +128,9 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `learn --replay` drops the pairs a `--dev` set asks about before it draws the sample, so the sample
+  has `--replay-n` pairs (it had that many minus the dropped ones); `ab --tenant` counts only that
+  key's Jev-served searches.
 - A `--jev-url` with `user:password@` in it no longer puts them into the scorer name (the usage log,
   result files) or the cache file's name.
 - `ToolrankToolSelector`: model calls that come while a selection is still being made wait for it
