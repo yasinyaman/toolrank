@@ -42,6 +42,13 @@ SAFE_METHODS = ("GET", "HEAD")
 MAX_RESPONSE_CHARS = 25_000
 
 
+def merge_headers(base: dict[str, str], own: dict[str, str]) -> dict[str, str]:
+    """``base`` with ``own`` on top, names compared case-insensitively (HTTP's rule): a key's
+    ``authorization`` replaces the config's ``Authorization`` instead of travelling next to it."""
+    mine = {k.lower() for k in own}
+    return {**{k: v for k, v in base.items() if k.lower() not in mine}, **own}
+
+
 @dataclass(frozen=True)
 class CallOutcome:
     result: Any  # mcp_types.CallToolResult
@@ -285,7 +292,7 @@ class OpenAPIExecutor:
             raise Refused(
                 f"{source}: no absolute base URL ({base!r}); set openapi.{source}.base_url in the config"
             )
-        headers = {**cfg.headers, **(extra_headers or {})} if cfg is not None and cfg.base_url else {}
+        headers = merge_headers(cfg.headers, extra_headers or {}) if cfg is not None and cfg.base_url else {}
         spec = http.get("args") or {}
         path = str(http.get("path") or "")
         if not path.startswith("/"):  # "@host/x" or ".host/x" after the base URL names another host
@@ -444,7 +451,7 @@ class Backends:
         own = self._own.get((server, t.name))
         if own is None:
             cfg = dataclasses.replace(
-                shared.cfg, headers={**shared.cfg.headers, **headers}, env={**shared.cfg.env, **env}
+                shared.cfg, headers=merge_headers(shared.cfg.headers, headers), env={**shared.cfg.env, **env}
             )
             own = self._own[(server, t.name)] = MCPBackend(cfg, connect_timeout=self.connect_timeout)
         return own

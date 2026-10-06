@@ -130,6 +130,10 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A key's credential header replaces the config's whatever the case of its name: `{**config, **key}`
+  kept `Authorization: Bearer shared` next to a key's `authorization: Bearer team-token`, the upstream
+  got both, and many servers take the first, the operator's (OpenAPI calls and a key's own MCP
+  connection alike).
 - A key limited to some sources is ranked within them: the first-stage scorers (dense, BM25) go deeper
   until they have enough of the key's tools, and hybrid fusion and a second stage only see those. Before,
   the whole catalogue was ranked and filtered afterwards: RRF scores (`1/(60 + rank)`) and a second

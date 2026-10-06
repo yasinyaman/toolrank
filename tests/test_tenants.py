@@ -168,6 +168,43 @@ def test_tenant_credentials_ride_only_on_their_own_openapi_calls():
     ]
 
 
+def test_a_tenants_header_replaces_the_configs_whatever_its_case():
+    """{**config, **tenant} kept "Authorization: Bearer shared" next to the key's "authorization": the
+    upstream got both and many servers take the first, the operator's account."""
+    pytest.importorskip("mcp")
+    import anyio
+    import httpx2
+
+    from toolrank.adapters.backends import Backends, merge_headers
+    from toolrank.ingest.mcp import OpenAPIBackend
+
+    assert merge_headers({"Authorization": "a", "X-Keep": "k"}, {"authorization": "b"}) == {
+        "X-Keep": "k",
+        "authorization": "b",
+    }
+    seen = []
+
+    def answer(req):
+        seen.append(req.headers.get_list("authorization"))
+        return httpx2.Response(200, text="{}")
+
+    http = {"method": "GET", "path": "/things", "base_url": "https://api.example.com", "args": {}}
+    tool = Tool(id="api/list", doc={"name": "list", "http": http}, category="api")
+    team = Tenant("team", "k1", headers={"api": {"authorization": "Bearer team-token"}})
+    backends = Backends(
+        openapi={"api": OpenAPIBackend("api", "https://api.example.com", {"Authorization": "Bearer shared"})},
+        transport=httpx2.MockTransport(answer),
+        tenants={"team": team},
+    )
+
+    async def main():
+        async with backends.running():
+            assert (await backends.call(tool, {}, "team")).outcome == "ok"
+
+    anyio.run(main)
+    assert seen == [["Bearer team-token"]]
+
+
 def test_a_tenant_with_env_gets_a_server_process_of_its_own():
     pytest.importorskip("mcp")
     import anyio
