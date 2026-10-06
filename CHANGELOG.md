@@ -33,6 +33,17 @@ change behaviour.
 
 ### Changed
 
+- `search` / `serve --rerank`: a second stage that is down, slow or busy no longer holds a search
+  for minutes. Each call gets `--rerank-timeout` seconds (10) and one retry, and at most
+  `--rerank-workers` calls (Jev: `--jev-workers`) are in flight at once. Waiting for a free slot
+  counts against the timeout. When the second stage fails, the search answers with the first
+  stage's order and a `note`, the reason goes to the server's log, and
+  `toolrank_search_rerank_failed_total` counts it; `search` prints a warning. The usage log marks
+  such searches with `rerank: failed`. Eval keeps the patient defaults and still fails loudly. The
+  score and Jev clients no longer sleep after their last attempt.
+- `/v1/rank` under `--rerank cross` scores with the first stage's cosines, as it already did under
+  `--rerank jev` and as its documentation says. It had sent up to 200 tools through the
+  cross-encoder, whose scores the adaptive cuts of the LangChain and LiteLLM integrations do not fit.
 - The docs' product text now describes the v0.2 default (the headless LoRA backbone, heads
   optional): the README's "Why" bullet and `docs/index.md`, the `search` help text, and the
   package docstring. The README's "What's inside" gains learn/ab with tenants, Prometheus metrics,
@@ -177,7 +188,9 @@ change behaviour.
   confirm another's exact request (and `/v1/rank` confirm a catalogue tool's exact text). A named
   key's searches and rankings now run in a cache scope of their own (`ports.cache_scope`) for the
   embedding, score and Jev caches; the catalogue's embeddings stay shared, and the usage log's
-  `emb_hmac` follows the scope, so `learn` still finds each request's vector.
+  `emb_hmac` follows the scope, so `learn` still finds each request's vector. A second stage's
+  worker threads (`--rerank-workers` above 1) run under a copy of the request's context, so its scope
+  reaches them too.
 - `compare --paired` refuses a runs file that names a query twice (pairing by id kept one of them
   silently) and warns when the two runs are of different datasets.
 - The toolrank skill's scripts tell a server they could not reach from one that took the request and

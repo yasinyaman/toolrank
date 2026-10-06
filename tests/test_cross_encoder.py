@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import urllib.error
 
 import pytest
 
@@ -113,3 +115,35 @@ def test_eval_cli_reranks_with_a_cross_encoder_and_runs_one_alone(fake_score, tm
     assert main(alone) == 0
     rep = json.loads(out.read_text())
     assert rep["scorer"] == "cross[m,qwen3]/name_desc" and rep["config"]["cross"]["pairs"] == 6 * 40
+
+
+def test_a_servers_limits_bound_the_wait_and_skip_the_last_sleep(monkeypatch):
+    sleeps, tries = [], []
+    monkeypatch.setattr("time.sleep", sleeps.append)
+
+    def down(req, timeout):
+        tries.append(timeout)
+        raise urllib.error.URLError("timed out")
+
+    monkeypatch.setattr("urllib.request.urlopen", down)
+    c = ScoreClient("m", "http://unused/v1", timeout=2.5, max_retries=2, slots=1)
+    with pytest.raises(RuntimeError, match="unreachable"):
+        c.score("q", ["d"])
+    assert tries == [2.5, 2.5] and sleeps == [1.5]  # nothing to wait for after the last attempt
+
+    entered, release = threading.Event(), threading.Event()
+
+    def slow(self, body):
+        entered.set()
+        release.wait(5)
+        return [0.0] * len(body["text_2"])
+
+    monkeypatch.setattr(ScoreClient, "_post", slow)
+    c = ScoreClient("m", "http://unused/v1", timeout=0.05, slots=1)
+    t = threading.Thread(target=c.score, args=("q", ["d"]))
+    t.start()
+    entered.wait(5)
+    with pytest.raises(RuntimeError, match="score endpoint busy"):  # one worker: the next call waits its turn
+        c.score("q2", ["d"])
+    release.set()
+    t.join()

@@ -19,7 +19,8 @@ instruction_hmac, instruction, rule, results ([[tool, score], ...], the top 20 b
 shown (tools returned from the ranking), added (tools appended after them because they are called
 together with one of those, ``serve --co-use``; absent when there are none), took_ms, scorer, heads,
 arm (which heads answered: base, current, candidate, tenant:<name>[:candidate]; added to v3 with
-``toolrank learn``), model (the backbone that embedded the request), catalog.
+``toolrank learn``), model (the backbone that embedded the request), catalog, rerank (``failed``
+when the second stage failed and ``results`` is the first stage's order; absent otherwise).
 
 ``call``: v, event, ts, id, session, client, via, tenant, tool, kind (mcp | openapi), search_id,
 rank, link, outcome (ok | tool_error | protocol_error | timeout | refused | unknown_tool),
@@ -249,6 +250,8 @@ class UsageLog:
                 "arm": arm,
                 "model": result.model,
                 "catalog": result.catalog,
+                # the second stage failed: ``results`` is the first stage's order
+                **({"rerank": "failed"} if getattr(result, "rerank_error", None) else {}),
             }
         )
         return sid

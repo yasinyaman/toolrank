@@ -342,6 +342,29 @@ def test_a_second_stage_search_logs_the_first_stages_model(tmp_path):
     assert r.status()["sync"]["embedded"] == 12  # the first stage's index sync, under both wrappers
 
 
+def test_a_failing_second_stage_answers_with_the_first_stages_order(tmp_path):
+    """A reranker that is down or slow must not cost a search its answer: the first stage's list
+    comes back, the reason for the server's log; eval still raises."""
+    from toolrank.adapters.rerank import ScorerReranker
+
+    class _Down(DenseScorer):
+        def score_tools(self, query, tools):
+            raise RuntimeError("score endpoint unreachable")
+
+    def make():
+        return ScorerReranker(_make(), _Down(_HashEncoder(), "name_desc"), depth=5)
+
+    rule = AdaptiveK(margin=10.0, max_k=4)
+    r = Retriever(_dir(tmp_path), make, rule=rule, instruction="find")
+    plain = Retriever(_dir(tmp_path), _make, rule=rule, instruction="find").search("tool 3")
+    res = r.search("tool 3")
+    assert res.rerank_error == "RuntimeError: score endpoint unreachable" and plain.rerank_error is None
+    assert [(h.id, h.score) for h in res.hits] == [(h.id, h.score) for h in plain.hits]
+    assert res.ranked == plain.ranked and res.scorer.startswith("rerank[")
+    with pytest.raises(RuntimeError, match="unreachable"):
+        r.state().scorer.rank_pairs([Query(id="q", text="tool 3", qrels={})], 4)
+
+
 def test_rows_of_another_catalogue_in_a_shared_index_are_skipped(tmp_path):
     """pgvector is shared by every process that reaches the database: an id the catalogue does not
     have must not end a search with a KeyError."""

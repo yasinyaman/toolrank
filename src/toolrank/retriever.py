@@ -22,6 +22,9 @@ requests. Each is a variant: its own scorer over the same tools, built in the ba
 file appears or changes and dropped when it goes, its index snapshot under ``index/variants/<name>``.
 Until a variant is built, requests get the one before it. ``SearchResult.arm`` and ``heads`` say
 which answered, for the usage log and ``toolrank ab``.
+
+A second stage (``--rerank``) that fails during a search gives way to the first stage's list:
+``SearchResult.rerank_error`` says why, for the server's log, and the answer carries a note.
 """
 
 from __future__ import annotations
@@ -40,7 +43,7 @@ from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
 from toolrank.domain import Query, RankedList, Tool
-from toolrank.ports import cache_scope, supplied, visible_ids
+from toolrank.ports import cache_scope, rerank_failures, supplied, visible_ids
 
 LOG_TOP = 20  # ranked tools kept for the usage log, whatever the cut returns
 SETTLE_S = 0.05  # a tools.jsonl modified more recently than this may still be being written
@@ -92,6 +95,9 @@ class SearchResult:
     own_instruction: bool = True
     added: int = 0  # the last ``added`` hits are co-use partners of the hits before them
     model: str | None = None  # the backbone that embedded the request (None: keyword, or unknown)
+    # why the second stage failed, so the first stage's order answered; for the server's log only
+    # (it may name the reranker's address), the client gets a note
+    rerank_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -498,10 +504,13 @@ class Retriever:
         want = max(top, LOG_TOP)
         visible = self.visible(st, tenant)
         depth = want  # the first-stage scorers go deeper themselves for a key limited to some sources
+        failures: list[str] = []
         rank_within = visible_ids.set(visible)  # the scorers rank among the key's own tools only
+        tolerate = rerank_failures.set(failures)  # a failing second stage: the first stage's list
         try:
             fused, semantic, depth = self._ranked(st, q, depth, want, visible)
         finally:
+            rerank_failures.reset(tolerate)
             visible_ids.reset(rank_within)
         if not all(t in st.by_id for t in fused.tool_ids):  # a shared index (pgvector) holding other rows
             known = frozenset(st.by_id)
@@ -547,6 +556,7 @@ class Retriever:
             heads=heads,
             added=added,
             model=getattr(encoder, "model", None),
+            rerank_error=failures[-1] if failures else None,
         )
 
     def rank(

@@ -224,6 +224,29 @@ def test_first_index_and_endpoint_failures_are_503(tmp_path):
         )
 
 
+def test_a_failing_second_stage_is_a_note_a_counter_and_a_log_mark(tmp_path, caplog):
+    from toolrank.adapters.mcp_proxy import RERANK_NOTE
+    from toolrank.adapters.rerank import ScorerReranker
+
+    class _Down(DenseScorer):
+        def score_tools(self, query, tools):
+            raise RuntimeError("score endpoint http://10.0.0.9:8095/v1 unreachable")
+
+    def make():
+        return ScorerReranker(DenseScorer(_HashEncoder(), "name_desc"), _Down(_HashEncoder(), "name_desc"))
+
+    write_tools(tmp_path / "tools.jsonl", _tools())
+    app, _ = _app(tmp_path, Retriever(tmp_path, make))
+    with TestClient(app, base_url=BASE) as c, caplog.at_level("WARNING", logger="toolrank.serve"):
+        r = c.post("/v1/search", json={"query": "add two integers"})
+        assert r.status_code == 200 and r.json()["note"] == RERANK_NOTE and len(r.json()["tools"]) == 3
+        assert "8095" not in r.text  # the reason, with the reranker's address, stays in the server's log
+        assert "toolrank_search_rerank_failed_total 1" in c.get("/v1/metrics").text
+    assert "8095/v1 unreachable" in caplog.text
+    (event,) = _events(tmp_path)
+    assert event["rerank"] == "failed" and len(event["results"]) == 3
+
+
 def test_keyword_matches_while_the_index_builds_and_named_keys(tmp_path):
     gate = threading.Event()
 

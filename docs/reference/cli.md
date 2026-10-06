@@ -219,10 +219,11 @@ Rank the tools of an ingest dir for one request. Defaults: the toolrank backbone
 | `--rerank-tool-format {documentation,name_desc,schema,example_call}` | `documentation` | text per tool |
 | `--rerank-max-chars RERANK_MAX_CHARS` | `3000` | characters kept per tool |
 | `--rerank-query-chars RERANK_QUERY_CHARS` |  | cross: characters of the request (6000) |
-| `--rerank-workers RERANK_WORKERS` | `1` | cross: concurrent scoring requests |
+| `--rerank-workers RERANK_WORKERS` | `1` | cross: scoring calls in flight at once, all requests together |
+| `--rerank-timeout RERANK_TIMEOUT` | `10.0` | seconds per attempt (two attempts, a turn in the queue included); then the first stage's order answers |
 | `--jev-model JEV_MODEL` | `jev-1.13.0` | jev: a versioned id (aliases move) |
 | `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
-| `--jev-workers JEV_WORKERS` | `8` |  |
+| `--jev-workers JEV_WORKERS` | `8` | jev: calls in flight at once |
 | `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
 | `--emb-model EMB_MODEL` |  |  |
 | `--emb-batch EMB_BATCH` | `32` |  |
@@ -266,10 +267,11 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--rerank-tool-format {documentation,name_desc,schema,example_call}` | `documentation` | text per tool |
 | `--rerank-max-chars RERANK_MAX_CHARS` | `3000` | characters kept per tool |
 | `--rerank-query-chars RERANK_QUERY_CHARS` |  | cross: characters of the request (6000) |
-| `--rerank-workers RERANK_WORKERS` | `1` | cross: concurrent scoring requests |
+| `--rerank-workers RERANK_WORKERS` | `1` | cross: scoring calls in flight at once, all requests together |
+| `--rerank-timeout RERANK_TIMEOUT` | `10.0` | seconds per attempt (two attempts, a turn in the queue included); then the first stage's order answers |
 | `--jev-model JEV_MODEL` | `jev-1.13.0` | jev: a versioned id (aliases move) |
 | `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
-| `--jev-workers JEV_WORKERS` | `8` |  |
+| `--jev-workers JEV_WORKERS` | `8` | jev: calls in flight at once |
 | `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
 | `--emb-model EMB_MODEL` |  |  |
 | `--emb-batch EMB_BATCH` | `32` |  |

@@ -17,6 +17,7 @@ by model, query prompt and document prompt, so a rerun asks nothing.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import http.client
 import json
@@ -92,6 +93,7 @@ class ScoreCache:
 
 class ScoreClient:
     """``POST {base_url}/score``: one ``text_1`` against a list of ``text_2``, scores back in order.
+    A server passes ``slots``, how many calls may be in flight at once from all its threads together.
     ``calls`` and ``pairs`` count what reached the endpoint, ``cached`` the pairs the cache answered;
     ``call_ms`` the wall-clock of each call. Tests replace ``_post``."""
 
@@ -105,11 +107,15 @@ class ScoreClient:
         timeout: float = 300.0,
         max_retries: int = 3,
         batch: int = 64,
+        slots: int | None = None,
     ):
+        from toolrank.adapters.rerank import Slots
+
         self.model, self.base_url = model, base_url.rstrip("/")
         self.api_key = api_key or env_api_key(self.base_url, "TOOLRANK_EMB_API_KEY")
         self.cache = ScoreCache(Path(cache_dir) / "scores.sqlite") if cache_dir else None
         self.timeout, self.max_retries, self.batch = timeout, max_retries, batch
+        self.slots = Slots(slots, timeout) if slots else None
         self.calls = self.pairs = self.cached = 0
         self.call_ms: list[float] = []
         self._lock = threading.Lock()
@@ -123,9 +129,12 @@ class ScoreClient:
             self.cached += len(text_2) - len(todo)
         for s in range(0, len(todo), self.batch):
             idx = todo[s : s + self.batch]
-            t0 = time.perf_counter()
-            scores = self._post({"model": self.model, "text_1": text_1, "text_2": [text_2[i] for i in idx]})
-            dt = (time.perf_counter() - t0) * 1000.0
+            with self.slots("score endpoint") if self.slots else contextlib.nullcontext():
+                t0 = time.perf_counter()
+                scores = self._post(
+                    {"model": self.model, "text_1": text_1, "text_2": [text_2[i] for i in idx]}
+                )
+                dt = (time.perf_counter() - t0) * 1000.0
             if len(scores) != len(idx):
                 raise RuntimeError(f"score endpoint returned {len(scores)} scores for {len(idx)} pairs")
             for i, v in zip(idx, scores, strict=True):
@@ -163,7 +172,8 @@ class ScoreClient:
                 last = e
             except (OSError, http.client.HTTPException) as e:  # unreachable, slow, or the connection dropped
                 last = e
-            time.sleep(1.5 * (attempt + 1))
+            if attempt + 1 < self.max_retries:
+                time.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"score endpoint {self.base_url} unreachable: {last}") from last
 
     def stats(self) -> dict[str, Any]:

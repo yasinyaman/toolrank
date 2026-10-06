@@ -2,7 +2,7 @@
 themselves and run the tools on their side (Anthropic's custom tool search, OpenAI's client-side
 tool_search).
 
-``POST /v1/search`` {query, instruction?, k?, full_schemas?} -> {search_id, mode, took_ms, rule, tools}
+``POST /v1/search`` {query, instruction?, k?, full_schemas?} -> {search_id, mode, took_ms, rule, tools, note?}
 ``POST /v1/rank`` {query, instruction?, tools: [MCP tool objects] | tool_ids: [...]} -> scores
 ``POST /v1/call`` {name, arguments?, search_id?} -> {name, call_id, outcome, isError, content, ...}
 ``GET /v1/tools[?server=&full=true]`` -> the catalogue; ``GET /v1/tools/{id}`` -> one tool's record
@@ -12,12 +12,13 @@ Served next to ``/mcp`` by ``mcp_proxy.http_app``, whose ``Guard`` puts the bear
 Host and Origin checks on ``/v1``; bodies are capped at ``MAX_BODY`` here too (a chunked body has
 no Content-Length). Searches and calls go to the usage log with ``via: rest``: the
 ``X-Session-Id`` header is the session (under the API key's name, the tenant). While the first
-index builds, searches return keyword matches (``mode: lexical``). ``/v1/call`` runs a catalogue
+index builds, searches return keyword matches (``mode: lexical``); ``note`` says so, and says when
+nothing was close enough or the second stage did not answer (``mcp_proxy.search_note``). ``/v1/call`` runs a catalogue
 tool exactly as MCP ``call_tool`` does (``mcp_proxy.dispatch_call``, same write policy); a tool
 that fails is still a 200 with ``isError``. Errors are JSON ``{"error": ...}``: 400 bad input, 404
 unknown tool, 413 body too large, 415 a call that is not JSON, 503 index not ready, embedding
 endpoint down or backends not running. ``/v1/rank`` scores up to ``MAX_RANK`` tools by cosine (the
-semantic arm also under ``--hybrid``), best first, each with its ``index`` in the request; supplied
+semantic arm also under ``--hybrid``, the first stage under ``--rerank``), best first, each with its ``index`` in the request; supplied
 tools get the text ingest gives MCP tools. Every tool carries its ``api_name`` (``toolrank.names``),
 the name to give it on an agent API; ``/v1/tools?full=true`` is the one download a platform client
 needs: each tool's description, input schema (always an object, no ``$schema``), annotations and,
@@ -42,6 +43,7 @@ from toolrank.adapters.mcp_proxy import (
     TENANT_KEY,
     dispatch_call,
     hit_json,
+    search_note,
 )
 from toolrank.domain import Tool
 from toolrank.ingest.mcp import tool_from_mcp
@@ -204,7 +206,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
             for n, h in enumerate(res.hits)
         ]
         out = {"search_id": sid, "mode": res.mode, "took_ms": round(res.took_ms, 1), "rule": res.rule}
-        return JSONResponse({**out, "tools": tools})
+        note = search_note(res)
+        return JSONResponse({**out, "tools": tools, **({"note": note} if note else {})})
 
     @endpoint
     async def rank(request: Any) -> Any:
@@ -485,6 +488,11 @@ _SCHEMAS: dict[str, Any] = {
             "took_ms": {"type": "number"},
             "rule": {"type": "string"},
             "tools": {"type": "array", "items": _ref("Hit")},
+            "note": {
+                "type": "string",
+                "description": "For the agent: keyword matches only, no tool close enough, or the "
+                "reranker did not answer (the first stage's order).",
+            },
         },
         "required": ["search_id", "mode", "took_ms", "rule", "tools"],
     },

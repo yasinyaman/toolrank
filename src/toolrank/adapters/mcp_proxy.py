@@ -51,6 +51,25 @@ EMPTY_NOTE = (
     "No tool in this catalogue is close enough to the request. Answer without a tool, or search again "
     "in other words."
 )
+RERANK_NOTE = (
+    "The reranker did not answer in time, so these tools are in the first stage's order; the best one "
+    "may be further down the list."
+)
+
+
+def search_note(res: Any) -> str | None:
+    """The note a search's answer carries (keyword matches, nothing close enough, no second stage);
+    a failed second stage's reason goes to the server's log, never to the client."""
+    if res.mode == "lexical":
+        return LEXICAL_NOTE
+    if not res.hits:  # a threshold with --cut-min 0 turned every tool away
+        return EMPTY_NOTE
+    if getattr(res, "rerank_error", None):
+        log.warning("second stage failed, the first stage's order answered: %s", res.rerank_error)
+        return RERANK_NOTE
+    return None
+
+
 INSTRUCTIONS = (
     "This server fronts many tools. Call search_tools with what you want to do, then call_tool with "
     "a returned tool name and arguments that match its inputSchema."
@@ -236,10 +255,9 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
             "search_id": sid,
             "tools": [hit_json(h, full=n < FULL_SCHEMAS) for n, h in enumerate(res.hits)],
         }
-        if res.mode == "lexical":
-            payload["note"] = LEXICAL_NOTE
-        elif not res.hits:  # a threshold with --cut-min 0 turned every tool away
-            payload["note"] = EMPTY_NOTE
+        note = search_note(res)
+        if note:
+            payload["note"] = note
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
         )

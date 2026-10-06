@@ -9,7 +9,8 @@ What is exposed:
 
 * ``toolrank_searches_total{via,mode,arm}``, ``toolrank_search_duration_seconds`` (ranking, the
   request's embedding included), ``toolrank_search_tools_returned``, ``toolrank_search_empty_total``,
-  ``toolrank_search_co_use_added_total``;
+  ``toolrank_search_co_use_added_total``, ``toolrank_search_rerank_failed_total`` (a second stage
+  that failed, so the first stage's order answered);
 * ``toolrank_calls_total{kind,outcome,via}``, ``toolrank_call_duration_seconds``,
   ``toolrank_calls_linked_total{link}`` and ``toolrank_called_tool_rank`` (where the called tool
   stood in the search it is linked to: its ``le="5"`` bucket over its count is "top 5");
@@ -49,6 +50,11 @@ FAMILIES: dict[str, tuple[str, str, tuple[float, ...]]] = {
     "toolrank_search_tools_returned": ("histogram", "Tools a search handed over.", TOOLS),
     "toolrank_search_empty_total": ("counter", "Searches that returned no tool.", ()),
     "toolrank_search_co_use_added_total": ("counter", "Tools appended to results as co-use partners.", ()),
+    "toolrank_search_rerank_failed_total": (
+        "counter",
+        "Searches whose second stage failed or timed out: the first stage's order answered.",
+        (),
+    ),
     "toolrank_search_returned_tokens_total": (
         "counter",
         "Estimated tokens of the tools searches handed over.",
@@ -186,6 +192,8 @@ class Metrics:
         added = int(getattr(result, "added", 0) or 0)
         if added:
             self.inc("toolrank_search_co_use_added_total", added)
+        if getattr(result, "rerank_error", None):
+            self.inc("toolrank_search_rerank_failed_total")
         returned = sum(tool_tokens(h.tool) for h in hits)
         self.inc("toolrank_search_returned_tokens_total", returned)
         whole = self.catalog_tokens(getattr(result, "catalog", None), tenant=tenant, wait=False)

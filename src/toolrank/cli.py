@@ -359,6 +359,8 @@ def cmd_search(a: argparse.Namespace) -> int:
         sys.exit(str(e))
     st = retriever.state()
     res = retriever.search(a.request)
+    if res.rerank_error:
+        print(f"warning: second stage failed, first-stage order: {res.rerank_error}", file=sys.stderr)
     if a.json:
         tools = [
             {
@@ -864,10 +866,21 @@ def _add_serve_rerank_args(p: argparse.ArgumentParser) -> None:
     g.add_argument(
         "--rerank-query-chars", type=int, default=None, help="cross: characters of the request (6000)"
     )
-    g.add_argument("--rerank-workers", type=int, default=1, help="cross: concurrent scoring requests")
+    g.add_argument(
+        "--rerank-workers",
+        type=int,
+        default=1,
+        help="cross: scoring calls in flight at once, all requests together",
+    )
+    g.add_argument(
+        "--rerank-timeout",
+        type=float,
+        default=10.0,
+        help="seconds per attempt (two attempts, a turn in the queue included); then the first stage's order answers",
+    )
     g.add_argument("--jev-model", default="jev-1.13.0", help="jev: a versioned id (aliases move)")
     g.add_argument("--jev-url", default="https://api.typesafe.ai/v1")
-    g.add_argument("--jev-workers", type=int, default=8)
+    g.add_argument("--jev-workers", type=int, default=8, help="jev: calls in flight at once")
     # the eval-only knobs the shared factory reads, at their "same as the first stage" values
     p.set_defaults(
         rerank_truncate=None,
@@ -897,6 +910,8 @@ def _check_rerank(a: argparse.Namespace) -> None:
         a.jev_tool_format, a.jev_max_chars = a.rerank_tool_format, a.rerank_max_chars
     if not 2 <= a.rerank_depth <= 255:
         sys.exit("--rerank-depth: from 2 to 255")
+    if not a.rerank_timeout > 0 or a.rerank_workers < 1 or a.jev_workers < 1:
+        sys.exit("--rerank-timeout must be positive, --rerank-workers and --jev-workers at least 1")
 
 
 def _cut_rule(a: argparse.Namespace):

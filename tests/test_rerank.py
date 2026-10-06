@@ -6,17 +6,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 
 import numpy as np
 import pytest
 
 from test_bm25_runner import _ToyEncoder
 from toolrank.adapters.dense import DenseScorer
-from toolrank.adapters.rerank import ScorerReranker
+from toolrank.adapters.rerank import ScorerReranker, Slots, pool_map
 from toolrank.build import rerank_args
 from toolrank.cli import main
 from toolrank.domain import Query, RankedList, Tool
 from toolrank.formats import TOOL_FORMATS
+from toolrank.ports import cache_scope, rerank_failures
 
 
 class _Fixed:
@@ -31,6 +33,11 @@ class _Fixed:
         return [RankedList(q.id, self.ids[:k], self.scores[:k]) for q in queries]
 
 
+class _Cosines(_Fixed):
+    def score_tools(self, query, tools):
+        return [0.5] * len(tools)
+
+
 def _tools():
     return [
         Tool(id="w", doc={"name": "get_weather", "description": "Current weather and forecast for a city."}),
@@ -41,7 +48,7 @@ def _tools():
 
 
 def test_second_scorer_reorders_the_head_and_keeps_the_tail():
-    base = _Fixed(["w", "f", "m", "r"], [0.9, 0.8, 0.7, 0.6])
+    base = _Cosines(["w", "f", "m", "r"], [0.9, 0.8, 0.7, 0.6])
     second = DenseScorer(_ToyEncoder(), "name_desc", "plain")
     rr = ScorerReranker(base, second, depth=3)
     rr.index(_tools())
@@ -51,7 +58,7 @@ def test_second_scorer_reorders_the_head_and_keeps_the_tail():
     assert r.scores[0] > r.scores[1] >= r.scores[2]  # the head carries the second scorer's cosines
     assert rr.name == "rerank[dense/toy/name_desc/plain,d3]/fixed" and rr.score_kind == "cosine"
     assert rr.last_base["q"].tool_ids == ["w", "f", "m", "r"]
-    assert rr.score_tools(q, _tools()[:2]) == second.score_tools(q, _tools()[:2])
+    assert rr.score_tools(q, _tools()[:2]) == [0.5, 0.5]  # /v1/rank: the first stage's cosines
 
 
 def test_max_chars_cuts_what_the_second_scorer_reads_and_names_it():
@@ -74,6 +81,64 @@ def test_workers_give_the_same_lists_as_one_thread():
     many.index(_tools())
     assert [r.tool_ids for r in many.rank(qs, 4)] == [r.tool_ids for r in one.rank(qs, 4)]
     assert many.workers == 3 and ScorerReranker(base, one.second, workers=0).workers == 1
+
+
+class _Down(DenseScorer):
+    def score_tools(self, query, tools):
+        raise RuntimeError("score endpoint http://10.0.0.9:8095/v1 unreachable: timed out")
+
+
+def test_a_failing_second_stage_raises_in_eval_and_gives_way_while_serving():
+    rr = ScorerReranker(_Fixed(["w", "f", "m", "r"], [0.9, 0.8, 0.7, 0.6]), _Down(_ToyEncoder(), "name_desc"))
+    rr.index(_tools())
+    q = Query(id="q", text="send an email", qrels={})
+    with pytest.raises(RuntimeError, match="unreachable"):  # eval: one number, one ranking
+        rr.rank_pairs([q], 3)
+    failures: list[str] = []
+    token = rerank_failures.set(failures)
+    try:
+        ((fused, semantic),) = rr.rank_pairs([q], 3)
+    finally:
+        rerank_failures.reset(token)
+    assert fused.tool_ids == ["w", "f", "m"] and fused.scores == [0.9, 0.8, 0.7]  # the first stage's
+    assert semantic.tool_ids == ["w", "f", "m", "r"] and failures == [
+        "RuntimeError: score endpoint http://10.0.0.9:8095/v1 unreachable: timed out"
+    ]
+
+
+def test_pool_map_carries_the_callers_context_into_its_threads():
+    seen = []
+
+    def where(i):
+        seen.append((threading.get_ident(), cache_scope.get()))
+        return i * 2
+
+    token = cache_scope.set("acme")  # a named key's request: its cache entries stay its own
+    try:
+        assert pool_map(where, 6, 3) == [0, 2, 4, 6, 8, 10]
+    finally:
+        cache_scope.reset(token)
+    assert {scope for _, scope in seen} == {"acme"} and len(seen) == 6
+    assert pool_map(where, 1, 4) == [0] and seen[-1][0] == threading.get_ident()  # one item: no pool
+
+
+def test_slots_turn_away_a_call_that_waits_too_long_for_its_turn():
+    slots, entered, release = Slots(1, 0.05), threading.Event(), threading.Event()
+
+    def hold():
+        with slots("score endpoint"):
+            entered.set()
+            release.wait(5)
+
+    t = threading.Thread(target=hold)
+    t.start()
+    entered.wait(5)
+    with pytest.raises(RuntimeError, match="x busy: 1 calls in flight for 0.05 s"), slots("x"):
+        pass
+    release.set()
+    t.join()
+    with slots("score endpoint"):  # free again
+        pass
 
 
 def test_reranker_rejects_a_scorer_without_score_tools_and_a_depth_below_two():
@@ -176,6 +241,19 @@ def test_search_and_serve_check_the_second_stage_flags(tmp_path, monkeypatch):
         main([*base, "--rerank", "jev"])
     with pytest.raises(SystemExit, match="from 2 to 255"):
         main([*base, "--rerank", "cross", "--rerank-emb-url", "http://r/v1", "--rerank-depth", "1"])
+    with pytest.raises(SystemExit, match="--rerank-timeout must be positive"):
+        main([*base, "--rerank", "cross", "--rerank-emb-url", "http://r/v1", "--rerank-timeout", "0"])
+
+
+def test_search_and_serve_keep_the_second_stage_on_a_short_leash():
+    from toolrank.build import second_limits
+
+    a = argparse.Namespace(rerank="cross", rerank_timeout=10.0, rerank_workers=2, jev_workers=8)
+    assert second_limits(a) == {"timeout": 10.0, "max_retries": 2, "slots": 2}
+    assert second_limits(rerank_args(argparse.Namespace(**vars(a), hybrid=False))) == second_limits(a)
+    a.rerank = "jev"
+    assert second_limits(a) == {"timeout": 10.0, "max_retries": 2, "slots": 8}
+    assert second_limits(argparse.Namespace(rerank="cross", rerank_workers=4)) == {}  # eval: patient defaults
 
 
 def test_search_reranks_with_a_cross_encoder_end_to_end(tmp_path, monkeypatch, capsys):
@@ -217,6 +295,15 @@ def test_search_reranks_with_a_cross_encoder_end_to_end(tmp_path, monkeypatch, c
     assert out["scorer"].startswith("rerank[cross") and ScoreClient.posted
     assert ScoreClient.posted[0]["model"] == "qwen3-reranker"
     assert all(len(d) < 3000 + 2000 for d in ScoreClient.posted[0]["text_2"])  # the cut text, in its prompt
+
+    def down(self, body):
+        raise RuntimeError("score endpoint http://reranker/v1 unreachable: timed out")
+
+    monkeypatch.setattr(ScoreClient, "_post", down)
+    assert main([*args, "--json", "--rerank", "cross", "--rerank-emb-url", "http://other/v1"]) == 0
+    got = capsys.readouterr()
+    assert [t["id"] for t in json.loads(got.out)["tools"]] == plain  # the first stage's order
+    assert "warning: second stage failed, first-stage order: RuntimeError: score endpoint" in got.err
 
 
 def test_search_reranks_with_jev_end_to_end(tmp_path, monkeypatch, capsys):

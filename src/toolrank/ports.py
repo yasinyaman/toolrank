@@ -54,6 +54,12 @@ def within_visible(
 supplied: ContextVar[bool] = ContextVar("toolrank_supplied", default=False)
 
 
+# A list while a server answers a request: a second stage that fails (its endpoint down, slow or
+# busy) appends why, and the request gets the first stage's list instead of an error. Unset (eval:
+# one number must not mix two rankings), the failure raises.
+rerank_failures: ContextVar[list[str] | None] = ContextVar("toolrank_rerank_failures", default=None)
+
+
 def scoped(key_text: str) -> str:
     """``key_text`` within the current ``cache_scope`` (unchanged outside one)."""
     scope = cache_scope.get()

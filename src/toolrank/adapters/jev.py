@@ -27,6 +27,7 @@ model id (``jev-1.13.0``): aliases move.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import http.client
 import json
@@ -40,7 +41,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -144,9 +144,10 @@ def _error_body(e: urllib.error.HTTPError) -> str:
 class JevClient:
     """``POST {base_url}/systemone``: one state, a map of questions, the answers back.
 
-    ``ask_many`` runs requests in ``workers`` threads (TypeSafe's limit is 40 requests/s). Every
-    call that reaches the endpoint counts in ``calls``, its input tokens in ``tokens_spent`` and its
-    wall-clock in ``call_ms``; cache hits count in ``cached``. Tests replace ``_post``.
+    ``ask_many`` runs requests in ``workers`` threads (TypeSafe's limit is 40 requests/s); a server
+    passes ``slots``, how many requests may be in flight at once from all its threads together.
+    Every call that reaches the endpoint counts in ``calls``, its input tokens in ``tokens_spent``
+    and its wall-clock in ``call_ms``; cache hits count in ``cached``. Tests replace ``_post``.
     """
 
     def __init__(
@@ -159,11 +160,15 @@ class JevClient:
         timeout: float = 120.0,
         max_retries: int = 5,
         workers: int = 8,
+        slots: int | None = None,
     ):
+        from toolrank.adapters.rerank import Slots
+
         self.model, self.base_url = model, base_url.rstrip("/")
         self.api_key = api_key or env_jev_key(self.base_url)
         self.cache = JevCache(self._cache_path(cache_dir)) if cache_dir else None
         self.timeout, self.max_retries, self.workers = timeout, max_retries, max(1, workers)
+        self.slots = Slots(slots, timeout) if slots else None
         self.calls = self.cached = self.tokens_spent = 0
         self.call_ms: list[float] = []
         self._lock = threading.Lock()
@@ -190,9 +195,10 @@ class JevClient:
             with self._lock:
                 self.cached += 1
             return hit
-        t0 = time.perf_counter()
-        resp = self._post(body)
-        dt = (time.perf_counter() - t0) * 1000.0
+        with self.slots("Jev endpoint") if self.slots else contextlib.nullcontext():
+            t0 = time.perf_counter()
+            resp = self._post(body)
+            dt = (time.perf_counter() - t0) * 1000.0
         answers = resp["answers"]
         with self._lock:
             self.calls += 1
@@ -203,10 +209,9 @@ class JevClient:
         return answers
 
     def ask_many(self, items: Sequence[tuple[Any, dict[str, Any]]]) -> list[dict[str, Any]]:
-        if self.workers == 1 or len(items) <= 1:
-            return [self.ask(s, q) for s, q in items]
-        with ThreadPoolExecutor(self.workers) as pool:
-            return list(pool.map(lambda x: self.ask(*x), items))
+        from toolrank.adapters.rerank import pool_map
+
+        return pool_map(lambda i: self.ask(*items[i]), len(items), self.workers)
 
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         if is_typesafe(self.base_url) and not self.api_key:
@@ -233,10 +238,10 @@ class JevClient:
                     wait = float(retry_after) if retry_after else 1.5 * (attempt + 1)
                 except ValueError:
                     wait = 1.5 * (attempt + 1)
-                time.sleep(min(wait, 60.0))
             except (OSError, http.client.HTTPException) as e:  # unreachable, slow, or the connection dropped
-                last = e
-                time.sleep(1.5 * (attempt + 1))
+                last, wait = e, 1.5 * (attempt + 1)
+            if attempt + 1 < self.max_retries:  # a server's short timeout caps the wait as well
+                time.sleep(min(wait, 60.0, self.timeout))
         raise RuntimeError(f"Jev endpoint {self.base_url} unreachable: {last}") from last
 
     def stats(self) -> dict[str, Any]:
@@ -293,10 +298,11 @@ class JevReranker:
 
     def rank_pairs(self, queries: Sequence[Query], k: int) -> list[tuple[RankedList, RankedList]]:
         """(reranked, the first stage's cosine list) per query: see ``ScorerReranker.rank_pairs``."""
-        from toolrank.adapters.rerank import first_stage
+        from toolrank.adapters.rerank import first_stage, or_first_stage
 
         base, semantic = first_stage(self.base, queries, max(k, self.depth))
-        return list(zip(self._rerank(queries, base, k), semantic, strict=True))
+        reranked = or_first_stage(lambda: self._rerank(queries, base, k), base, k)
+        return list(zip(reranked, semantic, strict=True))
 
     def _rerank(self, queries: Sequence[Query], base: list[RankedList], k: int) -> list[RankedList]:
         heads = [r.tool_ids[: self.depth] for r in base]

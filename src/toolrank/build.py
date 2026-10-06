@@ -161,7 +161,20 @@ def jev_client(a: Any) -> Any:
 
     if is_typesafe(a.jev_url) and not os.environ.get("TYPESAFE_API_KEY"):
         raise ValueError("Jev needs a key: set TYPESAFE_API_KEY (https://console.typesafe.ai/keys)")
-    return JevClient(a.jev_model, a.jev_url, cache_dir=a.cache_dir or None, workers=a.jev_workers)
+    return JevClient(
+        a.jev_model, a.jev_url, cache_dir=a.cache_dir or None, workers=a.jev_workers, **second_limits(a)
+    )
+
+
+def second_limits(a: Any) -> dict[str, Any]:
+    """search / serve (``--rerank-timeout``): a second stage's client waits that long per attempt,
+    tries twice and keeps ``--rerank-workers`` (Jev: ``--jev-workers``) calls in flight at most, so a
+    request falls back to the first stage's list in seconds; eval keeps the long, patient defaults."""
+    timeout = getattr(a, "rerank_timeout", None)
+    if not timeout:
+        return {}
+    workers = a.jev_workers if a.rerank == "jev" else getattr(a, "rerank_workers", None)
+    return {"timeout": float(timeout), "max_retries": 2, "slots": workers or 1}
 
 
 def scorer_factory(
@@ -270,7 +283,9 @@ def _base_factory(
 
         if getattr(a, "hybrid", False):
             raise ValueError("--hybrid fuses BM25 into a dense or clm scorer")
-        client = ScoreClient(a.emb_model, a.emb_url, cache_dir=a.cache_dir or None, batch=a.emb_batch)
+        client = ScoreClient(
+            a.emb_model, a.emb_url, cache_dir=a.cache_dir or None, batch=a.emb_batch, **second_limits(a)
+        )
         return (
             lambda: CrossEncoderScorer(
                 client,

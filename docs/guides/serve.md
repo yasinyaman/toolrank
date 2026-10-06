@@ -159,6 +159,15 @@ ToolRet 54.0 → 58.1 ([the comparison](https://github.com/yasinyaman/toolrank/b
 `--rerank-depth`, `--rerank-tool-format` and `--rerank-max-chars` change the setting; the defaults are
 the one that measured best. Requests that name their own `k` are reranked too.
 
+A reranker that is down, slow or busy does not cost a search its answer. Each call gets
+`--rerank-timeout` seconds (10) and one retry, and at most `--rerank-workers` calls (Jev:
+`--jev-workers`) are in flight at once from all requests together. That limit is for a local server
+with one worker; raise it for a vLLM reranker that serves several clients. Waiting for a free slot
+counts against the timeout. When the second stage fails, the search returns the first stage's order
+with a note saying so. The reason goes to the server's log, and
+`toolrank_search_rerank_failed_total` counts these searches. `/v1/rank` always scores with the first
+stage's cosines.
+
 **`--cut-threshold T --cut-min 0`: say so when nothing fits.** By default a search returns at least
 one tool. With a threshold and a minimum of zero, a request whose best score is below T gets an
 empty list and a note telling the agent to answer without a tool or rephrase (add `--cut-margin 0.2`
@@ -185,6 +194,7 @@ scrape_configs:
 | --- | --- |
 | `toolrank_searches_total{via,mode,arm}`, `toolrank_search_duration_seconds` | traffic and ranking latency (the request's embedding included) |
 | `toolrank_search_tools_returned`, `toolrank_search_empty_total`, `toolrank_search_co_use_added_total` | how many tools a search hands over |
+| `toolrank_search_rerank_failed_total` | searches whose second stage failed or timed out (the first stage's order answered) |
 | `toolrank_search_returned_tokens_total`, `toolrank_search_saved_tokens_total`, `toolrank_catalog_tokens` | the token estimate (below) |
 | `toolrank_calls_total{kind,outcome,via}`, `toolrank_call_duration_seconds` | calls forwarded and how they ended |
 | `toolrank_calls_linked_total{link}`, `toolrank_called_tool_rank` | whether calls can be tied to a search, and where the called tool stood in it |

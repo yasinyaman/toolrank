@@ -356,6 +356,10 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   goes through the same `scorer_factory` wrapping as eval. Both rerankers have `rank_pairs` (reranked, first
   stage's cosine list) that writes no shared state (`last_base` is eval's), so the retriever's adaptive cut
   counts on the cosines and shows the reranked order. Jev in serve sends request text out: logged at start.
+  The retriever sets `ports.rerank_failures` around a search: a failing second stage (`--rerank-timeout` 10 s
+  × 2 attempts, `rerank.Slots` = `--rerank-workers` / `--jev-workers` calls in flight, the wait counted)
+  answers with the first stage's list (`SearchResult.rerank_error` → log, `note`, metric); eval sets no list
+  and raises. `/v1/rank` (`score_tools`) is the first stage's cosines under either reranker.
 - **Tenants** (Faz 2 week 6, `tenants.py`): `--api-keys` entries are a key string or `{key, sources, headers,
   env}`. One shared catalogue and index; `Retriever(allowed={tenant: sources})` sets `ports.visible_ids` and the
   first-stage scorers rank within it (`within_visible`: deeper, ×4 at a time), so fusion and a second stage see
