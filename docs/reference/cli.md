@@ -211,6 +211,58 @@ Rank the tools of an ingest dir for one request. Defaults: the toolrank backbone
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
+| `--min-confidence Q` |  | turn away a request less sure than this share of answerable ones (an empty list and a note; e.g. 0.05); needs DATA/calibration.json (toolrank calibrate) |
+| `--rerank {cross,jev}` |  | cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine) |
+| `--rerank-depth RERANK_DEPTH` | `20` | tools reranked per request |
+| `--rerank-emb-url RERANK_EMB_URL` |  | cross: the reranker's /v1 endpoint |
+| `--rerank-emb-model RERANK_EMB_MODEL` | `qwen3-reranker` | cross: its served name |
+| `--rerank-template {qwen3,bge}` | `qwen3` | cross: prompt format |
+| `--rerank-tool-format {documentation,name_desc,schema,example_call}` | `documentation` | text per tool |
+| `--rerank-max-chars RERANK_MAX_CHARS` | `3000` | characters kept per tool |
+| `--rerank-query-chars RERANK_QUERY_CHARS` |  | cross: characters of the request (6000) |
+| `--rerank-workers RERANK_WORKERS` | `1` | cross: scoring calls in flight at once, all requests together |
+| `--rerank-timeout RERANK_TIMEOUT` | `10.0` | seconds per attempt (two attempts, a turn in the queue included); then the first stage's order answers |
+| `--jev-model JEV_MODEL` | `jev-1.13.0` | jev: a versioned id (aliases move) |
+| `--jev-url JEV_URL` | `https://api.typesafe.ai/v1` |  |
+| `--jev-workers JEV_WORKERS` | `8` | jev: calls in flight at once |
+| `--emb-url EMB_URL` |  | OpenAI-compatible base URL |
+| `--emb-model EMB_MODEL` |  |  |
+| `--emb-batch EMB_BATCH` | `32` |  |
+| `--truncate TRUNCATE` |  | vLLM truncate_prompt_tokens (CLM reference: 2048) |
+| `--cache-dir CACHE_DIR` |  | embedding cache directory (default: DIR/cache, next to tools.jsonl; '' = none) |
+
+## `toolrank calibrate`
+
+Rank requests written for the catalogue's own tools (toolrank data gen-queries --data DIR) the way search and serve do, with the same flags, and keep their best scores in DIR/calibration.json. Searches by that first stage, heads and instruction then carry a confidence (the share of these answerable requests that scored lower), and --min-confidence turns away requests below a share. Calibrate again after the backbone, the heads (toolrank ab) or the instruction change.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--requests REQUESTS` | required | a toolrank data gen-queries dir over this catalogue |
+| `--dry-run` |  | print the bands, write nothing |
+| `--data DATA` | required | ingest dir with tools.jsonl |
+| `--instruction INSTRUCTION` |  | default: the heads' instruction |
+| `--k K` |  | a fixed top-k instead of adaptive K |
+| `--no-cut` |  | plain top --cut-max |
+| `--clm-ckpt CLM_CKPT` |  | heads: .npz / .pt path, 'default' (downloads) or 'none' (no packaged heads; learned DATA/heads ones still serve) |
+| `--tool-format {documentation,name_desc,schema,example_call}` |  |  |
+| `--query-format {plain,concat,instruct_query,clm}` |  |  |
+| `--index INDEX` | `numpy` | numpy \| faiss \| pgvector |
+| `--index-dir INDEX_DIR` |  | default: DATA/index |
+| `--pg-dsn PG_DSN` |  | pgvector: Postgres DSN (default: $TOOLRANK_PG_DSN) |
+| `--pg-table PG_TABLE` | `toolrank_tools` |  |
+| `--hybrid` |  | fuse BM25 by RRF (helps agent-written requests only) |
+| `--rrf-k RRF_K` | `60` |  |
+| `--rrf-depth RRF_DEPTH` | `100` |  |
+| `--rrf-weight RRF_WEIGHT` | `1.0` |  |
+| `--server-weight SERVER_WEIGHT` |  | add this much of the request's cosine with a tool's server to the tool's score (0 = off; try 0.2) |
+| `--co-use N` |  | append up to N tools the usage log shows are called together with a tool in the list (0 = off) |
+| `--no-stem` |  |  |
+| `--device DEVICE` |  |  |
+| `--cut-margin CUT_MARGIN` |  | keep tools within this cosine of the best |
+| `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
+| `--cut-max CUT_MAX` | `10` |  |
+| `--cut-min CUT_MIN` | `1` |  |
+| `--min-confidence Q` |  | turn away a request less sure than this share of answerable ones (an empty list and a note; e.g. 0.05); needs DATA/calibration.json (toolrank calibrate) |
 | `--rerank {cross,jev}` |  | cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine) |
 | `--rerank-depth RERANK_DEPTH` | `20` | tools reranked per request |
 | `--rerank-emb-url RERANK_EMB_URL` |  | cross: the reranker's /v1 endpoint |
@@ -259,6 +311,7 @@ One MCP server with two tools, search_tools and call_tool, in front of every too
 | `--cut-threshold CUT_THRESHOLD` |  | keep tools at or above this cosine |
 | `--cut-max CUT_MAX` | `10` |  |
 | `--cut-min CUT_MIN` | `1` |  |
+| `--min-confidence Q` |  | turn away a request less sure than this share of answerable ones (an empty list and a note; e.g. 0.05); needs DATA/calibration.json (toolrank calibrate) |
 | `--rerank {cross,jev}` |  | cross: a local cross-encoder behind vLLM's score API (Qwen3-Reranker-8B); jev: TypeSafe AI's hosted Jev (key in $TYPESAFE_API_KEY; the request text leaves the machine) |
 | `--rerank-depth RERANK_DEPTH` | `20` | tools reranked per request |
 | `--rerank-emb-url RERANK_EMB_URL` |  | cross: the reranker's /v1 endpoint |

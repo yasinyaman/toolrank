@@ -177,6 +177,31 @@ way requests are written. At a T that turns away 1% of answerable requests, MCP-
 quarter of the unanswerable ones; on LiveMCPBench no threshold is that cheap. The log keeps what a
 turned-away search would have shown (`results`, with `shown: 0`), which is what to calibrate on.
 
+**`toolrank calibrate`, `confidence` and `--min-confidence`: a threshold that means the same
+everywhere.** A raw score has a different scale on every catalogue. A calibration measures that
+scale on your own catalogue. A chat model writes requests for your tools, each one answerable by
+construction, and `calibrate` ranks them the way the server does. It keeps their best scores in
+`DATA/calibration.json`:
+
+```bash
+toolrank data gen-queries --data tools/ --out tools-requests/ --n 200
+toolrank calibrate --data tools/ --requests tools-requests/      # the same flags as search and serve
+```
+
+From then on, every search answered by that first stage carries a `confidence`. It is the share of
+those answerable requests whose best score was at or below this one's, so 0.05 means only 5%
+scored lower. An agent or a client can choose its own band from it.
+`serve --min-confidence 0.05` turns away the requests below that share: an empty list with the
+note above, about 5% of answerable requests on any catalogue. A request that names its own `k` is
+never turned away. `calibrate` also ranks each request with its tool's server hidden, and reports
+the share of those "twins" that the band would catch: the unanswerable requests it can tell apart.
+Calibration does not make the score separate them any better; it makes the threshold portable.
+
+A calibration holds for one backbone, set of heads and serving instruction. After any of them
+changes (a new backbone, heads promoted by `toolrank ab`, `--instruction`), run `calibrate` again.
+Until then searches carry no confidence and nothing is turned away, and the server says so at
+start. Adding a few tools does not move the distribution much.
+
 ## Metrics
 
 `GET /v1/metrics` answers in Prometheus' text format, behind the same bearer token as the rest of
@@ -195,6 +220,7 @@ scrape_configs:
 | `toolrank_searches_total{via,mode,arm}`, `toolrank_search_duration_seconds` | traffic and ranking latency (the request's embedding included) |
 | `toolrank_search_tools_returned`, `toolrank_search_empty_total`, `toolrank_search_co_use_added_total` | how many tools a search hands over |
 | `toolrank_search_rerank_failed_total` | searches whose second stage failed or timed out (the first stage's order answered) |
+| `toolrank_search_confidence` | with a calibration: how sure searches are (a falling median: traffic the catalogue does not answer) |
 | `toolrank_search_returned_tokens_total`, `toolrank_search_saved_tokens_total`, `toolrank_catalog_tokens` | the token estimate (below) |
 | `toolrank_calls_total{kind,outcome,via}`, `toolrank_call_duration_seconds` | calls forwarded and how they ended |
 | `toolrank_calls_linked_total{link}`, `toolrank_called_tool_rank` | whether calls can be tied to a search, and where the called tool stood in it |

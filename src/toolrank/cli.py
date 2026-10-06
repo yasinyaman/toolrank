@@ -353,6 +353,7 @@ def cmd_search(a: argparse.Namespace) -> int:
         a.index_dir = str(data / "index")
     _data_cache(a, data)
     _check_rerank(a)
+    _check_confidence(a)
     try:
         retriever = build_retriever(a)
     except ValueError as e:
@@ -374,18 +375,93 @@ def cmd_search(a: argparse.Namespace) -> int:
             for h in res.hits
         ]
         out = {"request": a.request, "instruction": res.instruction, "scorer": res.scorer, "tools": tools}
+        if res.confidence is not None:
+            out["confidence"] = res.confidence
         print(json.dumps(out, ensure_ascii=False))
         return 0
+    sure = f"; confidence {res.confidence:.3f}" if res.confidence is not None else ""
     print(
         f"{res.scorer}\n{len(st.tools)} tools; index {st.index_s:.2f} s "
         f"(embedded {st.sync.get('embedded', 0)}, kept {st.sync.get('kept', 0)}); "
-        f"search {res.took_ms:.0f} ms; {res.rule}"
+        f"search {res.took_ms:.0f} ms; {res.rule}{sure}"
     )
+    if not res.hits:
+        print("no tool is close enough to the request")
     for n, h in enumerate(res.hits, 1):
         first = (h.tool.description.strip().splitlines() or [""])[0][:90]
         with_ = f"  (used with {h.used_with})" if h.used_with else ""
         print(f"{n:>2}. {h.score:.4f}  {h.id}  {first}{with_}")
     return 0
+
+
+def cmd_calibrate(a: argparse.Namespace) -> int:
+    from datetime import UTC, datetime
+
+    from toolrank.build import build_retriever
+    from toolrank.calibration import FILE, MIN_REQUESTS, Calibration, band_score, measure, save
+    from toolrank.datasets.jsonl import load_queries
+    from toolrank.retriever import LOG_TOP, innermost
+
+    data = Path(a.data)
+    if a.index_dir is None:
+        a.index_dir = str(data / "index")
+    _data_cache(a, data)
+    _check_rerank(a)
+    _check_confidence(a)
+    path = Path(a.requests) / "queries.jsonl"
+    if not path.exists():
+        sys.exit(f"{path} not found: --requests is a dir from toolrank data gen-queries --data {a.data}")
+    queries = load_queries(path)
+    try:
+        retriever = build_retriever(a)
+    except ValueError as e:
+        sys.exit(str(e))
+    st, arm, heads = retriever.settled()
+    first = innermost(st.scorer)
+    best, twins, recall, skipped = measure(
+        first, st.tools, queries, retriever.instruction, depth=max(a.cut_max, LOG_TOP)
+    )
+    gone = f" ({skipped} skipped: their tools are no longer in the catalogue)" if skipped else ""
+    if len(best) < MIN_REQUESTS:
+        sys.exit(
+            f"{len(best)} requests{gone}: a calibration needs at least {MIN_REQUESTS} "
+            f"(toolrank data gen-queries --data {a.data} --n 200)"
+        )
+    cal = Calibration(
+        scorer=first.name,
+        heads=heads,
+        instruction=retriever.instruction,
+        best=tuple(sorted(best)),
+        twins=tuple(sorted(twins)),
+        recall_at_5=round(recall, 4),
+        catalog=st.catalog,
+        requests=Path(a.requests).name,
+        made=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        extra={"arm": arm, "skipped": skipped},
+    )
+    print(f"{len(best)} requests{gone}; first stage {first.name} ({arm} heads); Recall@5 {100 * recall:.1f}%")
+    if recall < 0.8:
+        print(
+            "warning: under 80% of these requests find their tool in the top 5; check the set before trusting it"
+        )
+    print(f"best score: p5 {band_score(cal, 0.05):.3f}, median {band_score(cal, 0.5):.3f}")
+    for band in (0.01, 0.05, 0.1):
+        caught = cal.caught(band)
+        print(
+            f"--min-confidence {band:g}: turns away requests below {band_score(cal, band):.3f}, "
+            f"about {100 * band:g}% of answerable ones"
+            + (f", and {100 * caught:.1f}% of the twins (their answer hidden)" if caught is not None else "")
+        )
+    if a.dry_run:
+        return 0
+    save(data / FILE, cal)
+    print(f"wrote {data / FILE}: searches by this first stage carry a confidence")
+    return 0
+
+
+def _check_confidence(a: argparse.Namespace) -> None:
+    if a.min_confidence is not None and not 0 < a.min_confidence < 1:
+        sys.exit("--min-confidence: a share between 0 and 1, e.g. 0.05")
 
 
 def _load_api_keys(path: str) -> dict[str, str]:
@@ -474,6 +550,7 @@ def cmd_serve(a: argparse.Namespace) -> int:
         + ("off" if usage.dir is None else str(usage.dir))
     )
     _check_rerank(a)
+    _check_confidence(a)
     if a.rerank == "jev":
         from toolrank.adapters.jev import is_typesafe
 
@@ -769,6 +846,17 @@ def _add_cut_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--cut-min", type=int, default=1)
 
 
+def _add_confidence_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--min-confidence",
+        type=float,
+        default=None,
+        metavar="Q",
+        help="turn away a request less sure than this share of answerable ones (an empty list and a note; "
+        "e.g. 0.05); needs DATA/calibration.json (toolrank calibrate)",
+    )
+
+
 def _add_jev_args(p: argparse.ArgumentParser) -> None:
     g = p.add_argument_group(
         "Jev (TypeSafe AI; key in $TYPESAFE_API_KEY): --rerank jev over any scorer, or --scorer jev alone"
@@ -995,6 +1083,7 @@ def _add_retrieval_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--no-stem", action="store_true")
     p.add_argument("--device", default=None)
     _add_cut_args(p)
+    _add_confidence_args(p)
     _add_serve_rerank_args(p)
     _add_encoder_args(p, url=None, model=None, cache_dir=None)
 
@@ -1303,6 +1392,20 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--json", action="store_true", help="one JSON object instead of a table")
     _add_retrieval_args(se)
     se.set_defaults(fn=cmd_search, scorer=None)
+
+    ca = sub.add_parser(
+        "calibrate",
+        help="what a search's best score means on this catalogue: confidence and --min-confidence",
+        description="Rank requests written for the catalogue's own tools (toolrank data gen-queries --data DIR) "
+        "the way search and serve do, with the same flags, and keep their best scores in DIR/calibration.json. "
+        "Searches by that first stage, heads and instruction then carry a confidence (the share of these "
+        "answerable requests that scored lower), and --min-confidence turns away requests below a share. "
+        "Calibrate again after the backbone, the heads (toolrank ab) or the instruction change.",
+    )
+    ca.add_argument("--requests", required=True, help="a toolrank data gen-queries dir over this catalogue")
+    ca.add_argument("--dry-run", action="store_true", help="print the bands, write nothing")
+    _add_retrieval_args(ca)
+    ca.set_defaults(fn=cmd_calibrate, scorer=None)
 
     sv = sub.add_parser(
         "serve",

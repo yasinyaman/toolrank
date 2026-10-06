@@ -10,7 +10,8 @@ What is exposed:
 * ``toolrank_searches_total{via,mode,arm}``, ``toolrank_search_duration_seconds`` (ranking, the
   request's embedding included), ``toolrank_search_tools_returned``, ``toolrank_search_empty_total``,
   ``toolrank_search_co_use_added_total``, ``toolrank_search_rerank_failed_total`` (a second stage
-  that failed, so the first stage's order answered);
+  that failed, so the first stage's order answered), ``toolrank_search_confidence`` (with a
+  calibration: a falling median says the traffic drifted from what the catalogue answers);
 * ``toolrank_calls_total{kind,outcome,via}``, ``toolrank_call_duration_seconds``,
   ``toolrank_calls_linked_total{link}`` and ``toolrank_called_tool_rank`` (where the called tool
   stood in the search it is linked to: its ``le="5"`` bucket over its count is "top 5");
@@ -38,6 +39,7 @@ CHARS_PER_TOKEN = 4
 SECONDS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0)
 TOOLS = (0, 1, 2, 3, 5, 10, 20, 50)
 RANKS = (1, 2, 3, 5, 10, 20)
+SHARES = (0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9)
 
 # name -> (type, help, buckets)
 FAMILIES: dict[str, tuple[str, str, tuple[float, ...]]] = {
@@ -50,6 +52,11 @@ FAMILIES: dict[str, tuple[str, str, tuple[float, ...]]] = {
     "toolrank_search_tools_returned": ("histogram", "Tools a search handed over.", TOOLS),
     "toolrank_search_empty_total": ("counter", "Searches that returned no tool.", ()),
     "toolrank_search_co_use_added_total": ("counter", "Tools appended to results as co-use partners.", ()),
+    "toolrank_search_confidence": (
+        "histogram",
+        "A search's confidence: the share of the calibration's answerable requests that scored lower.",
+        SHARES,
+    ),
     "toolrank_search_rerank_failed_total": (
         "counter",
         "Searches whose second stage failed or timed out: the first stage's order answered.",
@@ -194,6 +201,9 @@ class Metrics:
             self.inc("toolrank_search_co_use_added_total", added)
         if getattr(result, "rerank_error", None):
             self.inc("toolrank_search_rerank_failed_total")
+        confidence = getattr(result, "confidence", None)
+        if confidence is not None:
+            self.observe("toolrank_search_confidence", float(confidence))
         returned = sum(tool_tokens(h.tool) for h in hits)
         self.inc("toolrank_search_returned_tokens_total", returned)
         whole = self.catalog_tokens(getattr(result, "catalog", None), tenant=tenant, wait=False)

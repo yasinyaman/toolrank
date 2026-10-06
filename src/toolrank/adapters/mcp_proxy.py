@@ -255,6 +255,8 @@ def build_proxy(retriever: Retriever, backends: Backends, usage: UsageLog, *, na
             "search_id": sid,
             "tools": [hit_json(h, full=n < FULL_SCHEMAS) for n, h in enumerate(res.hits)],
         }
+        if res.confidence is not None:
+            payload["confidence"] = res.confidence
         note = search_note(res)
         if note:
             payload["note"] = note

@@ -28,7 +28,8 @@ first index builds), `took_ms`, `rule` and `tools`. Each tool has `name` (its id
 for OpenAPI operations; a tool appended by `serve --co-use` also has `used_with`, the returned tool
 it is called together with. A `note` for the agent is added when the tools are keyword matches,
 when none is close enough, or when the reranker did not answer and the tools are in the first
-stage's order.
+stage's order. With a calibration (`toolrank calibrate`) the answer also has `confidence`, the
+share of answerable requests whose best score was at or below this one's.
 
 ### `POST /v1/rank`
 

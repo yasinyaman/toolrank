@@ -25,6 +25,10 @@ which answered, for the usage log and ``toolrank ab``.
 
 A second stage (``--rerank``) that fails during a search gives way to the first stage's list:
 ``SearchResult.rerank_error`` says why, for the server's log, and the answer carries a note.
+
+With a calibration (``DATA/calibration.json``, ``toolrank.calibration``) that matches the answering
+first stage, heads and instruction, every search carries a ``confidence``, and ``min_confidence``
+turns away a request whose confidence is lower (an empty list) unless it named its own ``k``.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from toolrank.calibration import Calibration, Calibrations
 from toolrank.couse import partners
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import tools_from_lines
@@ -98,6 +103,9 @@ class SearchResult:
     # why the second stage failed, so the first stage's order answered; for the server's log only
     # (it may name the reranker's address), the client gets a note
     rerank_error: str | None = None
+    # the share of the calibration's answerable requests that scored at or below this one's best;
+    # None without a calibration for the first stage, heads and instruction that answered
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +194,8 @@ class Retriever:
         co_use: Any | None = None,
         co_use_extra: int = 0,
         allowed: dict[str, frozenset[str]] | None = None,
+        calibration: str | Path | None = None,
+        min_confidence: float | None = None,
     ):
         self.data_dir = Path(data_dir).resolve()
         self.path = self.data_dir / "tools.jsonl"
@@ -204,6 +214,9 @@ class Retriever:
         # tenant -> the sources its key may reach (``tenants.Tenant.sources``); absent: every source
         self.allowed: dict[str, frozenset[str]] = dict(allowed or {})
         self._visible: dict[tuple[str, str], frozenset[str]] = {}  # (catalogue, tenant) -> tool ids
+        # DATA/calibration.json: what a best score means on this catalogue (``toolrank calibrate``)
+        self.calibrations = Calibrations(calibration) if calibration else None
+        self.min_confidence = min_confidence
         self._state: _State | None = None
         self._fallback: _State | None = None  # only until the first semantic state exists
         self._error: BaseException | None = None
@@ -272,7 +285,35 @@ class Retriever:
             f"index ready: {len(st.tools)} tools from {len({t.category for t in st.tools})} sources in "
             f"{st.index_s:.1f} s (embedded {st.sync.get('embedded', 0)}, kept {st.sync.get('kept', 0)})"
         )
+        self._say_calibration(st)
         return True
+
+    def _say_calibration(self, st: _State) -> None:
+        """One line on whether searches carry a confidence (and the gate works), when it matters."""
+        if self.calibrations is None:
+            return
+        cal = self.calibration(st, self.heads_sha)
+        if cal is not None:
+            gate = f"; requests below {self.min_confidence:g} are turned away" if self.min_confidence else ""
+            self.notify(
+                f"confidence: calibrated on {len(cal.best)} requests ({cal.requests or 'unnamed'}){gate}"
+            )
+        elif self.calibrations.error or len(self.calibrations) or self.min_confidence:
+            why = self.calibrations.error or (
+                "it has no entry for this first stage, heads and instruction"
+                if self.calibrations.path.exists()
+                else "there is none"
+            )
+            self.notify(
+                f"no confidence: {self.calibrations.path.name}: {why} (toolrank calibrate)"
+                + ("; --min-confidence turns nothing away" if self.min_confidence else "")
+            )
+
+    def calibration(self, st: _State, heads: str | None) -> Calibration | None:
+        """The calibration of ``st``'s first stage with ``heads`` under the serving instruction."""
+        if self.calibrations is None or st.lexical:
+            return None
+        return self.calibrations.find(innermost(st.scorer).name, heads, self.instruction)
 
     def _build_fallback(self) -> None:
         assert self.make_fallback is not None
@@ -415,14 +456,15 @@ class Retriever:
         self.notify(f"heads {v.name}: {v.path.name} ({sha[:8]}) in {state.index_s:.1f} s")
 
     def pick(
-        self, *, arm_key: str | None = None, tenant: str | None = None
+        self, *, arm_key: str | None = None, tenant: str | None = None, candidate: bool = True
     ) -> tuple[_State, str, str | None]:
         """The state a request is answered with -> (state, arm, heads sha): the tenant's current
         heads if it has some, else ``current.npz``, else the base; and the matching candidate for
         the share of ``arm_key`` values that fall in the candidate bucket. A key with heads files of
         its own runs its own experiment; any other key's requests are part of the shared one (its
         candidate's share included), as requests without a key are. A variant that is not built
-        yet is skipped, so a request never waits for one."""
+        yet is skipped, so a request never waits for one. ``candidate=False`` leaves the candidate
+        out (``settled``)."""
         base = self.state(fallback=self.make_fallback is not None)
         chosen, arm, sha = base, "base", self.heads_sha
         if self.heads_dir is None or base.lexical:
@@ -440,17 +482,35 @@ class Retriever:
             if current is not None and current.state is not None:
                 chosen, arm, sha = current.state, "current", current.sha
         name = f"{prefix}:candidate" if prefix else "candidate"
-        candidate = self._variant(name, where / "candidate.npz")  # built as soon as it appears
-        if candidate is not None and candidate.state is not None and bucket(arm_key, self.candidate_share):
-            chosen, arm, sha = candidate.state, name, candidate.sha
+        trial = self._variant(name, where / "candidate.npz")  # built as soon as it appears
+        if (
+            candidate
+            and trial is not None
+            and trial.state is not None
+            and bucket(arm_key, self.candidate_share)
+        ):
+            chosen, arm, sha = trial.state, name, trial.sha
         return chosen, arm, sha
 
+    def settled(self, timeout: float = 600.0) -> tuple[_State, str, str | None]:
+        """What a request without a key gets once ``DATA/heads/current.npz`` (if there is one) is
+        built, the candidate left out: the arm ``toolrank calibrate`` measures."""
+        deadline = time.monotonic() + timeout
+        while True:
+            st, arm, sha = self.pick(candidate=False)
+            current = self._variants.get("current")
+            waiting = current is not None and current.state is None and current.error is None
+            if not waiting or time.monotonic() > deadline:
+                return st, arm, sha
+            time.sleep(0.05)
+
     # -- queries -------------------------------------------------------------------------------
-    def describe(self, k: int | None = None) -> str:
+    def describe(self, k: int | None = None, *, gated: bool = False) -> str:
         fixed = k or self.fixed_k
+        gate = f"; confidence at least {self.min_confidence:g}" if gated else ""
         if fixed:
-            return f"top {fixed}"
-        return f"adaptive K ({self.rule.describe()})" if self.rule else f"top {self.depth}"
+            return f"top {fixed}{gate}"
+        return (f"adaptive K ({self.rule.describe()})" if self.rule else f"top {self.depth}") + gate
 
     def _ranked(
         self, st: _State, q: Query, depth: int, want: int, visible: frozenset[str] | None
@@ -524,6 +584,14 @@ class Retriever:
             shown = rule.cut(fused, semantic)
         else:
             shown = RankedList(fused.query_id, fused.tool_ids[:top], fused.scores[:top])
+        cal, confidence = self.calibration(st, heads), None
+        # a request that names its own k asked for that many tools: it is never turned away
+        gated = cal is not None and k is None and self.min_confidence is not None
+        first = (semantic or fused).scores  # the first stage's: the scores the calibration holds
+        if cal is not None and first:
+            confidence = cal.confidence(first[0])
+            if gated and confidence < self.min_confidence:
+                shown = RankedList(fused.query_id, [], [])
         took = (time.perf_counter() - t0) * 1000.0
         fmt = getattr(innermost(st.scorer), "query_format", None)
         emb_key = None
@@ -546,7 +614,7 @@ class Retriever:
             hits=hits,
             ranked=list(zip(fused.tool_ids[:LOG_TOP], fused.scores[:LOG_TOP], strict=True)),
             took_ms=took,
-            rule=f"top {top} keyword matches" if st.lexical else self.describe(fixed),
+            rule=f"top {top} keyword matches" if st.lexical else self.describe(fixed, gated=gated),
             emb_key=emb_key,
             scorer=st.scorer.name,
             catalog=st.catalog,
@@ -557,6 +625,7 @@ class Retriever:
             added=added,
             model=getattr(encoder, "model", None),
             rerank_error=failures[-1] if failures else None,
+            confidence=None if confidence is None else round(confidence, 4),
         )
 
     def rank(

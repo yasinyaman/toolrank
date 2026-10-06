@@ -23,7 +23,7 @@ copy its content into tracked files. The product/market plan lives outside the r
   skipped there and wherever torch is missing: after touching `adapters/clm.py` or `finetune.py`,
   run `uv sync --extra clm` and then those tests locally.
 - Ports and adapters: `domain.py`, `ports.py`, `formats.py`, `eval/`, `ingest/`, `cut.py`,
-  `retriever.py`, `usage.py` never import from `adapters/`; `build.py` is the composition root
+  `calibration.py`, `retriever.py`, `usage.py` never import from `adapters/`; `build.py` is the composition root
   (flags → scorer, encoder, heads, index) that eval, search and serve share, and may import
   adapters inside functions. A new scorer = one file in `adapters/` implementing the `Scorer` Protocol plus
   `tool_format` / `query_format` attributes (`cmd_eval` records their `.name`; the Protocol
@@ -218,6 +218,10 @@ toolrank serve --data data/mytools --server-weight 0.2 --co-use 2 [--cut-margin 
 uv run python scripts/routing_sweep.py [--gate] -- <eval flags>         # rank once: server rules (and the gate table)
 uv run python scripts/couse_sweep.py --log RUN/usage -- <eval flags> --cut-margin 0.2   # co-use partners vs a longer list
 
+# Backlog D2.14: what a best score means on this catalogue; searches then carry a confidence
+toolrank data gen-queries --data data/mytools --out data/mytools_requests --n 200
+toolrank calibrate --data data/mytools --requests data/mytools_requests [search flags] [--dry-run]
+toolrank serve --data data/mytools --min-confidence 0.05          # turn away ~5% of answerable requests
 # Faz 2 week 6: the Helm chart (deploy/helm/toolrank): render tests run where helm is installed (not CI);
 # a real install without a GPU on kind (Docker on the Mac), the published image or one built here
 kind create cluster --name toolrank && uv run python scripts/helm_smoke.py [--image toolrank:dev --tenants]
@@ -360,6 +364,13 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   × 2 attempts, `rerank.Slots` = `--rerank-workers` / `--jev-workers` calls in flight, the wait counted)
   answers with the first stage's list (`SearchResult.rerank_error` → log, `note`, metric); eval sets no list
   and raises. `/v1/rank` (`score_tools`) is the first stage's cosines under either reranker.
+- **Confidence** (backlog D2.14, `calibration.py`): `toolrank calibrate` ranks gen-queries requests over the
+  catalogue with the search flags (`Retriever.settled`: current heads if any, never the candidate) and keeps
+  their best first-stage scores (and those of "twins", the gold tools' sources hidden) in `DATA/calibration.json`,
+  one entry per (first stage's name, heads sha16, serving instruction). `Retriever.calibration` re-reads the file
+  when it changes; a search's `confidence` = the share of those scores ≤ its best first-stage score (`semantic or
+  fused`), `--min-confidence Q` empties a list below Q unless the request named `k`. REST/MCP `confidence`, the
+  log's `confidence`, `toolrank_search_confidence`.
 - **Tenants** (Faz 2 week 6, `tenants.py`): `--api-keys` entries are a key string or `{key, sources, headers,
   env}`. One shared catalogue and index; `Retriever(allowed={tenant: sources})` sets `ports.visible_ids` and the
   first-stage scorers rank within it (`within_visible`: deeper, ×4 at a time), so fusion and a second stage see
@@ -585,7 +596,8 @@ src/toolrank/learn.py             toolrank learn: mine (log -> pairs of tool ids
                                   toolrank ab: judge, decide, apply (candidate -> current | rejected), heads_home
 src/toolrank/build.py             composition root: scorer_factory, build_scorer, build_retriever, build_index, fingerprint; BACKBONES
 src/toolrank/cut.py               AdaptiveK (+ defaults), cutter
-src/toolrank/cli.py               eval | compare | data (pull, server-names, synth, gen-queries) | ingest (mcp, openapi, drop) | search | serve | finetune | learn | ab | heads (export, pull) | formats
+src/toolrank/calibration.py       Calibration (confidence = ECDF of answerable requests' best scores), Calibrations, measure
+src/toolrank/cli.py               eval | compare | data (pull, server-names, synth, gen-queries) | ingest (mcp, openapi, drop) | search | calibrate | serve | finetune | learn | ab | heads (export, pull) | formats
 docs/plan/                        private repo (ignored here): README.md ("Şu an"), faz-0..3.md, backlog.md, claude-code-handoff.md,
                                   and the decision, launch and review notes
 docs/reports/                     weekly numbers; TEMPLATE.md
@@ -743,6 +755,7 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   worth +2.2 top-1. No-tool gate on the best cosine (answerable vs the same request with its gold servers
   removed): AUROC 0.882 MCP-Zero, 0.761 LiveMCPBench, means 0.71 / 0.51 for answerable requests, so no
   threshold carries over (0.45 turns away 0.8% and catches 23% on MCP-Zero, turns away 30% on LiveMCPBench).
+  Backlog D2.14 makes the threshold portable instead (`calibration.py`, `toolrank calibrate`): not measured yet.
   Co-use on the simulated ToolRet log (count ≥ 2, share ≥ 0.5, ≤ 2 partners): 111 of 2,388 held-out lists
   change, K 8.33 → 8.38, completeness 54.15 → 54.73 (multi-tool requests 31.48 → 32.80), the same +0.6 with
   heads learned from that log; a longer ranked list (max 12) pays +2.05 for 1.32 more tools.

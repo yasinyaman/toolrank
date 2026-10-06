@@ -2,7 +2,8 @@
 themselves and run the tools on their side (Anthropic's custom tool search, OpenAI's client-side
 tool_search).
 
-``POST /v1/search`` {query, instruction?, k?, full_schemas?} -> {search_id, mode, took_ms, rule, tools, note?}
+``POST /v1/search`` {query, instruction?, k?, full_schemas?} -> {search_id, mode, took_ms, rule, tools,
+confidence?, note?}
 ``POST /v1/rank`` {query, instruction?, tools: [MCP tool objects] | tool_ids: [...]} -> scores
 ``POST /v1/call`` {name, arguments?, search_id?} -> {name, call_id, outcome, isError, content, ...}
 ``GET /v1/tools[?server=&full=true]`` -> the catalogue; ``GET /v1/tools/{id}`` -> one tool's record
@@ -206,6 +207,8 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
             for n, h in enumerate(res.hits)
         ]
         out = {"search_id": sid, "mode": res.mode, "took_ms": round(res.took_ms, 1), "rule": res.rule}
+        if res.confidence is not None:
+            out["confidence"] = res.confidence
         note = search_note(res)
         return JSONResponse({**out, "tools": tools, **({"note": note} if note else {})})
 
@@ -488,6 +491,13 @@ _SCHEMAS: dict[str, Any] = {
             "took_ms": {"type": "number"},
             "rule": {"type": "string"},
             "tools": {"type": "array", "items": _ref("Hit")},
+            "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "The share of answerable requests (toolrank calibrate) whose best score was "
+                "at or below this one's; absent without a calibration for this catalogue.",
+            },
             "note": {
                 "type": "string",
                 "description": "For the agent: keyword matches only, no tool close enough, or the "

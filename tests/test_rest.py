@@ -247,6 +247,28 @@ def test_a_failing_second_stage_is_a_note_a_counter_and_a_log_mark(tmp_path, cap
     assert event["rerank"] == "failed" and len(event["results"]) == 3
 
 
+def test_a_calibrated_search_carries_its_confidence_to_the_client_the_log_and_the_metrics(tmp_path):
+    from toolrank.calibration import FILE, Calibration, save
+    from toolrank.retriever import innermost
+
+    write_tools(tmp_path / "tools.jsonl", _tools())
+    retriever = Retriever(
+        tmp_path, lambda: DenseScorer(_HashEncoder(), "name_desc"), calibration=tmp_path / FILE
+    )
+    name = innermost(retriever.state().scorer).name
+    save(tmp_path / FILE, Calibration(name, None, retriever.instruction, (-1.0, 2.0)))  # every search: 0.5
+    app, _ = _app(tmp_path, retriever)
+    with TestClient(app, base_url=BASE) as c:
+        r = c.post("/v1/search", json={"query": "add two integers"})
+        assert r.status_code == 200 and r.json()["confidence"] == 0.5 and "note" not in r.json()
+        text = c.get("/v1/metrics").text
+        assert "toolrank_search_confidence_count 1" in text
+        assert 'toolrank_search_confidence_bucket{le="0.5"} 1' in text
+        assert 'toolrank_search_confidence_bucket{le="0.25"} 0' in text
+    (event,) = _events(tmp_path)
+    assert event["confidence"] == 0.5
+
+
 def test_keyword_matches_while_the_index_builds_and_named_keys(tmp_path):
     gate = threading.Event()
 

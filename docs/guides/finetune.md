@@ -62,8 +62,8 @@ toolrank eval --data dev/ --scorer dense --with-inst ...       # rows per source
 
 `--gen-url` and `--gen-model` name an OpenAI-compatible chat endpoint (by default a local
 `qwen3-8b-chat` on port 8093); answers are cached in `dev/generations.jsonl`, so a rerun writes only
-what is new. The result is a benchmark-format directory for `finetune --dev`, `learn --dev` and
-`toolrank eval`.
+what is new. The result is a benchmark-format directory for `finetune --dev`, `learn --dev`,
+`toolrank eval` and `toolrank calibrate` ([confidence](serve.md)).
 
 It is a selection set, not a benchmark: one tool is the answer to each request, so catalogues with
 near-identical tools make some requests ambiguous, and the requests come from one model. One-tool

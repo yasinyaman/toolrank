@@ -386,6 +386,7 @@ def build_retriever(
     catalogue keeps the long ones, since a batch of long tool texts can take a while. A background
     build gets a BM25 stand-in (tool text as indexed, request without instruction) that answers
     until the semantic index is ready."""
+    from toolrank.calibration import FILE as CALIBRATION_FILE
     from toolrank.cut import rule_from_flags
     from toolrank.retriever import Retriever
 
@@ -458,6 +459,8 @@ def build_retriever(
         co_use=co_use,
         co_use_extra=extra,
         allowed=getattr(a, "allowed", None),
+        calibration=Path(a.data) / CALIBRATION_FILE,
+        min_confidence=getattr(a, "min_confidence", None),
     )
     retriever.encoder = enc
     return retriever

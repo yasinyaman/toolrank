@@ -8,6 +8,15 @@ change behaviour.
 
 ### Added
 
+- `toolrank calibrate` and a `confidence` on every search. Requests that `toolrank data
+  gen-queries` writes for the catalogue's own tools are ranked the way the server ranks, and their
+  best scores go to `DATA/calibration.json`. A search's `confidence` is the share of those
+  answerable requests that scored at or below it; it appears in the REST and MCP answers, the
+  usage log and `toolrank_search_confidence`. `search` / `serve --min-confidence Q` turns away the
+  requests below that share, an empty list with a note, so the share of answerable requests refused
+  is chosen. `calibrate` reports how many unanswerable "twins" (each request with its tool's server
+  hidden) a band catches. An entry holds for one first stage, set of heads and serving instruction;
+  a server whose first stage matches no entry gives no confidence and says so at start.
 - `toolrank.integrations.langchain.ToolrankToolSelector` (`[langchain]` extra): a LangChain 1.x
   `create_agent` middleware that shows each model call only the tools toolrank finds for the last
   user message. It ranks the agent's own tools through `/v1/rank`, or, with a `Toolbox`, picks the
