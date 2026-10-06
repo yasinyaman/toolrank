@@ -48,6 +48,7 @@ from toolrank.adapters.mcp_proxy import (
 )
 from toolrank.domain import Tool
 from toolrank.ingest.mcp import tool_from_mcp
+from toolrank.ingest.schema import PROBLEMS_KEY
 from toolrank.metrics import arm_kind
 from toolrank.names import api_name
 from toolrank.retriever import IndexNotReady, Retriever
@@ -114,9 +115,13 @@ def _kind(tool: Tool) -> str:
 
 
 def _platform_fields(tool: Tool) -> dict[str, Any]:
-    out = {"api_name": api_name(tool.id), "kind": _kind(tool)}
+    out: dict[str, Any] = {"api_name": api_name(tool.id), "kind": _kind(tool)}
     if "http" in tool.doc:
         out["method"] = str(tool.doc["http"].get("method") or "GET").upper()
+    found = tool.doc.get(PROBLEMS_KEY)
+    if found:  # an API refuses a whole request over one such schema: none, and why
+        out["inputSchema"] = {"type": "object"}
+        out["inputSchemaProblem"] = str(found[0])
     return out
 
 
@@ -458,6 +463,11 @@ _SCHEMAS: dict[str, Any] = {
             "description": {"type": "string"},
             "inputSchema": {"type": "object"},
             "inputSchemaShrunk": {"type": "boolean"},
+            "inputSchemaProblem": {
+                "type": "string",
+                "description": "The tool's own schema would make an agent API refuse the request "
+                "(toolrank ingest found this): inputSchema is a plain object instead.",
+            },
             "annotations": {"type": "object"},
             "used_with": {
                 "type": "string",

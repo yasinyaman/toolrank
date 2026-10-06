@@ -6,6 +6,10 @@ agent loop: ``toolrank.integrations`` (Anthropic, OpenAI) and framework adapters
     found = tr.search("refund the last payment of this customer")
     out = tr.call(found["tools"][0]["name"], {"payment_intent": "pi_1"}, search_id=found["search_id"])
 
+``AsyncToolrankClient`` is the same API for asyncio code (``await tr.search(...)``): each call
+runs the standard-library client in a worker thread, so the event loop never waits on the network
+and nothing more is installed.
+
 Redirects are not followed, so the bearer token never reaches another host; a call is never retried,
 since it may have had effects; errors raise ``ToolrankError`` with the HTTP status (0 when the
 server was not reached) and the server's message. ``session`` becomes the ``X-Session-Id`` header,
@@ -15,6 +19,8 @@ HTTP layer: ``(method, url, headers, body, timeout) -> (status, body)``.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import http.client
 import json
 import urllib.error
@@ -151,7 +157,8 @@ class ToolrankClient:
         full_schemas: bool = False,
         session: str | None = None,
     ) -> dict[str, Any]:
-        """``{search_id, mode, took_ms, rule, tools}``."""
+        """``{search_id, mode, took_ms, rule, tools}``, with ``confidence`` when the server has a
+        calibration and ``note`` when the agent should know something about the list."""
         body: dict[str, Any] = {"query": query}
         if k is not None:
             body["k"] = k
@@ -196,3 +203,36 @@ class ToolrankClient:
         if search_id:
             body["search_id"] = search_id
         return self._request("POST", "/v1/call", body, timeout=self.call_timeout, session=session)
+
+
+class AsyncToolrankClient:
+    """``ToolrankClient``'s API as coroutines: each method runs the standard-library client in a
+    worker thread (``asyncio.to_thread``, which carries the caller's context). Takes the same
+    arguments, or ``client=`` an existing one. Cancelling a ``call`` drops its answer; the request
+    was sent, so the tool may still run."""
+
+    def __init__(self, *args: Any, client: ToolrankClient | None = None, **kwargs: Any):
+        if client is not None and (args or kwargs):
+            raise TypeError("give either client= or ToolrankClient's arguments, not both")
+        self.sync = client or ToolrankClient(*args, **kwargs)
+
+    async def _run(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(functools.partial(fn, *args, **kwargs))
+
+    async def health(self) -> dict[str, Any]:
+        return await self._run(self.sync.health)
+
+    async def catalog(self, server: str | None = None) -> dict[str, Any]:
+        return await self._run(self.sync.catalog, server)
+
+    async def search(self, query: str, **kwargs: Any) -> dict[str, Any]:
+        """``ToolrankClient.search``: ``k``, ``instruction``, ``full_schemas``, ``session``."""
+        return await self._run(self.sync.search, query, **kwargs)
+
+    async def rank(self, query: str, tools: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
+        """``ToolrankClient.rank``: ``instruction``, ``session``."""
+        return await self._run(self.sync.rank, query, tools, **kwargs)
+
+    async def call(self, name: str, arguments: dict[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
+        """``ToolrankClient.call``: ``search_id``, ``session``."""
+        return await self._run(self.sync.call, name, arguments, **kwargs)

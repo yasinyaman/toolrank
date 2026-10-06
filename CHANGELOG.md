@@ -8,6 +8,14 @@ change behaviour.
 
 ### Added
 
+- Ingest checks every tool's input schema against JSON Schema 2020-12 (with `jsonschema`, which
+  the `[mcp]` extra brings; by hand for the common draft-04/07 habits otherwise), and also flags
+  roots that are not objects and `$ref`s that do not resolve. A failing tool is kept, counted in its
+  source's line and marked (`doc["schema_problems"]`). The platform records (`/v1/tools?full=true`,
+  `/v1/search`) give it `{"type": "object"}` and an `inputSchemaProblem`, since Claude's API refuses
+  a whole request over one such schema.
+- `toolrank.client.AsyncToolrankClient`: the REST client's API as coroutines, each call in a
+  worker thread, with nothing more to install.
 - `toolrank.integrations.openai.Toolbox(namespaces=True)` (and the example's `--namespaces`):
   the found tools load grouped by server, one Responses API `namespace` per server, each tool under
   its own name inside it. Checked against the SDK's types; not yet run against the live API.

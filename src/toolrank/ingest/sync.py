@@ -7,6 +7,9 @@ server and an OpenAPI spec never replace each other by accident; ``replace``), a
 0 tools does not wipe a source that had some (``allow_empty``). The embedding cache is keyed by
 text, so an unchanged tool is never embedded again and a removed one simply leaves the corpus.
 
+A listed tool whose input schema an agent API would refuse (``ingest.schema.problems``) is kept,
+with the problems in ``doc["schema_problems"]`` and counted in its source's diff.
+
 ``sources.json`` holds each source's kind, tool count, last sync time and, for a spec, where it
 came from; never env vars or headers. Both files are written through a temp file and
 ``os.replace``, tools sorted by source name and in listing order within a source.
@@ -14,6 +17,7 @@ came from; never env vars or headers. Both files are written through a temp file
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from collections import defaultdict
@@ -25,6 +29,7 @@ from typing import Any
 
 from toolrank.datasets.jsonl import load_tools, write_tools
 from toolrank.domain import Tool
+from toolrank.ingest.schema import PROBLEMS_KEY, problems
 
 TOOLS, SOURCES = "tools.jsonl", "sources.json"
 
@@ -49,11 +54,23 @@ class SourceDiff:
     unchanged: int = 0
     total: int = 0
     error: str = ""  # set when nothing changed for this source
+    schema_problems: dict[str, list[str]] = field(default_factory=dict)  # tool id -> what is wrong
 
     def line(self) -> str:
         if self.error:
             return f"{self.name}  failed: {self.error} (kept {self.total} tools)"
-        return f"{self.name}  +{self.added} ~{self.changed} -{self.removed} ={self.unchanged}  ({self.total} tools)"
+        bad = len(self.schema_problems)
+        note = f"; {bad} input schema{'s' if bad > 1 else ''} an agent API would refuse" if bad else ""
+        return f"{self.name}  +{self.added} ~{self.changed} -{self.removed} ={self.unchanged}  ({self.total} tools{note})"
+
+
+def checked(tool: Tool) -> Tool:
+    """``tool`` with its input schema's problems in ``doc["schema_problems"]`` (none: no key)."""
+    doc = {k: v for k, v in tool.doc.items() if k != PROBLEMS_KEY}
+    found = problems(doc.get("inputSchema"))
+    if found:
+        doc[PROBLEMS_KEY] = found
+    return tool if doc == tool.doc else dataclasses.replace(tool, doc=doc)
 
 
 def _row(t: Tool) -> str:
@@ -110,14 +127,16 @@ def sync(
             strays = [t.id for t in listing.tools if t.category != listing.name]
             if strays:
                 raise ValueError(f"{listing.name}: tools of another source: {strays[:3]}")
+            listed = [checked(t) for t in listing.tools]
+            diff.schema_problems = {t.id: t.doc[PROBLEMS_KEY] for t in listed if PROBLEMS_KEY in t.doc}
             before = {t.id: _row(t) for t in old}
-            after = {t.id: _row(t) for t in listing.tools}
+            after = {t.id: _row(t) for t in listed}
             diff.added = sum(i not in before for i in after)
             diff.removed = sum(i not in after for i in before)
             diff.changed = sum(i in before and before[i] != row for i, row in after.items())
             diff.unchanged = len(after) - diff.added - diff.changed
-            diff.total = len(listing.tools)
-            by_source[listing.name] = list(listing.tools)
+            diff.total = len(listed)
+            by_source[listing.name] = listed
             manifest[listing.name] = {
                 "kind": listing.kind,
                 "tools": diff.total,

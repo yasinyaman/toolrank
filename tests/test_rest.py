@@ -269,6 +269,25 @@ def test_a_calibrated_search_carries_its_confidence_to_the_client_the_log_and_th
     assert event["confidence"] == 0.5
 
 
+def test_a_schema_an_api_would_refuse_reaches_platform_clients_as_a_plain_object(tmp_path):
+    from toolrank.ingest.sync import checked
+
+    draft = {"type": "object", "properties": {"n": {"type": "number", "exclusiveMinimum": True}}}
+    bad = checked(Tool(id="fx/odd", doc={"server": "fx", "name": "odd", "inputSchema": draft}, category="fx"))
+    write_tools(tmp_path / "tools.jsonl", [*_tools(), bad])
+    retriever = Retriever(tmp_path, lambda: DenseScorer(_HashEncoder(), "name_desc"))
+    app, _ = _app(tmp_path, retriever)
+    with TestClient(app, base_url=BASE) as c:
+        write_tools(tmp_path / "tools.jsonl", [*_tools(), bad])  # _app wrote the plain catalogue
+        retriever.reload()
+        full = {t["name"]: t for t in c.get("/v1/tools?full=true").json()["tools"]}
+        found = {t["name"]: t for t in c.post("/v1/search", json={"query": "odd", "k": 4}).json()["tools"]}
+    for record in (full["fx/odd"], found["fx/odd"]):
+        assert record["inputSchema"] == {"type": "object"}
+        assert record["inputSchemaProblem"].startswith("not JSON Schema 2020-12 at #/properties/n")
+    assert full["fx/add"]["inputSchema"] == ADD_SCHEMA and "inputSchemaProblem" not in found["fx/add"]
+
+
 def test_metrics_say_where_the_second_stages_scores_came_from(tmp_path):
     class _Second:
         def scored(self):

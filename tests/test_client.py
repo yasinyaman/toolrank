@@ -13,7 +13,7 @@ from starlette.testclient import TestClient  # noqa: E402
 from test_rest import BASE, _callable, _events  # noqa: E402
 from toolrank.adapters.mcp_proxy import build_proxy, http_app  # noqa: E402
 from toolrank.adapters.rest import rest_routes  # noqa: E402
-from toolrank.client import ToolrankClient, ToolrankError  # noqa: E402
+from toolrank.client import AsyncToolrankClient, ToolrankClient, ToolrankError  # noqa: E402
 
 
 def _through(tc):
@@ -99,6 +99,31 @@ class _Stub(BaseHTTPRequestHandler):
 class _Quiet(ThreadingHTTPServer):
     def handle_error(self, request, client_address):  # the timed-out call's broken pipe
         pass
+
+
+def test_the_async_client_is_the_same_api_without_blocking_the_loop(tmp_path):
+    import asyncio
+
+    with _toolrank(tmp_path) as tr:
+        atr = AsyncToolrankClient(client=tr)
+
+        async def main():
+            health, found, again = await asyncio.gather(
+                atr.health(), atr.search("add two integers", k=1), atr.search("get a thing", k=1)
+            )
+            assert health["ready"] is True and len(found["tools"]) == len(again["tools"]) == 1
+            assert found["search_id"] != again["search_id"]  # the hash encoder ranks at random
+            out = await atr.call("fx/add", {"a": 2, "b": 5}, search_id=found["search_id"])
+            ranked = await atr.rank("add", [{"name": "add", "description": "Add two integers."}])
+            with pytest.raises(ToolrankError, match="no tool named"):
+                await atr.call("fx/nothing", {})
+            return out, ranked, (await atr.catalog(server="fx"))["count"]
+
+        out, ranked, count = asyncio.run(main())
+    assert out["outcome"] == "ok" and ranked[0]["index"] == 0 and count == 1
+    assert AsyncToolrankClient("http://h:1", api_key="k").sync.base_url == "http://h:1"
+    with pytest.raises(TypeError, match="not both"):
+        AsyncToolrankClient("http://h:1", client=tr)
 
 
 def test_urllib_transport_headers_errors_redirects_and_timeouts():

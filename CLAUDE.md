@@ -583,11 +583,12 @@ src/toolrank/couse.py             co_use (log -> tool partners), partners / expa
 src/toolrank/tenants.py           Tenant, load_tenants / parse_tenants (--api-keys: sources, headers, env), check_sources
 src/toolrank/metrics.py           Metrics (Prometheus counters and histograms of searches and calls, the token estimate), tool_tokens
 src/toolrank/names.py             api_name (tool ids as agent-API tool names)
-src/toolrank/client.py            ToolrankClient, ToolrankError (REST, stdlib)
+src/toolrank/client.py            ToolrankClient, AsyncToolrankClient (to_thread), ToolrankError (REST, stdlib)
 src/toolrank/integrations/        anthropic.py, openai.py (Toolbox, run), _common.py (read_only, get);
                                   langgraph.py (Toolbox), langchain.py (ToolrankToolSelector, Selector),
                                   llamaindex.py (ToolrankToolRetriever), litellm.py (tool_filter)
-src/toolrank/ingest/              text.py (the indexed text), mcp.py (server configs, MCP tool → Tool), openapi.py, sync.py
+src/toolrank/ingest/              text.py (the indexed text), mcp.py (server configs, MCP tool → Tool), openapi.py, sync.py,
+                                  schema.py (input schemas an agent API would refuse: doc["schema_problems"])
 src/toolrank/datasets/jsonl.py    the on-disk format (+ pairs.jsonl); toolret.py (pull + task→category map); toolret_train.py;
                                   livemcpbench.py; mcp_zero.py (download + LLM-written queries); synthetic.py;
                                   genqueries.py (data gen-queries: sample tools over sources, LLM-written requests in styles)

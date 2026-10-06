@@ -29,6 +29,16 @@ tool: its parameters and request-body properties form one flat input schema, loc
 inlined, and the HTTP routing is kept aside for `serve`. The tool text is shrunk schema-first to
 6,000 characters, so a huge operation never loses its name or description.
 
+## Schemas an agent API would refuse
+
+Ingest checks each tool's input schema against JSON Schema 2020-12. Without the `[mcp]` extra (which
+brings `jsonschema`), it checks only the common draft-04 and draft-07 habits. It also flags a root
+that is not an object and a `$ref` that points nowhere. A failing tool is kept and counted in its
+source's line, with the first few reasons printed. Claude's API refuses a whole request over one
+such schema, so the platform records (`/v1/tools?full=true`, `/v1/search`) give that tool
+`{"type": "object"}` and an `inputSchemaProblem` instead. MCP `search_tools` shows the schema as it
+is.
+
 ## Removing a source
 
 ```bash

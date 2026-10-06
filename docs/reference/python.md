@@ -5,6 +5,8 @@ the CLI.
 
 ::: toolrank.client.ToolrankClient
 
+::: toolrank.client.AsyncToolrankClient
+
 ::: toolrank.client.ToolrankError
 
 ## Claude tool search

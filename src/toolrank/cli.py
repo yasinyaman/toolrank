@@ -1121,6 +1121,13 @@ def _apply(a: argparse.Namespace, listings: list) -> int:
     tools, manifest, diffs = sync(tools, manifest, listings, replace=a.replace, allow_empty=a.allow_empty)
     for d in diffs:
         print(d.line())
+        for tool_id, found in list(d.schema_problems.items())[:3]:
+            print(f"  {tool_id}: {found[0]}")
+    if any(d.schema_problems for d in diffs):
+        print(
+            "tools with such schemas are kept; platform clients (/v1/tools, /v1/search) get "
+            '{"type": "object"} in their place, MCP search_tools the schema as it is'
+        )
     if a.dry_run:
         print(f"dry run: {a.out} not written ({len(tools)} tools after this sync)")
         return int(any(d.error for d in diffs))
