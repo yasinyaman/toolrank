@@ -128,6 +128,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- pgvector: each heads variant (`current`, `candidate`, a tenant's) keeps its vectors in a table of its
+  own (`<--pg-table>_<hash of the variant>`), as its numpy snapshot already did under `index/variants/`;
+  before, a candidate's rows overwrote the control arm's in the one table. `eval --pg-table` defaults
+  to `toolrank_eval`, so an eval no longer deletes a served catalogue's rows, and a search skips ids a
+  shared table holds that the catalogue does not (it ended in a `KeyError`).
 - `scripts/serve_e2e.py`, `platforms_e2e.py` and `frameworks_e2e.py` pass `--emb-model` (default
   `qwen3-emb`) to the server they start; since 0.2.0 the server's own default is the LoRA backbone's
   name, which port 8091 does not serve.

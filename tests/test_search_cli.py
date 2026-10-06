@@ -264,3 +264,34 @@ def test_heads_go_only_on_the_backbone_they_name(ingest_dir, tmp_path, fake_endp
     named = _args(ingest_dir, tmp_path, "--clm-ckpt", str(heads), "--emb-model", "toolrank-emb-v0.2")
     build_retriever(parse(named))
     assert "warning: h.npz: heads trained on Qwen/Qwen3-Embedding-8B" in capsys.readouterr().err
+
+
+def test_pgvector_variants_and_eval_keep_tables_of_their_own(
+    ingest_dir, tmp_path, fake_endpoint, monkeypatch
+):
+    """A candidate's vectors must not overwrite the control arm's rows in one shared table, and an
+    eval must not delete a served catalogue's rows: each variant gets a table, eval another default."""
+    from test_retriever import _npz_heads
+    from toolrank.adapters import index_pgvector
+    from toolrank.adapters.index_numpy import NumpyIndex
+    from toolrank.build import build_index, build_retriever
+    from toolrank.cli import build_parser
+
+    class _InMemory(NumpyIndex):  # the table name is what matters here, not Postgres
+        name = "pgvector"
+
+        def __init__(self, dsn, table="toolrank_tools"):
+            super().__init__(None)
+            self.table = table
+
+    monkeypatch.setattr(index_pgvector, "PgVectorIndex", _InMemory)
+    args = _args(ingest_dir, tmp_path, "--index", "pgvector", "--pg-dsn", "postgresql://unused")
+    r = build_retriever(build_parser().parse_args(args))
+    heads = tmp_path / "h" / "candidate.npz"
+    _npz_heads(heads, seed=1)
+    tables = {name: r.make_variant(heads, name)().vindex.table for name in ("candidate", "tenant:acme")}
+    assert len(set(tables.values())) == 2 and all(t.startswith("toolrank_tools_") for t in tables.values())
+    base = build_index(build_parser().parse_args(args))
+    assert base.table == "toolrank_tools"
+    ev = build_parser().parse_args(["eval", "--data", str(tmp_path), "--index", "pgvector"])
+    assert ev.pg_table == "toolrank_eval"

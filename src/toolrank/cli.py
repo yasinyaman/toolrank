@@ -1125,7 +1125,9 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--index", default="numpy", help="vector index for dense/clm: numpy | faiss | pgvector")
     e.add_argument("--index-dir", default=None, help="keep the index on disk here (default: in memory)")
     e.add_argument("--pg-dsn", default=None, help="pgvector: Postgres DSN (default: $TOOLRANK_PG_DSN)")
-    e.add_argument("--pg-table", default="toolrank_tools")
+    e.add_argument(
+        "--pg-table", default="toolrank_eval", help="pgvector: not a served catalogue's table (its rows go)"
+    )
     e.add_argument("--hybrid", action="store_true", help="fuse BM25 (request without instruction) by RRF")
     e.add_argument("--rrf-k", type=int, default=60, help="RRF constant")
     e.add_argument("--rrf-depth", type=int, default=100, help="list depth taken from each arm")

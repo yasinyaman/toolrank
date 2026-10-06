@@ -139,7 +139,11 @@ def build_index(a: Any) -> Any:
         dsn = getattr(a, "pg_dsn", None) or os.environ.get("TOOLRANK_PG_DSN")
         if not dsn:
             raise ValueError("--index pgvector needs --pg-dsn or TOOLRANK_PG_DSN")
-        return PgVectorIndex(dsn, getattr(a, "pg_table", None) or "toolrank_tools")
+        table = getattr(a, "pg_table", None) or "toolrank_tools"
+        variant = getattr(a, "pg_variant", None)
+        if variant:  # a heads variant keeps its rows apart, as its numpy snapshot does under index/variants/
+            table = f"{table}_{hashlib.sha256(variant.encode()).hexdigest()[:10]}"
+        return PgVectorIndex(dsn, table)
     raise ValueError(f"unknown index {kind!r}; choose from {INDEX_KINDS}")
 
 
@@ -402,6 +406,7 @@ def build_retriever(
         b.clm_ckpt, b.scorer = str(heads), "clm"
         if getattr(a, "index_dir", None):
             b.index_dir = str(Path(a.index_dir) / "variants" / name.replace(":", "_"))
+        b.pg_variant = name  # pgvector: a table of its own
         return scorer_factory(
             b, query_timeout=10.0 if serving_limits else None, query_attempts=2 if serving_limits else None
         )[0]

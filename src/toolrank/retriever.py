@@ -463,6 +463,9 @@ class Retriever:
             if len(fused.tool_ids) >= want or depth >= len(st.tools):
                 break
             depth = min(len(st.tools), 4 * depth)
+        if not all(t in st.by_id for t in fused.tool_ids):  # a shared index (pgvector) holding other rows
+            known = frozenset(st.by_id)
+            fused, semantic = _only(fused, known), (_only(semantic, known) if semantic else None)
         if st.lexical:  # BM25 pads its list with zero scores: those tools share no term with the request
             keep = [n for n, s in enumerate(fused.scores) if s > 0]
             fused = RankedList(

@@ -340,3 +340,24 @@ def test_a_second_stage_search_logs_the_first_stages_model(tmp_path):
     res = r.search("tool 3")
     assert res.scorer.startswith("rerank[") and res.model == "first" and res.emb_key.startswith("k:")
     assert r.status()["sync"]["embedded"] == 12  # the first stage's index sync, under both wrappers
+
+
+def test_rows_of_another_catalogue_in_a_shared_index_are_skipped(tmp_path):
+    """pgvector is shared by every process that reaches the database: an id the catalogue does not
+    have must not end a search with a KeyError."""
+
+    class _Ghosts:
+        name, tool_format, query_format = "ghosts", None, None
+
+        def index(self, tools):
+            self.ids = [t.id for t in tools]
+
+        def rank(self, queries, k):
+            from toolrank.domain import RankedList
+
+            ids = ["elsewhere/x", *self.ids][:k]
+            return [RankedList(q.id, ids, [1.0 - n / 100 for n in range(len(ids))]) for q in queries]
+
+    r = Retriever(_dir(tmp_path), _Ghosts, fixed_k=3)
+    res = r.search("tool 3")
+    assert [h.id for h in res.hits] == ["s/t0", "s/t1", "s/t2"]

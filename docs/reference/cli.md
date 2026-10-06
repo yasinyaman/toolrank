@@ -30,7 +30,7 @@ index a tool set and score a query set
 | `--index INDEX` | `numpy` | vector index for dense/clm: numpy \| faiss \| pgvector |
 | `--index-dir INDEX_DIR` |  | keep the index on disk here (default: in memory) |
 | `--pg-dsn PG_DSN` |  | pgvector: Postgres DSN (default: $TOOLRANK_PG_DSN) |
-| `--pg-table PG_TABLE` | `toolrank_tools` |  |
+| `--pg-table PG_TABLE` | `toolrank_eval` | pgvector: not a served catalogue's table (its rows go) |
 | `--hybrid` |  | fuse BM25 (request without instruction) by RRF |
 | `--rrf-k RRF_K` | `60` | RRF constant |
 | `--rrf-depth RRF_DEPTH` | `100` | list depth taken from each arm |
