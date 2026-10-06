@@ -135,3 +135,35 @@ def test_the_fake_server_speaks_what_the_client_expects():
         assert m.shape == (3, DIM) and np.allclose(m[0], m[1]) and abs(float(m[0] @ m[2])) < 0.2
     finally:
         server.shutdown()
+
+
+def test_a_dropped_keep_alive_is_retried_like_a_network_error(monkeypatch):
+    """urllib leaves RemoteDisconnected / ConnectionResetError from getresponse() unwrapped: one
+    dropped connection ended a long encode instead of being tried again."""
+    import http.client
+
+    tries = []
+
+    def flaky(req, timeout):
+        tries.append(1)
+        if len(tries) == 1:
+            raise http.client.RemoteDisconnected("Remote end closed connection without response")
+        return io.BytesIO(json.dumps({"data": [{"index": 0, "embedding": [1.0, 0.0]}]}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", flaky)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    rows = OpenAIEmbeddings("m", "http://127.0.0.1:9/v1", cache_dir=None).encode(["a"])
+    assert len(tries) == 2 and rows.shape == (1, 2)
+
+
+def test_the_rest_client_turns_a_dropped_connection_into_its_own_error(monkeypatch):
+    import http.client
+
+    from toolrank.client import ToolrankClient, ToolrankError
+
+    def dropped(self, req, timeout=None):
+        raise http.client.RemoteDisconnected("closed")
+
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", dropped)
+    with pytest.raises(ToolrankError, match="connection lost"):
+        ToolrankClient("http://127.0.0.1:9").search("x")

@@ -10,6 +10,7 @@ Standard library only (``urllib``), like the embeddings adapter.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -61,7 +62,8 @@ class OpenAIChat:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
                     j = json.loads(r.read().decode("utf-8"))
                 break
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:  # noqa: PERF203
+            # OSError: URLError, HTTPError, timeouts, and a keep-alive the server dropped (RemoteDisconnected)
+            except (OSError, http.client.HTTPException) as e:  # noqa: PERF203
                 last = e
                 time.sleep(1.5 * (attempt + 1))
         else:

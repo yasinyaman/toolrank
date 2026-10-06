@@ -18,6 +18,7 @@ by model, query prompt and document prompt, so a rerun asks nothing.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import sqlite3
 import threading
@@ -159,7 +160,7 @@ class ScoreClient:
                         text = ""
                     raise RuntimeError(f"score endpoint refused the request: HTTP {e.code} {text}") from e
                 last = e
-            except (urllib.error.URLError, TimeoutError) as e:
+            except (OSError, http.client.HTTPException) as e:  # unreachable, slow, or the connection dropped
                 last = e
             time.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"score endpoint {self.base_url} unreachable: {last}") from last

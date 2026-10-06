@@ -15,6 +15,7 @@ HTTP layer: ``(method, url, headers, body, timeout) -> (status, body)``.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -76,6 +77,10 @@ def _urllib(
         if isinstance(e.reason, TimeoutError):
             raise ToolrankError(0, f"{method} {url} timed out after {timeout:g} s") from e
         raise ToolrankError(0, f"{method} {url}: server unreachable ({e.reason})") from e
+    except (http.client.HTTPException, ConnectionError) as e:  # never retried: a call may have run
+        raise ToolrankError(
+            0, f"{method} {url}: connection lost before the answer ({type(e).__name__})"
+        ) from e
 
 
 class ToolrankClient:

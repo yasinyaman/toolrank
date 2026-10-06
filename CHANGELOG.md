@@ -130,6 +130,10 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- A connection the server drops (`RemoteDisconnected`, `ConnectionResetError`, `IncompleteRead`, which
+  urllib does not wrap) is retried like any network error by the embeddings, chat, score and Jev
+  clients (one dropped keep-alive ended a long encode), and `ToolrankClient` reports it as a
+  `ToolrankError` ("connection lost before the answer"; a call is still never retried).
 - `toolrank eval` refuses a corpus with duplicate tool ids, and the metrics refuse a ranked list that
   names a tool twice: such a list counted the tool twice (`['a', 'a']` with gold `{a}` gave Recall 2.0),
   where trec_eval reads a run as one score per doc. Valid runs score exactly as before.

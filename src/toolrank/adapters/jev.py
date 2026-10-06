@@ -28,6 +28,7 @@ model id (``jev-1.13.0``): aliases move.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -232,7 +233,7 @@ class JevClient:
                 except ValueError:
                     wait = 1.5 * (attempt + 1)
                 time.sleep(min(wait, 60.0))
-            except (urllib.error.URLError, TimeoutError) as e:
+            except (OSError, http.client.HTTPException) as e:  # unreachable, slow, or the connection dropped
                 last = e
                 time.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"Jev endpoint {self.base_url} unreachable: {last}") from last
