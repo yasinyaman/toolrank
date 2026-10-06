@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 RESULT_CHARS = 25_000  # relayed to the model per call, like the proxy's OpenAPI bodies
+SHRUNK_NOTE = " (Input schema shortened: a failed call returns the full one.)"
 
 Approve = Callable[[dict[str, Any], dict[str, Any]], bool]  # (catalogue entry, arguments) -> run it?
 OnEvent = Callable[[str, dict[str, Any]], None]  # ("search" | "call" | "turn", details)

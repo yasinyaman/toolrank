@@ -34,6 +34,16 @@ print(result.text)
 - In our runs toolrank's search used 37 to 60% fewer input tokens than the API's own BM25 search,
   at the cost of one extra turn per search (the search runs on your side).
 
+`Toolbox(client, inline=True)` (the example's `--inline`) sends no catalogue at all. It uses the
+`inline-tools-2026-09-15` beta, on Claude Opus 4.8 and later. `tools` holds `search_tools` alone.
+The tools a search finds are added by value, in `tool_addition` blocks of a `role: "system"`
+message right after the search's result, once per conversation. The first three come with full
+input schemas and the rest are shortened, as over MCP. Nothing travels per request but the
+conversation, and the 10,000-tool limit is gone. With `prefetch=True` (`--prefetch`) the task itself
+is searched before the first request and its tools are added after the first user message, so
+Claude can call one without a search turn. `run` sends the beta header. This matches the SDK's
+types, but it has not been run against the live API yet.
+
 ## OpenAI (Responses API)
 
 The request declares only `tool_search` with `execution: "client"`. toolrank answers each

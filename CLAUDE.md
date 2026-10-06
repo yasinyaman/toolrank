@@ -459,7 +459,10 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   (`defer_loading`), `search_tools` answered with `tool_reference` blocks naming only tools of the
   snapshot sent (an unknown reference is a 400), tool list frozen per conversation, history
   append-only, every `tool_use` answered in one message, nothing run after `max_tokens`/`refusal`,
-  `pause_turn` resent; `builtin="bm25"` uses the API's own search. `integrations/openai.py`:
+  `pause_turn` resent; `builtin="bm25"` uses the API's own search. `Toolbox(inline=True)` (beta
+  `inline-tools-2026-09-15`): no catalogue, `tools` = `search_tools`; found tools by value in a `role: "system"`
+  message of `tool_addition` blocks after the tool results (`additions()`), `prefetch` searches the task first
+  (`opening()`); untested live. `integrations/openai.py`:
   only `tool_search` (`execution: "client"`) declared, each `tool_search_call` answered with the new
   tools' full `function` definitions, stateless (`store=False` + encrypted reasoning, all items
   resent; a search's first 3 schemas in full, the rest shrunk to 1,500 characters unless `shrink=False`); `Toolbox(namespaces=True)`: one `namespace` per server, tools under `own_name` (a call names

@@ -8,6 +8,12 @@ change behaviour.
 
 ### Added
 
+- `toolrank.integrations.anthropic.Toolbox(inline=True)` (the example's `--inline`) sends no
+  catalogue. Under the `inline-tools-2026-09-15` beta, `tools` is `search_tools` alone, and the tools
+  a search finds are added by value in a `role: "system"` message of `tool_addition` blocks, once
+  per conversation. That removes the 3.7 MB of deferred definitions per request (1,862 tools) and
+  the 10,000-tool limit. `prefetch=True` searches the task before the first request, so Claude can
+  call a tool without a search turn. Checked against the SDK's types, not yet against the live API.
 - The LiteLLM tool filter warms known tool lists. `TOOLRANK_FILTER_WARM` (or `ToolFilter(warm=...)`)
   names the lists, in any of the three request shapes, and they are ranked once in the background
   when the proxy starts. Their first request no longer goes unfiltered while toolrank embeds the

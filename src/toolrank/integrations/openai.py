@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from toolrank.client import ToolrankClient, ToolrankError
-from toolrank.integrations._common import Approve, OnEvent, as_text, get
+from toolrank.integrations._common import SHRUNK_NOTE, Approve, OnEvent, as_text, get
 from toolrank.names import api_name
 
 MAX_TOOLS = 10  # per search
@@ -79,9 +79,6 @@ def search_tool() -> dict[str, Any]:
             "additionalProperties": False,
         },
     }
-
-
-SHRUNK_NOTE = " (Input schema shortened: a failed call returns the full one.)"
 
 
 def function_tool(hit: dict[str, Any], name: str | None = None) -> dict[str, Any]:

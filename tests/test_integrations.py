@@ -23,10 +23,11 @@ class _Script:
     """Canned API answers, one per request, and the JSON bodies the SDK sent."""
 
     def __init__(self, *answers):
-        self.answers, self.sent = list(answers), []
+        self.answers, self.sent, self.headers = list(answers), [], []
 
     def __call__(self, request):
         self.sent.append(json.loads(request.content))
+        self.headers.append(dict(request.headers))
         return httpx2.Response(200, json=self.answers.pop(0))
 
 
@@ -97,6 +98,60 @@ def test_claude_searches_gets_references_and_calls_through_toolrank(tmp_path):
     TypeAdapter(anthropic.types.ToolParam).validate_python(deferred[0])  # what the SDK declares
     TypeAdapter(anthropic.types.ToolParam).validate_python(search)
     TypeAdapter(anthropic.types.ToolResultBlockParam).validate_python(found)
+
+
+def test_claude_inline_sends_no_catalogue_and_adds_the_found_tools_by_value(tmp_path):
+    from anthropic.types.beta import BetaMessageParam
+
+    script = _Script(
+        _message("tool_use", _tool_use("tu_1", "search_tools", {"query": "add two integers", "limit": 3})),
+        _message("tool_use", _tool_use("tu_2", "fx__add", {"a": 2, "b": 3})),
+        _message("tool_use", _tool_use("tu_3", "search_tools", {"query": "add numbers", "limit": 3})),
+        _message("end_turn", {"type": "text", "text": "5"}),
+    )
+    with _toolrank(tmp_path) as tr:
+        box = claude.Toolbox(tr, inline=True)
+        result = claude.run(_claude(script), box, "What is 2 + 3?", model="claude-test")
+    assert result.text == "5" and result.turns == 4
+    first, second, third, fourth = script.sent
+    assert first["tools"] == second["tools"] == fourth["tools"] and [t["name"] for t in first["tools"]] == [
+        "search_tools"
+    ]  # no catalogue: no deferred tools at all
+    assert "the tool catalogue" in first["tools"][0]["description"]
+    assert all(h["anthropic-beta"] == claude.INLINE_BETA for h in script.headers)
+    answered, added = second["messages"][2:4]
+    assert answered["role"] == "user" and "now available to call" in answered["content"][0]["content"]
+    assert added["role"] == "system" and {b["type"] for b in added["content"]} == {"tool_addition"}
+    definitions = {b["tool"]["definition"]["name"]: b["tool"]["definition"] for b in added["content"]}
+    assert set(definitions) == {"fx__add", "api__getThing", "api__createThing"}
+    assert definitions["fx__add"]["input_schema"]["properties"] == {
+        "a": {"type": "integer"},
+        "b": {"type": "integer"},
+    }
+    assert third["messages"][-1]["content"][0]["content"] == [{"type": "text", "text": "5"}]
+    assert fourth["messages"][-1]["role"] == "user"  # found again: nothing to add a second time
+    assert [(c["tool"], c["link"]) for c in _calls(tmp_path)] == [("fx/add", "search_id")]
+    TypeAdapter(BetaMessageParam).validate_python(added)  # the SDK's own shape of a system message
+
+
+def test_claude_prefetch_adds_the_tasks_tools_before_the_first_turn(tmp_path):
+    script = _Script(
+        _message("tool_use", _tool_use("tu_1", "fx__add", {"a": 2, "b": 3})),
+        _message("end_turn", {"type": "text", "text": "5"}),
+    )
+    with _toolrank(tmp_path) as tr:
+        result = claude.run(
+            _claude(script), claude.Toolbox(tr, inline=True, prefetch=True), "2 + 3?", model="m"
+        )
+        with pytest.raises(ValueError, match="needs inline=True"):
+            claude.Toolbox(tr, prefetch=True)
+        with pytest.raises(ValueError, match="does not send"):
+            claude.Toolbox(tr, inline=True, builtin="bm25")
+    assert result.text == "5"
+    user, added = script.sent[0]["messages"]
+    assert user == {"role": "user", "content": "2 + 3?"} and added["role"] == "system"
+    assert "fx__add" in {b["tool"]["definition"]["name"] for b in added["content"]}
+    assert [(c["tool"], c["link"]) for c in _calls(tmp_path)] == [("fx/add", "search_id")]
 
 
 def test_nothing_runs_after_max_tokens_and_pause_turn_is_sent_back(tmp_path):

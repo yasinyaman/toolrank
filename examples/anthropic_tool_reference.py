@@ -46,6 +46,14 @@ def main() -> int:
     p.add_argument("--servers", default="", help="comma-separated sources to offer (default: all)")
     p.add_argument("--builtin", choices=["bm25", "regex"], help="the API's own tool search instead")
     p.add_argument("--yes", action="store_true", help="run every call without asking")
+    p.add_argument(
+        "--inline",
+        action="store_true",
+        help="no catalogue: add found tools by value (beta inline-tools-2026-09-15)",
+    )
+    p.add_argument(
+        "--prefetch", action="store_true", help="with --inline: search the task before the first turn"
+    )
     a = p.parse_args()
     load_env()
 
@@ -72,7 +80,15 @@ def main() -> int:
 
     tr = ToolrankClient(a.toolrank, api_key=os.environ.get("TOOLRANK_API_KEY"))
     servers = [s for s in a.servers.split(",") if s] or None
-    box = claude.Toolbox(tr, servers=servers, builtin=a.builtin, approve=approve, on_event=show)
+    box = claude.Toolbox(
+        tr,
+        servers=servers,
+        builtin=a.builtin,
+        approve=approve,
+        on_event=show,
+        inline=a.inline,
+        prefetch=a.prefetch,
+    )
     size = len(json.dumps(box.tools)) / 1e6
     print(f"{len(box.tools) - 1} tools deferred, {size:.1f} MB of definitions per request; model {a.model}")
     try:
