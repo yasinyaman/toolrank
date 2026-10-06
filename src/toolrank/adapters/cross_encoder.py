@@ -176,6 +176,10 @@ class ScoreClient:
                 time.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"score endpoint {self.base_url} unreachable: {last}") from last
 
+    def scored(self) -> dict[str, int]:
+        """Pairs scored so far, by where the score came from (a server's ``/v1/metrics``)."""
+        return {"cache": self.cached, "model": self.pairs}
+
     def stats(self) -> dict[str, Any]:
         ms = sorted(self.call_ms)
         return {

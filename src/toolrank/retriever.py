@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import re
 import threading
 import time
+import unicodedata
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -52,6 +54,17 @@ from toolrank.ports import cache_scope, rerank_failures, supplied, visible_ids
 
 LOG_TOP = 20  # ranked tools kept for the usage log, whatever the cut returns
 SETTLE_S = 0.05  # a tools.jsonl modified more recently than this may still be being written
+_BLANKS = re.compile(r"[^\S\n]+")  # whitespace other than a line break
+_GAPS = re.compile(r"\n{3,}")
+
+
+def tidy(text: str) -> str:
+    """A request as it is embedded, cached and logged: NFC, CRLF as LF, runs of spaces and tabs as one
+    space, no space at either end of a line, at most one blank line in a row, nothing around it.
+    Requests that differ only there are one cache entry and one digest in the usage log."""
+    text = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n")
+    lines = (_BLANKS.sub(" ", line).strip() for line in text.split("\n"))
+    return _GAPS.sub("\n\n", "\n".join(lines)).strip()
 
 
 class IndexNotReady(RuntimeError):
@@ -211,6 +224,7 @@ class Retriever:
         # a ``couse.CoUseTable`` (anything with ``table()``) and how many partners a result may gain
         self.co_use, self.co_use_extra = co_use, co_use_extra
         self.encoder: Any = None  # the composition root may leave the encoder here for the metrics
+        self.second: Any = None  # and the second stage's client (``scored()``)
         # tenant -> the sources its key may reach (``tenants.Tenant.sources``); absent: every source
         self.allowed: dict[str, frozenset[str]] = dict(allowed or {})
         self._visible: dict[tuple[str, str], frozenset[str]] = {}  # (catalogue, tenant) -> tool ids
@@ -541,9 +555,11 @@ class Retriever:
         tenant: str | None = None,
     ) -> SearchResult:
         """A named key's request runs in its own ``cache_scope``: what another key asked before
-        neither speeds it up nor shows."""
+        neither speeds it up nor shows. Request and instruction are ``tidy``'d first."""
+        if instruction is not None:
+            instruction = tidy(instruction)
         with _scope(tenant):
-            return self._search(query, k=k, instruction=instruction, arm_key=arm_key, tenant=tenant)
+            return self._search(tidy(query), k=k, instruction=instruction, arm_key=arm_key, tenant=tenant)
 
     def _search(
         self,
@@ -641,8 +657,10 @@ class Retriever:
         picked as a search's are: the tenant's or the promoted ones, and the candidate's share; a
         named key's tools and request are embedded in its own ``cache_scope`` (an exact catalogue
         tool text it was not given never comes back faster)."""
+        if instruction is not None:
+            instruction = tidy(instruction)
         with _scope(tenant):
-            return self._rank(query, tools, instruction=instruction, arm_key=arm_key, tenant=tenant)
+            return self._rank(tidy(query), tools, instruction=instruction, arm_key=arm_key, tenant=tenant)
 
     def _rank(
         self,

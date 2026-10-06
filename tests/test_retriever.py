@@ -12,7 +12,7 @@ from toolrank.adapters.hybrid import HybridScorer
 from toolrank.cut import AdaptiveK
 from toolrank.datasets.jsonl import write_tools
 from toolrank.domain import Query, Tool
-from toolrank.retriever import IndexNotReady, Retriever
+from toolrank.retriever import IndexNotReady, Retriever, tidy
 
 
 class _HashEncoder:
@@ -63,6 +63,27 @@ def test_search_cuts_ranks_and_describes(tmp_path):
     )
     ranked = r.rank("tool 3", _tools(3, " extra"))
     assert [s for _, s in ranked] == sorted((s for _, s in ranked), reverse=True) and len(ranked) == 3
+
+
+def test_requests_that_differ_only_in_whitespace_are_one_request(tmp_path):
+    assert tidy(" send\t an  email \r\n\r\n\r\n to  Ada\u0301 ") == "send an email\n\nto Ad\u00e1"
+    assert tidy("one\ntwo") == "one\ntwo" and tidy("  ") == ""  # a line break stays a line break
+    seen = []
+
+    class _Seen(_HashEncoder):
+        def encode(self, texts, *, kind="document"):
+            seen.extend(texts if kind == "query" else [])
+            return super().encode(texts, kind=kind)
+
+    r = Retriever(
+        _dir(tmp_path), lambda: DenseScorer(_Seen(), "name_desc", "instruct_query"), cache_key=lambda t: t
+    )
+    a = r.search("tool  3 ", instruction=" find\tit ")
+    b = r.search("tool 3", instruction="find it")
+    assert a.query == b.query == "tool 3" and a.emb_key == b.emb_key and a.ranked == b.ranked
+    assert set(seen) == {"Instruct: find it\nQuery: tool 3"}
+    r.rank(" tool\t3", _tools(2), instruction="find  it")
+    assert set(seen) == {"Instruct: find it\nQuery: tool 3"}
 
 
 def test_reload_swaps_the_whole_state(tmp_path):

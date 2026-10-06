@@ -463,6 +463,8 @@ def build_retriever(
         min_confidence=getattr(a, "min_confidence", None),
     )
     retriever.encoder = enc
+    # the second stage's client, for /v1/metrics: candidates scored from its cache and by its model
+    retriever.second = (info.get("rerank") or {}).get("cross") or info.get("jev")
     return retriever
 
 

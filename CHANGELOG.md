@@ -42,6 +42,12 @@ change behaviour.
 
 ### Changed
 
+- `search` / `serve` tidy a request (and a request's own instruction) before it is embedded,
+  cached and logged: Unicode NFC, runs of spaces and tabs as one space, at most one blank line in a
+  row, no surrounding whitespace. Requests that differ only in whitespace now share one cache entry
+  and one usage-log digest. `/v1/metrics` gains `toolrank_rerank_candidates_total{source}`: the
+  candidates the second stage scored from its cache (`cache`) and by its model (`model`), as
+  cross-encoder pairs or Jev options. Eval is unchanged.
 - `search` / `serve --rerank`: a second stage that is down, slow or busy no longer holds a search
   for minutes. Each call gets `--rerank-timeout` seconds (10) and one retry, and at most
   `--rerank-workers` calls (Jev: `--jev-workers`) are in flight at once. Waiting for a free slot

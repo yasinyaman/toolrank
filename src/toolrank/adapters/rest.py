@@ -364,6 +364,10 @@ def rest_routes(retriever: Retriever, usage: UsageLog, backends: Backends | None
         if enc is not None and hasattr(enc, "tokens_spent"):
             text = "Tokens sent to the embedding endpoint."
             extra.append(("toolrank_embedding_tokens_total", "counter", text, {}, enc.tokens_spent))
+        second = getattr(retriever, "second", None)
+        for source, n in sorted((second.scored() if hasattr(second, "scored") else {}).items()):
+            text = "Candidates the second stage scored (cross-encoder pairs, Jev options), by where the score came from."
+            extra.append(("toolrank_rerank_candidates_total", "counter", text, {"source": source}, n))
         return PlainTextResponse(usage.metrics.render(extra), media_type="text/plain; version=0.0.4")
 
     async def healthz(request: Any) -> Any:  # no token, no Host check (probes): what a probe needs only

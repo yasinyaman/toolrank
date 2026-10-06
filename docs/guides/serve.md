@@ -69,6 +69,10 @@ the tools it hands `/v1/rank`, second-stage scores) is its own: another key's id
 not answered faster, so timing tells it nothing. `/v1/metrics` is server-wide, so a key limited by
 `sources` cannot read it.
 
+Requests are tidied before they are embedded, cached and logged: Unicode NFC, runs of spaces and
+tabs as one space, at most one blank line in a row, nothing around them. Requests that differ only
+in whitespace are therefore one cache entry.
+
 The server checks the `Host` header, so a web page cannot reach it through a rebound domain. It
 answers to its bind address and, when bound to `0.0.0.0`, to `localhost`. Add the names it is
 reached by, such as a compose service or a proxy's host, with `--allowed-host NAME` or
@@ -225,6 +229,7 @@ scrape_configs:
 | `toolrank_calls_total{kind,outcome,via}`, `toolrank_call_duration_seconds` | calls forwarded and how they ended |
 | `toolrank_calls_linked_total{link}`, `toolrank_called_tool_rank` | whether calls can be tied to a search, and where the called tool stood in it |
 | `toolrank_embedding_texts_total{kind,source}`, `toolrank_embedding_tokens_total` | embedding-cache hits (`source="cache"`) against texts sent to the endpoint |
+| `toolrank_rerank_candidates_total{source}` | with `--rerank`: candidates the second stage scored from its cache against those its model scored |
 | `toolrank_catalog_tools`, `toolrank_catalog_sources`, `toolrank_index_ready`, `toolrank_heads{arm}`, `toolrank_build_info` | what is being served |
 
 The token estimate answers "what did searching save over loading every tool?". A tool counts as

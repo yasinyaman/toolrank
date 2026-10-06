@@ -124,6 +124,7 @@ def test_cache_answers_a_repeated_request_without_a_call(fake_jev, tmp_path):
     a1 = c.ask({"request": "send an email"}, q)
     a2 = c.ask({"request": "send an email"}, q)
     assert a1 == a2 and c.calls == 1 and c.cached == 1 and c.tokens_spent > 0
+    assert c.scored() == {"cache": 2, "model": 2}  # options, by where their answer came from
     again = JevClient(cache_dir=tmp_path)  # a new process reads the same file
     assert again.ask({"request": "send an email"}, q) == a1 and again.calls == 0 and again.cached == 1
     s = c.stats()

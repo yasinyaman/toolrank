@@ -63,6 +63,7 @@ def test_client_caches_pairs_and_batches_the_rest(fake_score, tmp_path):
     assert s == [0.2, 0.0, 0.1] and c.calls == 2 and c.pairs == 3 and c.cached == 0
     assert c.score("q send email", ["email", "new doc", "weather"]) == [0.1, 0.0, 0.0]
     assert c.calls == 3 and c.pairs == 4 and c.cached == 2  # two of the three pairs were known
+    assert c.scored() == {"cache": 2, "model": 4}  # /v1/metrics: toolrank_rerank_candidates_total
     again = ScoreClient("m", "http://unused", cache_dir=tmp_path)
     assert again.score("q send email", ["weather"]) == [0.0] and again.calls == 0 and again.cached == 1
     st = c.stats()

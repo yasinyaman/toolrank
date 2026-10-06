@@ -360,6 +360,8 @@ gh workflow run release.yml -R OWNER/REPO                               # a rehe
   goes through the same `scorer_factory` wrapping as eval. Both rerankers have `rank_pairs` (reranked, first
   stage's cosine list) that writes no shared state (`last_base` is eval's), so the retriever's adaptive cut
   counts on the cosines and shows the reranked order. Jev in serve sends request text out: logged at start.
+  `Retriever.search` / `rank` `tidy` the request and an own instruction (NFC, blank runs, ends), never eval;
+  `retriever.second` is the second stage's client, whose `scored()` feeds `toolrank_rerank_candidates_total`.
   The retriever sets `ports.rerank_failures` around a search: a failing second stage (`--rerank-timeout` 10 s
   × 2 attempts, `rerank.Slots` = `--rerank-workers` / `--jev-workers` calls in flight, the wait counted)
   answers with the first stage's list (`SearchResult.rerank_error` → log, `note`, metric); eval sets no list

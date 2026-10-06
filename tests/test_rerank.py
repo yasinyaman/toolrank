@@ -305,6 +305,17 @@ def test_search_reranks_with_a_cross_encoder_end_to_end(tmp_path, monkeypatch, c
     assert [t["id"] for t in json.loads(got.out)["tools"]] == plain  # the first stage's order
     assert "warning: second stage failed, first-stage order: RuntimeError: score endpoint" in got.err
 
+    from toolrank.build import build_retriever
+    from toolrank.cli import build_parser
+
+    a = build_parser().parse_args([*args, "--rerank", "cross", "--rerank-emb-url", "http://reranker/v1"])
+    second = build_retriever(a).second  # what /v1/metrics reads, on the leash search and serve give it
+    assert isinstance(second, ScoreClient) and (second.timeout, second.max_retries, second.slots.n) == (
+        10.0,
+        2,
+        1,
+    )
+
 
 def test_search_reranks_with_jev_end_to_end(tmp_path, monkeypatch, capsys):
     import hashlib

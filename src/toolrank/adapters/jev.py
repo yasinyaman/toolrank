@@ -170,6 +170,7 @@ class JevClient:
         self.timeout, self.max_retries, self.workers = timeout, max_retries, max(1, workers)
         self.slots = Slots(slots, timeout) if slots else None
         self.calls = self.cached = self.tokens_spent = 0
+        self.options = {"cache": 0, "model": 0}  # Choice options answered, by where the answer came from
         self.call_ms: list[float] = []
         self._lock = threading.Lock()
 
@@ -191,9 +192,11 @@ class JevClient:
         """The ``answers`` for one evaluation, from the cache when the same body was sent before."""
         body = {"state": state, "model": self.model, "questions": questions}
         key = self._key(body)
+        options = sum(len(q.get("criteria") or {}) for q in questions.values() if isinstance(q, dict))
         if self.cache is not None and (hit := self.cache.get(key)) is not None:
             with self._lock:
                 self.cached += 1
+                self.options["cache"] += options
             return hit
         with self.slots("Jev endpoint") if self.slots else contextlib.nullcontext():
             t0 = time.perf_counter()
@@ -202,6 +205,7 @@ class JevClient:
         answers = resp["answers"]
         with self._lock:
             self.calls += 1
+            self.options["model"] += options
             self.tokens_spent += int((resp.get("usage") or {}).get("input_tokens") or 0)
             self.call_ms.append(dt)
         if self.cache is not None:
@@ -243,6 +247,10 @@ class JevClient:
             if attempt + 1 < self.max_retries:  # a server's short timeout caps the wait as well
                 time.sleep(min(wait, 60.0, self.timeout))
         raise RuntimeError(f"Jev endpoint {self.base_url} unreachable: {last}") from last
+
+    def scored(self) -> dict[str, int]:
+        """Options answered so far, by where the answer came from (a server's ``/v1/metrics``)."""
+        return dict(self.options)
 
     def stats(self) -> dict[str, Any]:
         ms = sorted(self.call_ms)

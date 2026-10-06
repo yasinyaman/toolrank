@@ -269,6 +269,19 @@ def test_a_calibrated_search_carries_its_confidence_to_the_client_the_log_and_th
     assert event["confidence"] == 0.5
 
 
+def test_metrics_say_where_the_second_stages_scores_came_from(tmp_path):
+    class _Second:
+        def scored(self):
+            return {"cache": 7, "model": 13}
+
+    app, retriever = _app(tmp_path)
+    retriever.second = _Second()
+    with TestClient(app, base_url=BASE) as c:
+        text = c.get("/v1/metrics").text
+    assert 'toolrank_rerank_candidates_total{source="cache"} 7' in text
+    assert 'toolrank_rerank_candidates_total{source="model"} 13' in text
+
+
 def test_keyword_matches_while_the_index_builds_and_named_keys(tmp_path):
     gate = threading.Event()
 
