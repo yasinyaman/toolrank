@@ -128,6 +128,11 @@ change behaviour.
   guide name `--emb-model qwen3-emb`; the DGX Spark README lists every port and says 8091 there
   serves the base model; `SECURITY.md` says what `--rerank jev` sends; the third-party notices list
   the `langchain` extra and the default backbone.
+- `ingest openapi`: a generated name never takes a name the spec uses (operationIds `list`, `list`,
+  `list_2` gave two `list_2` tools, and duplicate ids kept the semantic index from being built), and
+  `$ref`s that branch at every level stop at 5,000 schema nodes an operation (12 chained schemas of
+  6 properties had taken 83 s and written 347 MB for one operation; Stripe's largest has under 900);
+  the summary line counts the schemas cut.
 - Ingested tool text: schemas whose models sit in `$defs` / `definitions` (pydantic, FastMCP), and
   `additionalProperties` / `patternProperties` subschemas, now shrink like `properties` do; before,
   such a schema never shrank, the description was cut to nothing and the text still went over 6,000

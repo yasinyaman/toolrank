@@ -1050,7 +1050,7 @@ def cmd_ingest_mcp(a: argparse.Namespace) -> int:
 
 
 def cmd_ingest_openapi(a: argparse.Namespace) -> int:
-    from toolrank.ingest.openapi import OpenAPISource, load_spec
+    from toolrank.ingest.openapi import MAX_NODES, OpenAPISource, load_spec
     from toolrank.ingest.sync import Listing
 
     try:
@@ -1065,6 +1065,7 @@ def cmd_ingest_openapi(a: argparse.Namespace) -> int:
         + (f", {st['external_refs']} external $refs stubbed" if st["external_refs"] else "")
         + (f", {st['broken_refs']} broken $refs" if st["broken_refs"] else "")
         + (f", {st['bad_paths']} paths without a leading / skipped" if st["bad_paths"] else "")
+        + (f", {st['schemas_cut']} schemas cut at {MAX_NODES:,} nodes" if st["schemas_cut"] else "")
     )
     info = {"origin": src.origin, "base_url": src.base_url}
     return _apply(a, [Listing(src.name, "openapi", tools, info=info)])

@@ -30,6 +30,9 @@ HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "tra
 SKIP_HEADERS = {"accept", "content-type", "authorization"}
 MEDIA_ORDER = ("application/json", "application/x-www-form-urlencoded", "multipart/form-data")
 MAX_DEPTH = 8
+# schema nodes inlined per operation: Stripe's largest has under 900; refs that branch at every level
+# grow exponentially up to MAX_DEPTH (12 chained schemas of 6 properties: 347 MB for one operation)
+MAX_NODES = 5000
 _DROP = {"example", "examples", "xml", "externalDocs", "discriminator"}
 _SCHEMA_MAPS = ("properties", "patternProperties")
 _SCHEMA_ONE = ("items", "additionalProperties", "not")
@@ -88,6 +91,11 @@ class _Resolver:
 
     def __init__(self, spec: dict[str, Any], stats: Counter):
         self.spec, self.stats = spec, stats
+        self.nodes, self.cut = 0, False  # per operation: see ``start``
+
+    def start(self) -> None:
+        """A new operation: its own ``MAX_NODES`` budget."""
+        self.nodes, self.cut = 0, False
 
     def _target(self, ref: str) -> Any:
         node: Any = self.spec
@@ -133,7 +141,10 @@ class _Resolver:
                 return {"type": "object"}
             merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
             return self.inline(merged, (*stack, ref), depth)
-        if depth > MAX_DEPTH:
+        self.nodes += 1
+        if self.nodes > MAX_NODES:
+            self.cut = True
+        if depth > MAX_DEPTH or self.cut:
             return {k: node[k] for k in ("type",) if k in node} or {"type": "object"}
         out: dict[str, Any] = {}
         for key, value in node.items():
@@ -247,7 +258,7 @@ class OpenAPISource:
         self.stats = Counter()
         r = _Resolver(self.spec, self.stats)
         tools: list[Tool] = []
-        names: Counter = Counter()
+        names: set[str] = set()
         for path, item in (self.spec.get("paths") or {}).items():
             if not str(path).startswith("/"):  # an "x-" extension, or no path at all: the proxy refuses it
                 self.stats["bad_paths"] += not str(path).startswith("x-")
@@ -287,15 +298,18 @@ class OpenAPISource:
         return media, schema, bool(rb.get("required"))
 
     def _tool(
-        self, r: _Resolver, method: str, path: str, item: dict[str, Any], op: dict[str, Any], names: Counter
+        self, r: _Resolver, method: str, path: str, item: dict[str, Any], op: dict[str, Any], names: set[str]
     ) -> Tool:
         self.stats["operations"] += 1
+        r.start()
         name = str(op.get("operationId") or "") or re.sub(r"[^A-Za-z0-9]+", "_", f"{method}_{path}").strip(
             "_"
         )
-        names[name] += 1
-        if names[name] > 1:
-            name = f"{name}_{names[name]}"
+        base, n = name, 1
+        while name in names:  # a second "list" becomes "list_2", unless the spec has its own "list_2"
+            n += 1
+            name = f"{base}_{n}"
+        names.add(name)
         summary, desc = _plain(str(op.get("summary") or "")), _plain(str(op.get("description") or ""))
         parts = [desc] if summary and desc.startswith(summary) else [x for x in (summary, desc) if x]
         description = "\n\n".join(parts) or f"{method.upper()} {path}"
@@ -333,6 +347,7 @@ class OpenAPISource:
         input_schema: dict[str, Any] = {"type": "object", "properties": props}
         if required:
             input_schema["required"] = required
+        self.stats["schemas_cut"] += r.cut
 
         text, capped = fit_text(self.name, name, description, input_schema, max_chars=self.max_chars)
         self.stats["capped"] += capped

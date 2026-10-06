@@ -195,3 +195,43 @@ def test_load_spec_json_yaml_and_refusals(tmp_path):
     spec = load_spec(str(tmp_path / "s.yaml"))
     tool = OpenAPISource(spec).list_tools()[0]
     assert tool.doc["inputSchema"]["properties"]["api-version"]["enum"] == ["2022-11-28"]  # not a date
+
+
+def _spec(paths, schemas=None):
+    return {
+        "openapi": "3.0.3",
+        "info": {"title": "T"},
+        "paths": paths,
+        "components": {"schemas": schemas or {}},
+    }
+
+
+def test_generated_names_never_take_a_name_the_spec_uses():
+    op = lambda oid: {"get": {"operationId": oid}}  # noqa: E731
+    spec = _spec({"/a": op("list"), "/b": op("list"), "/c": op("list_2")})
+    ids = [t.id for t in OpenAPISource(spec, "x").list_tools()]
+    assert ids == ["x/list", "x/list_2", "x/list_2_2"] and len(set(ids)) == 3
+
+
+def test_refs_that_branch_at_every_level_stop_at_the_node_budget():
+    """12 schemas of 6 properties, each pointing at the next: inlined in full that is 6^8 nodes."""
+    import time
+
+    from toolrank.ingest.openapi import MAX_NODES
+
+    schemas = {
+        f"S{i}": {
+            "type": "object",
+            "properties": {f"p{j}": {"$ref": f"#/components/schemas/S{i + 1}"} for j in range(6)},
+        }
+        for i in range(11)
+    }
+    schemas["S11"] = {"type": "string"}
+    body = {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/S0"}}}}
+    src = OpenAPISource(
+        _spec({"/deep": {"post": {"operationId": "deep", "requestBody": body}}}, schemas), "x"
+    )
+    t0 = time.perf_counter()
+    (tool,) = src.list_tools()
+    assert time.perf_counter() - t0 < 5 and src.stats["schemas_cut"] == 1
+    assert len(json.dumps(tool.doc["inputSchema"])) < 40 * MAX_NODES and len(tool.documentation) <= 6000
