@@ -47,3 +47,23 @@ def test_the_data_seed_is_apart_from_the_training_seed():
     assert m.parse([*base, "--seed", "3"]).data_seed == 3  # default: --seed, as before
     a = m.parse([*base, "--seed", "3", "--data-seed", "0"])
     assert (a.seed, a.data_seed) == (3, 0)
+
+
+def test_only_the_listed_files_of_a_full_snapshot_are_copied(tmp_path):
+    """A cache that also holds the base weights must not put them next to the merged ones."""
+    m = _script()
+    src, merged = tmp_path / "snapshot", tmp_path / "merged"
+    names = [
+        "config.json", "tokenizer.json", "vocab.json", "1_Pooling/config.json", "modules.json",
+        "model-00001-of-00004.safetensors", "model.safetensors.index.json", "README.md", "LICENSE",
+    ]  # fmt: skip
+    for name in names:
+        (src / name).parent.mkdir(parents=True, exist_ok=True)
+        (src / name).write_text(name)
+    merged.mkdir()
+    (merged / "model.safetensors").write_text("merged weights")
+    copied = m.copy_listed(src, merged)
+    assert copied == ["1_Pooling/config.json", "config.json", "modules.json", "tokenizer.json", "vocab.json"]
+    assert sorted(p.relative_to(merged).as_posix() for p in merged.rglob("*") if p.is_file()) == sorted(
+        [*copied, "model.safetensors"]
+    )

@@ -194,18 +194,32 @@ def copy_original_files(model: str, merged: Path) -> None:
     reads neither a list-valued ``extra_special_tokens`` (it crashes) nor ``rope_parameters`` (it
     falls back to the default ``rope_theta`` and the vectors are silently wrong). Only the weights
     are new."""
-    import shutil
-
     from huggingface_hub import snapshot_download
 
     src = Path(snapshot_download(model, allow_patterns=ORIGINAL_FILES))
     for stale in ("config.json", "tokenizer_config.json", "tokenizer.json", "chat_template.jinja"):
         (merged / stale).unlink(missing_ok=True)
-    for f in src.rglob("*"):
-        if f.is_file():
-            dest = merged / f.relative_to(src)
+    copy_listed(src, merged)
+
+
+def copy_listed(src: Path, merged: Path) -> list[str]:
+    """Copy the files of ``src`` that ``ORIGINAL_FILES`` names into ``merged`` -> their paths. The
+    snapshot directory holds whatever the cache has, not only what ``allow_patterns`` fetched: once the
+    base weights were in the cache, copying it whole put the base model's shards and their
+    ``model.safetensors.index.json`` next to the merged weights, and vLLM loads the shards an index
+    lists (7 Oct 2026, the 60k run)."""
+    import fnmatch
+    import shutil
+
+    copied = []
+    for f in sorted(src.rglob("*")):
+        rel = f.relative_to(src).as_posix()
+        if f.is_file() and any(fnmatch.fnmatchcase(rel, pattern) for pattern in ORIGINAL_FILES):
+            dest = merged / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(f, dest)
+            copied.append(rel)
+    return copied
 
 
 def main(argv: list[str] | None = None) -> int:
