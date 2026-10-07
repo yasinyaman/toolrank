@@ -10,6 +10,7 @@ build/
 data/*
 !data/.gitkeep
 results/*.json
+results/*.jsonl
 !results/.gitkeep
 .env
 .DS_Store
