@@ -174,3 +174,33 @@ def test_server_name_sets_are_faz0s_byte_for_byte(tmp_path):
     assert json.loads(want[0])["documentation"].startswith('{"server": ')
     with pytest.raises(SystemExit, match="must differ"):
         main(["data", "server-names", str(src), "--out", str(src)])
+
+
+def test_a_split_keeps_the_tools_and_shares_no_query(tmp_path, capsys):
+    from toolrank.cli import main
+    from toolrank.datasets.jsonl import load_queries
+    from toolrank.datasets.synthetic import write_synthetic
+
+    write_synthetic(tmp_path / "d", n_tools=20, n_queries=41, seed=1)
+    src = tmp_path / "d"
+    args = ["data", "split", str(src), "--out-a", str(tmp_path / "sel"), "--out-b", str(tmp_path / "conf")]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "20 queries to" in out and "21 to" in out  # round(20.5) is 20
+    sel, conf = (
+        load_queries(tmp_path / "sel" / "queries.jsonl"),
+        load_queries(tmp_path / "conf" / "queries.jsonl"),
+    )
+    whole = load_queries(src / "queries.jsonl")
+    assert len(sel) + len(conf) == len(whole) and not {q.id for q in sel} & {q.id for q in conf}
+    assert [q.id for q in whole if q.id in {x.id for x in sel}] == [q.id for q in sel]  # file order kept
+    for half in ("sel", "conf"):
+        assert (tmp_path / half / "tools.jsonl").read_bytes() == (src / "tools.jsonl").read_bytes()
+    assert json.loads((tmp_path / "conf" / "split.json").read_text())["half"] == "b"
+    again = tmp_path / "again"
+    main(["data", "split", str(src), "--out-a", str(again / "a"), "--out-b", str(again / "b")])
+    assert (again / "a" / "queries.jsonl").read_bytes() == (tmp_path / "sel" / "queries.jsonl").read_bytes()
+    with pytest.raises(SystemExit, match="must differ"):
+        main(["data", "split", str(src), "--out-a", str(src), "--out-b", str(tmp_path / "x")])
+    with pytest.raises(SystemExit, match="between 0 and 1"):
+        main([*args, "--share", "1.5"])

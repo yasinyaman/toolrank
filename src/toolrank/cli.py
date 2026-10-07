@@ -337,6 +337,21 @@ def cmd_data_server_names(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_data_split(a: argparse.Namespace) -> int:
+    from toolrank.datasets.jsonl import split_queries
+
+    if not (Path(a.src) / "queries.jsonl").exists():
+        sys.exit(f"{Path(a.src) / 'queries.jsonl'} not found: give a benchmark-format dir")
+    try:
+        n_a, n_b = split_queries(a.src, a.out_a, a.out_b, share=a.share, seed=a.seed)
+    except ValueError as e:
+        sys.exit(str(e))
+    print(
+        f"{n_a} queries to {a.out_a} (selection), {n_b} to {a.out_b} (confirmation); same tools (seed {a.seed})"
+    )
+    return 0
+
+
 def cmd_data_synth(a: argparse.Namespace) -> int:
     from toolrank.datasets.synthetic import write_synthetic
 
@@ -1356,6 +1371,18 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("src", help="a benchmark dir (tools.jsonl + queries.jsonl), e.g. data/mcp_zero")
     srv.add_argument("--out", default=None, help="default: <src>_server")
     srv.set_defaults(fn=cmd_data_server_names)
+    spl = ds.add_parser(
+        "split",
+        help="split a set's queries in two over the same tools: a selection half and a confirmation half",
+        description="A seeded share of the queries to --out-a (pick checkpoints, epochs or settings on it), the "
+        "rest to --out-b (score the choice there, never pick on it). Both keep the whole tools.jsonl.",
+    )
+    spl.add_argument("src", help="a benchmark-format dir (tools.jsonl + queries.jsonl)")
+    spl.add_argument("--out-a", required=True, help="the --share half: the selection set")
+    spl.add_argument("--out-b", required=True, help="the rest: the confirmation set")
+    spl.add_argument("--share", type=float, default=0.5)
+    spl.add_argument("--seed", type=int, default=0)
+    spl.set_defaults(fn=cmd_data_split)
     syn = ds.add_parser("synth", help="write a small synthetic tool set + queries")
     syn.add_argument("--out", default="data/synthetic")
     syn.add_argument("--n-tools", type=int, default=300)

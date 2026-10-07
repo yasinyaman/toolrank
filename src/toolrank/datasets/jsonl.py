@@ -112,6 +112,37 @@ def with_server_names(src: str | Path, dst: str | Path) -> int:
     return n
 
 
+def split_queries(
+    src: str | Path, out_a: str | Path, out_b: str | Path, *, share: float = 0.5, seed: int = 0
+) -> tuple[int, int]:
+    """``src``'s queries split in two over the same tools: a seeded ``share`` of them to ``out_a``
+    (a selection half, which picks a checkpoint), the rest to ``out_b`` (a confirmation half, which
+    is scored but picks nothing). Lines are copied byte for byte and keep their order; ``split.json``
+    in each says where it came from. -> (queries in a, queries in b)."""
+    import random
+
+    if not 0 < share < 1:
+        raise ValueError("--share: a fraction between 0 and 1")
+    src = Path(src)
+    lines = [ln for ln in (src / "queries.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+    order = list(range(len(lines)))
+    random.Random(seed).shuffle(order)
+    first = set(order[: round(share * len(lines))])
+    halves = {
+        "a": [ln for i, ln in enumerate(lines) if i in first],
+        "b": [ln for i, ln in enumerate(lines) if i not in first],
+    }
+    for half, out in (("a", Path(out_a)), ("b", Path(out_b))):
+        if out.resolve() == src.resolve():
+            raise ValueError("--out-a and --out-b must differ from the set being split")
+        out.mkdir(parents=True, exist_ok=True)
+        shutil.copy(src / "tools.jsonl", out / "tools.jsonl")
+        (out / "queries.jsonl").write_text("".join(ln + "\n" for ln in halves[half]), encoding="utf-8")
+        meta = {"from": str(src), "half": half, "share": share, "seed": seed, "queries": len(halves[half])}
+        (out / "split.json").write_text(json.dumps(meta, indent=1) + "\n", encoding="utf-8")
+    return len(halves["a"]), len(halves["b"])
+
+
 def write_queries(path: str | Path, queries: Iterable[Query]) -> int:
     n = 0
     Path(path).parent.mkdir(parents=True, exist_ok=True)

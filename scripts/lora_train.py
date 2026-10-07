@@ -13,7 +13,10 @@ Texts exactly as served: queries in the ``instruct_query`` format with the pair'
 serving instruction when it has none), tools as ``documentation``; a pair whose request equals a
 dev or eval query is dropped (``finetune.split_pairs``). Loss: InfoNCE over the micro-batch's
 positives (in-batch negatives; the mined negatives stay out, Faz 0 found they cost 10 points), one
-sampled positive per pair, duplicate tool texts masked. Last-token pooling and L2 normalisation,
+sampled positive per pair, duplicate tool texts masked (``--fn-margin``: also any negative scored
+above the positive by more than the margin, Qwen3-Embedding's false-negative rule). ``--balance
+shape`` draws the pairs evenly over their tools' documentation shapes instead of in proportion: the
+208,826 pairs have four, ToolBench's REST shapes 68% of them. Last-token pooling and L2 normalisation,
 the way vLLM pools this model; ``--check-parity`` compares the untouched model with the served
 vectors first, so a tokenisation mismatch shows up before training. The dev set is scored
 in-process every ``--eval-every`` steps (``finetune.EvalSet``: exact top-k, the benchmark's
@@ -24,6 +27,7 @@ the served model is.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
 import random
@@ -57,6 +61,18 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--warmup", type=int, default=50)
     p.add_argument("--tau", type=float, default=0.05, help="InfoNCE temperature")
+    p.add_argument(
+        "--fn-margin",
+        type=float,
+        default=None,
+        help="mask in-batch negatives scored above the positive by more than this (Qwen3-Embedding: 0.1)",
+    )
+    p.add_argument(
+        "--balance",
+        choices=["none", "shape"],
+        default="none",
+        help="shape: the pairs drawn evenly over their first positive's documentation shape",
+    )
     p.add_argument("--rank", type=int, default=16)
     p.add_argument("--alpha", type=int, default=32)
     p.add_argument("--dropout", type=float, default=0.05)
@@ -90,9 +106,11 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 # -- pure parts (tested without a model) --------------------------------------------------------
-def infonce(sim: Any, doc_texts: list[str], tau: float) -> Any:
+def infonce(sim: Any, doc_texts: list[str], tau: float, fn_margin: float | None = None) -> Any:
     """Cross-entropy of each query against the batch's positives at ``sim / tau``; a duplicate of
-    the query's own positive elsewhere in the batch is masked out, not treated as a negative."""
+    the query's own positive elsewhere in the batch is masked out, not treated as a negative, and so
+    (``fn_margin``) is a negative the query scores above its positive by more than the margin: likely
+    an equivalent tool, which ToolRet has many of."""
     import torch
 
     n = sim.shape[0]
@@ -100,8 +118,56 @@ def infonce(sim: Any, doc_texts: list[str], tau: float) -> Any:
     same = torch.tensor(
         [[doc_texts[i] == doc_texts[j] and i != j for j in range(n)] for i in range(n)], device=sim.device
     )
+    if fn_margin is not None:
+        eye = torch.eye(n, dtype=torch.bool, device=sim.device)
+        pos = sim.detach().diagonal().unsqueeze(1)
+        same = same | ((sim.detach() > pos + fn_margin) & ~eye)
     logits = logits.masked_fill(same, float("-inf"))
     return torch.nn.functional.cross_entropy(logits, torch.arange(n, device=sim.device))
+
+
+def doc_shape(doc: str) -> str:
+    """A documentation string's top-level keys, sorted (``<text>`` when it parses to no object): the
+    task family a ToolRet-train pair comes from, which the set does not record."""
+    for parse in (json.loads, ast.literal_eval):
+        try:
+            d = parse(doc)
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            continue
+        return ",".join(sorted(map(str, d))) if isinstance(d, dict) else f"<{type(d).__name__}>"
+    return "<text>"
+
+
+def balanced(pairs: list[Any], n: int, seed: int) -> list[Any]:
+    """``n`` pairs drawn as evenly as the shapes allow over their first positive's ``doc_shape``: each
+    shape gets an equal quota, a shape smaller than its quota gives all it has and the rest is spread
+    over the others; seeded, returned in a shuffled order. ``n`` 0 or more than there are: all."""
+    rng = random.Random(seed)
+    groups: dict[str, list[Any]] = {}
+    for p in pairs:
+        groups.setdefault(doc_shape(p.positives[0]), []).append(p)
+    for g in groups.values():
+        rng.shuffle(g)
+    if not n or n >= len(pairs):
+        out = [p for g in groups.values() for p in g]
+        rng.shuffle(out)
+        return out
+    take: dict[str, int] = {}
+    left, open_ = n, sorted(groups, key=lambda k: len(groups[k]))
+    while open_:
+        quota = left // len(open_)
+        small = [k for k in open_ if len(groups[k]) <= quota]
+        if not small:
+            for i, k in enumerate(open_):  # the remainder to the largest shapes, one each
+                take[k] = quota + (1 if i >= len(open_) - left % len(open_) else 0)
+            break
+        for k in small:
+            take[k] = len(groups[k])
+            left -= len(groups[k])
+            open_.remove(k)
+    out = [p for k, g in groups.items() for p in g[: take.get(k, 0)]]
+    rng.shuffle(out)
+    return out
 
 
 def plan_steps(n_pairs: int, micro: int, accumulate: int, epochs: float) -> tuple[int, int]:
@@ -251,7 +317,15 @@ def main(argv: list[str] | None = None) -> int:
         **leaks(pairs, {dev_dir.name: dev_queries, **eval_queries}),
     }
     everything = list(dev_queries) + [q for qs in eval_queries.values() for q in qs]
-    train, _, _ = split_pairs(pairs, everything, a.n_train, 0, a.data_seed)
+    if a.balance == "shape":
+        every, _, _ = split_pairs(pairs, everything, 0, 0, a.data_seed)
+        train = balanced(every, a.n_train, a.data_seed)
+    else:
+        train, _, _ = split_pairs(pairs, everything, a.n_train, 0, a.data_seed)
+    shapes: dict[str, int] = {}
+    for p in train:
+        shapes[doc_shape(p.positives[0])] = shapes.get(doc_shape(p.positives[0]), 0) + 1
+    log(f"documentation shapes of the training pairs ({a.balance}): {shapes}")
     train, filled = with_instruction(train, a.instruction)
     states, positives, _ = pair_texts(train, tf, qf)
     log(
@@ -308,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         d_texts = [rng.choice(positives[i]) for i in idx]
         zq = enc.encode(q_texts, a.query_tokens, train=True)
         zd = enc.encode(d_texts, a.doc_tokens, train=True)
-        loss = infonce(zq @ zd.T, d_texts, a.tau) / a.accumulate
+        loss = infonce(zq @ zd.T, d_texts, a.tau, a.fn_margin) / a.accumulate
         loss.backward()
         if done % a.accumulate == 0 or mb == micro_batches - 1:
             for g in opt.param_groups:

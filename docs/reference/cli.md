@@ -119,6 +119,18 @@ copy a benchmark set with each tool's server name in its text (the _server sets)
 | `src` | required | a benchmark dir (tools.jsonl + queries.jsonl), e.g. data/mcp_zero |
 | `--out OUT` |  | default: <src>_server |
 
+## `toolrank data split`
+
+A seeded share of the queries to --out-a (pick checkpoints, epochs or settings on it), the rest to --out-b (score the choice there, never pick on it). Both keep the whole tools.jsonl.
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `src` | required | a benchmark-format dir (tools.jsonl + queries.jsonl) |
+| `--out-a OUT_A` | required | the --share half: the selection set |
+| `--out-b OUT_B` | required | the rest: the confirmation set |
+| `--share SHARE` | `0.5` |  |
+| `--seed SEED` |  |  |
+
 ## `toolrank data synth`
 
 write a small synthetic tool set + queries

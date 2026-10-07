@@ -65,6 +65,10 @@ toolrank eval --data dev/ --scorer dense --with-inst ...       # rows per source
 what is new. The result is a benchmark-format directory for `finetune --dev`, `learn --dev`,
 `toolrank eval` and `toolrank calibrate` ([confidence](serve.md)).
 
+A set that picks a checkpoint cannot also report it. `toolrank data split dev/ --out-a dev_sel/
+--out-b dev_conf/` divides the queries in two at a seeded point, and both halves keep the whole
+catalogue. Pick on the first half and report the second.
+
 It is a selection set, not a benchmark: one tool is the answer to each request, so catalogues with
 near-identical tools make some requests ambiguous, and the requests come from one model. One-tool
 requests are also easy: on a catalogue of GitHub's and Stripe's APIs every backbone we have finds

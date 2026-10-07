@@ -130,6 +130,8 @@ toolrank eval --data data/mcp_zero --ks 1,5,10,20 <scorer flags>   # Precision@1
 toolrank data gen-queries --data data/devcat --out data/dev_w3 --n 1000 --exclude data/toolret [--styles situation]
 toolrank data gen-queries --data data/devcat --out data/dev_w3_multi2 --n 800 --tools-per-request 2   # tasks: all tools gold
 
+toolrank data split data/dev_w3_multi2 --out-a data/dev_w3_multi2_sel --out-b data/dev_w3_multi2_conf   # pick on a, report b
+
 toolrank compare results/toolret_*.json                        # on the Mac: markdown table for the report
 toolrank eval ... --runs-out results/a_runs.jsonl              # one row per query (top-20 ids, P@1, hit@5, NDCG@10)
 toolrank compare --paired results/a_runs.jsonl results/b_runs.jsonl   # sign test (P@1, hit@5), permutation test (NDCG@10)
@@ -158,6 +160,7 @@ toolrank eval ... --rerank clm|dense|cross --rerank-depth 20 --rerank-emb-url ..
 docker compose -f deploy/spark/compose.yaml --profile rerank up -d qwen3-reranker bge-reranker   # 8095 / 8096, vLLM score API
 uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pairs.jsonl --dev data/mcp_zero_server \
   --eval data/toolret --eval data/livemcpbench_server --n-train 20000 --out data/lora/<name> --check-parity   # GB10, hours
+#   [--balance shape: the pairs evenly over their 4 documentation shapes] [--fn-margin 0.1: mask likely false negatives]
 TOOLRANK_LORA=$HOME/toolrank/data/lora/<name>/merged docker compose -f deploy/spark/compose.yaml --profile lora up -d qwen3-emb-lora  # 8097
 toolrank heads export data/heads/<run>.pt dist/heads/<name>.npz --dtype float16 --tool-format documentation ...
 uv run python scripts/adaptive_k_sweep.py --margins 0.1,0.2 -- <eval flags>     # rank once, cut many ways
