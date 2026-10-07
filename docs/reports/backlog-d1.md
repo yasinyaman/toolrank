@@ -7,8 +7,10 @@ ve Strands rehberi (D1.11). Bu rapor maddeler bittikçe büyüyor.
 
 ## Sonuç (tek cümle)
 
-D1.3, D1.4, D1.5, D1.7–D1.9, D1.11, D1.12 ve D1.10'un kodu bitti; D1.2'nin dizüstü kısmı bitti, MCP-Zero ve
-dev setleri GB10'u bekliyor, D1.1 de (60k koşusu yarıda kaldı, aşağıda).
+D1.1, D1.3, D1.4, D1.5, D1.7–D1.9, D1.11, D1.12 ve D1.10'un kodu bitti; D1.2'nin dizüstü kısmı bitti, MCP-Zero
+ve dev setleri GB10'u bekliyor. 60k çiftle eğitilen LoRA, önceden yazılan kurala göre v0.3 olmuyor: karar
+setinde 20k'yla berabere (NDCG@10 83,12'ye karşı 82,95, p 0,64), MCP-Zero'da 1,5 puan geride (p 0,0001); 0.3.0
+`v0.2` ile çıkıyor. Hub'daki `v0.2` yerel 20k'yla bayt bayt aynı.
 Varsayılan backbone'un Q4_K_M GGUF'u, 4 GB'lık bir dizüstü GPU'sunda Ollama'yla vLLM'deki bf16 kadar iyi: ToolRet
 NDCG@10 59,50'ye karşı 58,90, LiveMCPBench 55,75'e karşı 55,74. Bu dizüstünde yeni bir arama 0,6–0,7 sn sürüyor;
 Qwen3-Embedding 0.6B ve 4B 2–14 kat hızlı ama 6–11 puan geride. `ToolrankToolSelector`, LangChain 1.x'in
@@ -24,6 +26,45 @@ mesajında toolrank'a gidilen arama sayısı. `doğru ↑`: görevin tool'u gös
 README tablosundaki gibi, talimatlı (w/ inst). `soğuk ↓ ms`: sunucunun daha önce görmediği bir isteğin aranması,
 embedding dahil, istekler tek tek (batch 1); `ılık ↓ ms`: aynı istek embedding cache'inden. `kodlama ↓`:
 kataloğun ilk kez gömülmesi. `GGUF ↓ GB`: model dosyasının boyutu.
+
+## D1.1 — 60k LoRA koşusu, v0.2'ye (20k) karşı
+
+İkinci koşu (`qwen3-emb-lora-60k-r2`) 6 Ekim 06:33'te baştan başladı, 7 Ekim 09:44'te bitti: 60.000
+ToolRet-train çifti, 1.875 adım, `--data-seed 0`, seçim `dev_w3_multi2`'de (karar setiyle aynı, kural böyle
+yazıldı). Seçimdeki dev eğrisi (`dev_w3_multi2`, NDCG@10, transformers'la, eğitim sırasında):
+
+| adım | 0 | 300 | 600 | **900** | 1.200 | 1.500 | 1.800 | 1.875 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| NDCG@10 ↑ % | 70,35 | 82,99 | 83,10 | **83,13** | 83,05 | 82,21 | 82,94 | 82,85 |
+
+En iyi adım 900 (yaklaşık 28.800 çift); sonraki 30 bin çift bu sette bir şey katmadı. Birleştirilmiş ağırlıklar
+8097'de `qwen3-emb-lora-60k` adıyla, 20k'nın satırlarıyla aynı bayraklarla ölçüldü (documentation + instruct_query,
+w/ inst, `--truncate 8192`); 20k aynı önbellekten yeniden puanlandı (kodlanan token 0), sayıları eskisiyle aynı.
+
+| set | n | 20k NDCG@10 ↑ % | 60k NDCG@10 ↑ % | fark | p | 20k P@1 ↑ % | 60k P@1 ↑ % | p |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| dev_w3_multi2 (karar) | 800 | 82,95 | 83,12 | +0,17 | 0,64 | 80,75 | 80,12 | 0,65 |
+| dev_w3_multi3 | 498 | 75,40 | 74,66 | −0,74 | 0,13 | 74,70 | 72,49 | 0,24 |
+| dev_w3 | 1.000 | 92,49 | 92,91 | +0,42 | 0,15 | 83,50 | 84,20 | 0,40 |
+| dev_w3_sit | 598 | 87,71 | 87,45 | −0,26 | 0,63 | 76,25 | 75,75 | 0,79 |
+| LiveMCPBench `_server` | 94 | 55,74 | 54,96 | −0,78 | 0,50 | 58,51 | 53,19 | 0,23 |
+| MCP-Zero `_server` | 2.792 | 93,67 | 92,14 | **−1,53** | 0,0001 | 88,57 | 85,89 | <0,0001 |
+| ToolRet | 7.961 | 58,90 | 58,86 | −0,04 | 0,84 | 51,29 | 52,08 | 0,05 |
+
+p: NDCG@10 için eşli permütasyon testi, P@1 için kesin işaret testi (`toolrank compare --paired`). ToolRet
+cat-macro 54,36 → 52,31 (−2,05; eşli testi yok, kategori ortalaması).
+
+**Karar (kural 3 Ekim'de, ilk koşudan önce yazıldı): v0.2 kalıyor.** Kural: 60k karar setinde 20k'yı geçer ve
+hiçbir sette 1 puandan fazla kaybetmezse v0.3 olur. Karar setinde fark gürültü içinde (+0,17, p 0,64), MCP-Zero'da
+−1,53 (p 0,0001). MCP-Zero 20k'nın seçim setiydi, yani orada 20k lehine bir yanlılık var; kural yine de değişmedi
+ve 60k başka hiçbir sette anlamlı kazanmıyor. FP8 ölçümü yalnız kazanana yapılacaktı, yapılmadı. Bu yüzden
+0.3.0'ın backbone'u `v0.2` (`yasinyaman/toolrank-emb-8b@v0.2`), servis adı `toolrank-emb-v0.2`.
+
+**Hub'daki `v0.2` = yerel 20k.** Hub'daki `v0.2` revizyonunun (commit `c89f13b`) dosyaları, yerel
+`qwen3-emb-lora-20k/merged`'le karşılaştırıldı: `model.safetensors` SHA-256 `53789cff…7f42`, `tokenizer.json`
+`83cdf8c3…eb8d`, config, tokenizer config, vocab, merges, modules ve pooling dosyalarının git blob kimlikleri
+aynı. Yerel 20k bu sette servis edilip ölçüldüğü için Hub'daki revizyon da aynı vektörleri verir. Bu, servis
+edip kosinüs bakmaktan daha sıkı bir kanıt. Hub'da parçalı ağırlık ya da `model.safetensors.index.json` yok.
 
 ## D1.2 ve D1.3 — dizüstünde küçük backbone'lar ve GGUF
 
@@ -228,6 +269,23 @@ veriyor. Görevlerden biri senkron, öbürü asenkron koşuldu.
 ## Komutlar
 
 ```bash
+# D1.1, GB10, ~/toolrank: the 60k run (user-started), then the chain (data/lora/chain_60k_r2.sh, untracked):
+uv run --extra lora python scripts/lora_train.py --pairs data/toolret_train/pairs.jsonl --dev data/dev_w3_multi2 \
+  --eval data/toolret --eval data/livemcpbench_server --eval data/mcp_zero_server --eval data/dev_w3 \
+  --eval data/dev_w3_sit --eval data/dev_w3_multi3 --n-train 60000 --data-seed 0 --check-parity --keep-all \
+  --out data/lora/qwen3-emb-lora-60k-r2
+TOOLRANK_LORA=$HOME/toolrank/data/lora/qwen3-emb-lora-60k-r2/merged TOOLRANK_LORA_NAME=qwen3-emb-lora-60k \
+  docker compose -f deploy/spark/compose.yaml --profile lora up -d --force-recreate qwen3-emb-lora
+E="--scorer dense --emb-url http://127.0.0.1:8097/v1 --emb-model qwen3-emb-lora-60k --truncate 8192 --emb-batch 128 \
+  --tool-format documentation --query-format instruct_query --with-inst"
+uv run toolrank eval --data data/dev_w3_multi2 $E --ks 5,10,20 --cut-margin 0.2 \
+  --runs-out results/lora60k_dev_w3_multi2_runs.jsonl --out results/lora60k_dev_w3_multi2.json
+# ... dev_w3_multi3 (--ks 5,10,20 --cut-margin 0.2), dev_w3 and dev_w3_sit (--ks 1,5,10), livemcpbench_server,
+# mcp_zero_server (--ks 1,5,10,20), toolret; then the 20k as qwen3-emb-lora on 8097, the same flags, lora20k_*
+# Mac, after scp 'gb10:toolrank/results/lora{20k,60k}_*' results/:
+uv run toolrank compare --paired results/lora20k_mcp_zero_server_runs.jsonl results/lora60k_mcp_zero_server_runs.jsonl
+# the Hub's v0.2 against the local 20k: file list + LFS sha256 (HfApi.model_info(..., files_metadata=True)),
+# sha256sum / git hash-object of data/lora/qwen3-emb-lora-20k/merged/*
 # Mac; tool ve sorgu vektörleri data/w3/cache'ten (GB10 kapalıydı)
 export GB10=<GB10'un Tailscale adresi>
 uv run python scripts/frameworks_e2e.py --only langchain --data data/w3 --emb-url http://$GB10:8091/v1 \
@@ -280,6 +338,14 @@ $UV run python scripts/latency.py --data data/livemcpbench_server --emb-url $EMB
   adımın adaptörleri var, merge ve değerlendirme zinciri hiç çalışmadı. 600. adım yaklaşık 19.200 çift
   görmüş, 20k koşusunun 625 adımı kadar: "daha çok veri" sorusunu cevaplamıyor. Koşu kaldığı yerden devam
   edemiyor; ya baştan (yaklaşık 25 saat) ya da 0.3.0 `v0.2` ile.
+- **D1.1'in birleştirilmiş klasörü.** `scripts/lora_train.py`, orijinal deponun config, tokenizer ve pooling
+  dosyalarını `snapshot_download`'un döndürdüğü önbellek klasöründen bütünüyle kopyalıyordu. 1 Ekim'de önbellekte
+  yalnız bu dosyalar vardı; 7 Ekim'de taban modelin ağırlıkları da önbellekteydi ve 60k'nın `merged` klasörüne
+  Qwen3-Embedding-8B'nin dört parçası ve `model.safetensors.index.json`'u da kopyalandı. vLLM index'in listelediği
+  parçaları yüklediği için 60k adıyla taban model servis edilecekti. Ölçümden önce fark edildi (parçaların
+  SHA-256'sı önbellektekilerle aynı), dosyalar silinmeden yana taşındı ve betik yalnız listelenen dosyaları
+  kopyalıyor (`069a1d0`). Değerlendirme zinciri, `dev_w3_multi2` NDCG@10 0,78'in altında kalırsa (taban model
+  ~0,70) durmak üzere yazıldı; 0,8312 geldi, eğitimdeki 0,8313'le aynı.
 - **GPU'lu maddeler.** D1.2 ve D1.3 GB10 yerine 4 GB'lık bir dizüstü GPU'sunda (RTX 3050 Ti Laptop, 14 GB RAM)
   yapıldı. D1.3'ün hedef donanımı zaten bu. ToolRet üç modelle koşuldu; MCP-Zero ve dev setleri dizüstünde yok,
   sorguları GB10'da üretildi. İkisi de GB10'u bekliyor.
@@ -297,7 +363,6 @@ $UV run python scripts/latency.py --data data/livemcpbench_server --emb-url $EMB
 
 ## Sonraki adımlar
 
-- D1.1, GB10'a erişim gelince: 60k koşusunun kararı.
 - D1.2 ve D1.3'ün GB10 kısmı: MCP-Zero ve dev setleri, GGUF yapılarıyla ve küçük modellerle.
 - GGUF'ların Hub'a yüklenmesi (`yasinyaman/toolrank-emb-8b-GGUF`), 0.3.0'la; herkese açık adım, ayrı onayla.
   Kılavuzdaki `TODO(launch)` işareti o güne kadar sürümü durduruyor.

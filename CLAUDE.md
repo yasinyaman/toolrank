@@ -787,10 +787,15 @@ examples/                         anthropic_tool_reference.py, openai_client_too
   8B embeds ~100 tools a minute there (ToolRet 7.3 h; vLLM on the GB10 0.4 h). Ollama ignores `truncate_prompt_tokens`
   and cuts at `num_ctx`, keeping the head; llama.cpp's own `llama-server --embeddings` keeps an output row per token
   (~5 GB for 8192 tokens) and crashed on a long input. MCP-Zero and the dev sets with GGUF wait for the GB10.
+- Backlog D1.1 (`docs/reports/backlog-d1.md`): the LoRA on 60k pairs (picked on `dev_w3_multi2`, best at step 900 of
+  1,875) against the 20k (`v0.2`), NDCG@10 w/ inst, paired tests: `dev_w3_multi2` 82.95 → 83.12 (p 0.64), MCP-Zero
+  93.67 → 92.14 (p 0.0001; the 20k's selection set), ToolRet 58.90 → 58.86 (cat-macro 54.36 → 52.31), the dev sets and
+  LiveMCPBench within noise: `v0.2` stays. The Hub's `v0.2` is the local 20k byte for byte.
 
 ## Where we are
 
 `docs/plan/README.md` → "Şu an" (maintainers' checkout). 0.2.0 is out (2 Oct 2026); backlog wave 1 aims at
-0.3.0: D1.3–D1.5, D1.7–D1.12 and the 5 Oct review's fixes (`docs/plan/yapilacaklar-5-eki.md`) are done, D1.1 (the 60k LoRA run stopped at step 690 on 3 Oct) and the GPU
-parts of D1.2/D1.3 wait for the GB10, the GGUF upload for a public step. Faz 2's pilots and gate report remain,
+0.3.0: D1.1, D1.3–D1.5, D1.7–D1.12 and the 5 Oct review's fixes (`docs/plan/yapilacaklar-5-eki.md`) are done (D1.1: the
+60k LoRA lost to the 20k by the pre-registered rule, so 0.3.0 keeps `v0.2`), the GPU parts of D1.2/D1.3 wait for the
+GB10, the GGUF upload for a public step. Faz 2's pilots and gate report remain,
 and the review's multi-tenant findings are a wave of their own. Session prompts: `docs/plan/claude-code-handoff.md`.
